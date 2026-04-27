@@ -17,6 +17,8 @@ pub fn router() -> Router<SqlitePool> {
         // Items
         .route("/api/items", get(items::list).post(items::create))
         .route("/api/items/{id}", get(items::get).put(items::update).delete(items::delete))
+        .route("/api/item-stats", get(items::usage_stats))
+        .route("/api/item-stats/{id}", get(items::usage_detail))
         // People
         .route("/api/people", get(people::list).post(people::create))
         .route("/api/people/{id}", put(people::update).delete(people::delete))
@@ -31,7 +33,10 @@ pub fn router() -> Router<SqlitePool> {
         .route("/api/trips", get(trips::list).post(trips::create))
         .route("/api/trips/{id}", get(trips::get).put(trips::update).delete(trips::delete))
         .route("/api/trips/{id}/populate", post(trips::populate))
+        .route("/api/trips/{id}/resync", post(trips::resync))
+        .route("/api/trips/{id}/clone", post(trips::clone))
         .route("/api/trips/{id}/items", get(trip_items::list).post(trip_items::create))
+        .route("/api/trips/{id}/items/bulk", patch(trip_items::bulk_update))
         // Trip items
         .route("/api/trip-items/{id}", put(trip_items::update).delete(trip_items::delete))
         .route("/api/trip-items/{id}/check", patch(trip_items::check))

@@ -124,6 +124,9 @@ INSERT OR IGNORE INTO tips (id, activity_id, content) VALUES
 INSERT OR IGNORE INTO trips (id, name, activity_id, start_date, end_date, status) VALUES
     (1, '五一哈巴西坡', 1, '2025-05-01', '2025-05-03', 'packing');
 
+-- Add is_essential column to trip_items (idempotent via ALTER TABLE tolerance in db.rs)
+ALTER TABLE trip_items ADD COLUMN is_essential INTEGER NOT NULL DEFAULT 0;
+
 -- Seed trip_items
 INSERT OR IGNORE INTO trip_items (id, trip_id, item_id, qty, item_status, notes) VALUES
     (1,  1, 1,  1, '',            ''),

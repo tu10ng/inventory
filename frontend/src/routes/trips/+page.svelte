@@ -27,6 +27,11 @@
 		await load();
 	}
 
+	async function cloneTrip(id: number) {
+		await api.post(`/trips/${id}/clone`);
+		await load();
+	}
+
 	function activityName(id: number | null) {
 		if (!id) return '';
 		const a = activities.find((a) => a.id === id);
@@ -84,7 +89,10 @@
 					</div>
 				{/if}
 			</a>
-			<button class="small danger" onclick={() => remove(trip.id)}>删除</button>
+			<div style="display: flex; gap: 6px;">
+				<button class="small" onclick={() => cloneTrip(trip.id)}>克隆</button>
+				<button class="small danger" onclick={() => remove(trip.id)}>删除</button>
+			</div>
 		</div>
 	{/each}
 {/if}

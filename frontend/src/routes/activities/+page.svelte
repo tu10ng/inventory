@@ -83,6 +83,20 @@
 		if (selectedId) tips = await api.get<Tip[]>(`/activities/${selectedId}/tips`);
 	}
 
+	async function toggleEssential(ai: ActivityItem) {
+		// Update via PUT on the activity item endpoint — re-add with toggled is_essential
+		// Since there's no direct update endpoint for activity_items, we remove and re-add
+		if (!selectedId) return;
+		await api.del(`/activities/${selectedId}/items/${ai.item_id}`);
+		await api.post(`/activities/${selectedId}/items`, {
+			item_id: ai.item_id,
+			is_essential: !ai.is_essential,
+			default_qty: ai.default_qty,
+			notes: ai.notes
+		});
+		activityItems = await api.get<ActivityItem[]>(`/activities/${selectedId}/items`);
+	}
+
 	function itemName(id: number) {
 		const it = allItems.find((i) => i.id === id);
 		return it ? `${it.name}${it.brand ? ' ' + it.brand : ''}${it.model ? ' ' + it.model : ''}` : `#${id}`;
@@ -163,7 +177,17 @@
 
 				{#each activityItems as ai}
 					<div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px;">
-						<span>{itemName(ai.item_id)}{ai.default_qty > 1 ? ` x${ai.default_qty}` : ''}</span>
+						<span>
+							<button
+								class="small"
+								style="margin-right: 4px; color: {ai.is_essential ? 'var(--warning)' : 'var(--text-secondary)'};"
+								onclick={() => toggleEssential(ai)}
+								title={ai.is_essential ? '必备（点击取消）' : '非必备（点击标记为必备）'}
+							>
+								{ai.is_essential ? '★' : '☆'}
+							</button>
+							{itemName(ai.item_id)}{ai.default_qty > 1 ? ` x${ai.default_qty}` : ''}
+						</span>
 						<button class="small danger" onclick={() => removeItem(ai.item_id)}>移除</button>
 					</div>
 				{/each}

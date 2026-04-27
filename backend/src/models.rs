@@ -187,6 +187,7 @@ pub struct TripItem {
     pub item_status: String,
     pub notes: String,
     pub sort_order: i64,
+    pub is_essential: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -205,6 +206,8 @@ pub struct CreateTripItem {
     pub notes: String,
     #[serde(default)]
     pub sort_order: i64,
+    #[serde(default)]
+    pub is_essential: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -216,9 +219,41 @@ pub struct UpdateTripItem {
     pub item_status: Option<String>,
     pub notes: Option<String>,
     pub sort_order: Option<i64>,
+    pub is_essential: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CheckBody {
     pub checked: bool,
+}
+
+// ── Usage Stats ──
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct ItemUsageCount {
+    pub item_id: i64,
+    pub trip_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ItemUsageStats {
+    pub item_id: i64,
+    pub trips: Vec<TripRef>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct TripRef {
+    pub id: i64,
+    pub name: String,
+    pub status: String,
+}
+
+// ── Bulk Update ──
+
+#[derive(Debug, Deserialize)]
+pub struct BulkUpdateTripItems {
+    pub ids: Vec<i64>,
+    pub checked: Option<bool>,
+    pub person_id: Option<Option<i64>>,
+    pub item_status: Option<String>,
 }

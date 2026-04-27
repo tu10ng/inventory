@@ -64,6 +64,49 @@ export interface TripItem {
 	item_status: ItemStatus;
 	notes: string;
 	sort_order: number;
+	is_essential: boolean;
 }
 
 export type ItemStatus = '' | 'need_buy' | 'need_find' | 'need_charge' | 'need_fetch' | 'need_give';
+
+// Extended types for new features
+
+export interface TripItemWithInfo extends TripItem {
+	item_info?: Item | null;
+	category?: Category | null;
+}
+
+export interface ItemUsageCount {
+	item_id: number;
+	trip_count: number;
+}
+
+export interface ItemUsageStats {
+	item_id: number;
+	trips: TripRef[];
+}
+
+export interface TripRef {
+	id: number;
+	name: string;
+	status: string;
+}
+
+export interface BulkUpdateTripItems {
+	ids: number[];
+	checked?: boolean;
+	person_id?: number | null;
+	item_status?: ItemStatus;
+}
+
+export interface DndItem {
+	id: string;
+	item_id: number;
+	name: string;
+	brand: string;
+	model: string;
+	category_id: number;
+	category_icon: string;
+	default_qty: number;
+	already_added: boolean;
+}

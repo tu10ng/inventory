@@ -23,10 +23,18 @@ async fn run_migrations(pool: &SqlitePool) {
     for statement in sql.split(';') {
         let trimmed = statement.trim();
         if !trimmed.is_empty() {
-            sqlx::query(trimmed)
-                .execute(pool)
-                .await
-                .expect("migration failed");
+            match sqlx::query(trimmed).execute(pool).await {
+                Ok(_) => {}
+                Err(e) => {
+                    let msg = e.to_string();
+                    // ALTER TABLE ADD COLUMN fails if column already exists — safe to ignore
+                    if msg.contains("duplicate column name") {
+                        tracing::warn!("Skipping migration (column exists): {}", trimmed);
+                    } else {
+                        panic!("migration failed: {e}\nStatement: {trimmed}");
+                    }
+                }
+            }
         }
     }
     tracing::info!("Database migrations complete");

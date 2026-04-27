@@ -101,3 +101,21 @@ input:focus, select:focus, textarea:focus {
 .badge.planning { background: #dfe6e9; color: #2d3436; }
 .badge.packing { background: #ffeaa7; color: #856404; }
 .badge.done { background: #55efc4; color: #00574a; }
+
+/* Inventory panel (game-style) theme */
+:root {
+	--inventory-bg: #1a1a2e;
+	--inventory-surface: #16213e;
+	--inventory-border: #0f3460;
+	--inventory-text: #e0e0e0;
+	--inventory-text-secondary: #a0a0b0;
+	--inventory-accent: #e94560;
+	--inventory-highlight: #533483;
+}
+
+/* Print styles */
+@media print {
+	.sidebar, .no-print { display: none !important; }
+	.content { max-width: 100% !important; padding: 0 !important; }
+	.checklist-item { break-inside: avoid; }
+}

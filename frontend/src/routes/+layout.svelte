@@ -77,6 +77,6 @@
 	.content {
 		flex: 1;
 		padding: 24px 32px;
-		max-width: 960px;
+		max-width: 1400px;
 	}
 </style>
