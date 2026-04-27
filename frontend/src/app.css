@@ -1,0 +1,103 @@
+:root {
+	--bg: #f5f5f5;
+	--surface: #ffffff;
+	--border: #e0e0e0;
+	--text: #333333;
+	--text-secondary: #666666;
+	--primary: #4a90d9;
+	--primary-hover: #357abd;
+	--success: #5cb85c;
+	--warning: #f0ad4e;
+	--danger: #d9534f;
+	--sidebar-width: 220px;
+	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+body {
+	background: var(--bg);
+	color: var(--text);
+	line-height: 1.6;
+}
+
+button {
+	cursor: pointer;
+	border: 1px solid var(--border);
+	background: var(--surface);
+	padding: 6px 14px;
+	border-radius: 4px;
+	font-size: 14px;
+	transition: background 0.15s;
+}
+
+button:hover {
+	background: var(--bg);
+}
+
+button.primary {
+	background: var(--primary);
+	color: white;
+	border-color: var(--primary);
+}
+
+button.primary:hover {
+	background: var(--primary-hover);
+}
+
+button.danger {
+	color: var(--danger);
+	border-color: var(--danger);
+}
+
+button.danger:hover {
+	background: #fdf0f0;
+}
+
+button.small {
+	padding: 2px 8px;
+	font-size: 12px;
+}
+
+input, select, textarea {
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	padding: 6px 10px;
+	font-size: 14px;
+	font-family: inherit;
+}
+
+input:focus, select:focus, textarea:focus {
+	outline: none;
+	border-color: var(--primary);
+}
+
+.card {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 16px;
+	margin-bottom: 12px;
+}
+
+.badge {
+	display: inline-block;
+	padding: 1px 8px;
+	border-radius: 10px;
+	font-size: 12px;
+	font-weight: 500;
+}
+
+.badge.need_buy { background: #ffeaa7; color: #856404; }
+.badge.need_find { background: #dfe6e9; color: #2d3436; }
+.badge.need_charge { background: #a29bfe; color: white; }
+.badge.need_fetch { background: #fab1a0; color: #6c3636; }
+.badge.need_give { background: #81ecec; color: #00584a; }
+
+.badge.planning { background: #dfe6e9; color: #2d3436; }
+.badge.packing { background: #ffeaa7; color: #856404; }
+.badge.done { background: #55efc4; color: #00574a; }

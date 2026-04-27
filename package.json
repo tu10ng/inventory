@@ -1,0 +1,10 @@
+{
+  "name": "inventory",
+  "private": true,
+  "scripts": {
+    "dev:frontend": "cd frontend && pnpm dev",
+    "dev:backend": "cd backend && cargo run",
+    "build:frontend": "cd frontend && pnpm build",
+    "build:backend": "cd backend && cargo build --release"
+  }
+}
