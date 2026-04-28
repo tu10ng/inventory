@@ -292,7 +292,7 @@ pub struct CreateTripItem {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateTripItem {
-    pub item_id: Option<i64>,
+    pub item_id: Option<Option<i64>>,
     pub custom_name: Option<String>,
     pub person_id: Option<Option<i64>>,
     pub qty: Option<i64>,

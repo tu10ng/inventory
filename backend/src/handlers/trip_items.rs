@@ -202,7 +202,10 @@ pub async fn update(
         .fetch_one(&pool)
         .await?;
 
-    let item_id = body.item_id.or(existing.item_id);
+    let item_id = match body.item_id {
+        Some(v) => v,
+        None => existing.item_id,
+    };
     let custom_name = body.custom_name.unwrap_or(existing.custom_name);
     let person_id = match body.person_id {
         Some(v) => v,

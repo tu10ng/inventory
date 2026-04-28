@@ -1,13 +1,13 @@
 <script lang="ts">
-	import type { Item, Category } from '$lib/types';
+	import type { Item, Category, TripItemEnriched } from '$lib/types';
 	import SearchFilter from './SearchFilter.svelte';
 	import ItemCard from './ItemCard.svelte';
 
-	let { items, categories, tripItemIds, onAddItem }: {
+	let { items, categories, tripItemIds, enrichedItems }: {
 		items: Item[];
 		categories: Category[];
 		tripItemIds: Set<number>;
-		onAddItem: (itemId: number) => void;
+		enrichedItems: TripItemEnriched[];
 	} = $props();
 
 	let search = $state('');
@@ -55,7 +55,7 @@
 
 <div class="inventory-panel">
 	<div class="panel-header">
-		<h3>添加额外物品</h3>
+		<h3>物品库</h3>
 		<span class="item-count">{filteredItems.length} 件</span>
 	</div>
 
@@ -66,6 +66,8 @@
 		onSearchChange={(v) => (search = v)}
 		onCategoryChange={(id) => (filterCategoryId = id)}
 	/>
+
+	<p class="drag-hint">拖拽物品卡片到左侧槽位</p>
 
 	<div class="inventory-grid-container">
 		{#each groupedFiltered as group}
@@ -79,7 +81,9 @@
 						categoryIcon={getCategoryIcon(item.category_id)}
 						qty={item.default_qty}
 						alreadyAdded={tripItemIds.has(item.id)}
-						onclick={() => onAddItem(item.id)}
+						itemId={item.id}
+						tagId={item.tag_id}
+						{enrichedItems}
 					/>
 				{/each}
 			</div>
@@ -112,6 +116,11 @@
 	.item-count {
 		font-size: 13px;
 		color: var(--text-secondary);
+	}
+	.drag-hint {
+		font-size: 12px;
+		color: var(--text-secondary);
+		margin: 0 0 12px;
 	}
 	.group-label {
 		font-size: 13px;

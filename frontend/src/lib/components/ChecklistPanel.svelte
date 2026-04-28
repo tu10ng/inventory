@@ -1,10 +1,13 @@
 <script lang="ts">
 	import type { Trip, TripItemEnriched, Item, Category, Tip, Person, ItemStatus } from '$lib/types';
 	import { api } from '$lib/api/client';
+	import { getDragState } from '$lib/stores/dragState.svelte';
 	import ProgressBar from './ProgressBar.svelte';
 	import CategoryGroup from './CategoryGroup.svelte';
 	import TripItemRow from './TripItemRow.svelte';
 	import SlotRow from './SlotRow.svelte';
+
+	const dragState = getDragState();
 
 	let {
 		trip,
@@ -103,8 +106,13 @@
 		onReload();
 	}
 
-	async function changeSlotItem(ti: TripItemEnriched, newItemId: number) {
+	async function assignSlotItem(ti: TripItemEnriched, newItemId: number) {
 		await api.put<unknown>(`/trip-items/${ti.id}`, { item_id: newItemId });
+		onReload();
+	}
+
+	async function clearSlotItem(ti: TripItemEnriched) {
+		await api.put<unknown>(`/trip-items/${ti.id}`, { item_id: null });
 		onReload();
 	}
 
@@ -237,6 +245,8 @@
 					{people}
 					selected={selectedIds.has(ti.id)}
 					{selectable}
+					isDragging={dragState.draggingItem !== null}
+					isValidDropTarget={ti.slot_id != null && dragState.validSlotIds.has(ti.slot_id)}
 					onToggleCheck={() => toggleCheck(ti)}
 					onUpdateStatus={(s) => updateField(ti, 'item_status', s)}
 					onUpdateQty={(q) => updateField(ti, 'qty', q)}
@@ -244,7 +254,8 @@
 					onUpdatePerson={(id) => updateField(ti, 'person_id', id)}
 					onRemove={() => removeTripItem(ti.id)}
 					onToggleSelect={() => toggleSelect(ti.id)}
-					onChangeItem={(newId) => changeSlotItem(ti, newId)}
+					onAssignItem={(newId) => assignSlotItem(ti, newId)}
+					onClearItem={() => clearSlotItem(ti)}
 				/>
 			{:else}
 				<TripItemRow

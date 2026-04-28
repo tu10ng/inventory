@@ -68,15 +68,6 @@
 		goto(`/trips/${newTrip.id}`);
 	}
 
-	async function addItemFromInventory(itemId: number) {
-		const item = allItems.find((i) => i.id === itemId);
-		await api.post(`/trips/${tripId}/items`, {
-			item_id: itemId,
-			qty: item?.default_qty ?? 1
-		});
-		await reloadItems();
-	}
-
 	$effect(() => {
 		load();
 	});
@@ -125,7 +116,7 @@
 				items={allItems}
 				{categories}
 				{tripItemIds}
-				onAddItem={addItemFromInventory}
+				{enrichedItems}
 			/>
 		{/snippet}
 	</SplitPane>
