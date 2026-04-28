@@ -19,6 +19,24 @@ pub struct CreateCategory {
     pub sort_order: i64,
 }
 
+// ── Tags ──
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Tag {
+    pub id: i64,
+    pub name: String,
+    pub category_id: i64,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateTag {
+    pub name: String,
+    pub category_id: i64,
+    #[serde(default)]
+    pub sort_order: i64,
+}
+
 // ── Items ──
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -30,6 +48,7 @@ pub struct Item {
     pub category_id: i64,
     pub default_qty: i64,
     pub notes: String,
+    pub tag_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,6 +63,7 @@ pub struct CreateItem {
     pub default_qty: i64,
     #[serde(default)]
     pub notes: String,
+    pub tag_id: Option<i64>,
 }
 
 fn default_qty() -> i64 {
@@ -69,7 +89,7 @@ pub struct CreateActivity {
     pub icon: String,
 }
 
-// ── Activity Items ──
+// ── Activity Items (legacy, kept for backward compat) ──
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ActivityItem {
@@ -94,6 +114,64 @@ pub struct CreateActivityItem {
 
 fn default_true() -> bool {
     true
+}
+
+// ── Activity Slots ──
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ActivitySlot {
+    pub id: i64,
+    pub activity_id: i64,
+    pub slot_name: String,
+    pub category_id: i64,
+    pub is_essential: bool,
+    pub default_qty: i64,
+    pub default_item_id: Option<i64>,
+    pub notes: String,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActivitySlotWithTags {
+    pub id: i64,
+    pub activity_id: i64,
+    pub slot_name: String,
+    pub category_id: i64,
+    pub is_essential: bool,
+    pub default_qty: i64,
+    pub default_item_id: Option<i64>,
+    pub notes: String,
+    pub sort_order: i64,
+    pub tags: Vec<Tag>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateActivitySlot {
+    pub slot_name: String,
+    pub category_id: i64,
+    #[serde(default = "default_true")]
+    pub is_essential: bool,
+    #[serde(default = "default_qty")]
+    pub default_qty: i64,
+    pub default_item_id: Option<i64>,
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub sort_order: i64,
+    #[serde(default)]
+    pub tag_ids: Vec<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateActivitySlot {
+    pub slot_name: Option<String>,
+    pub category_id: Option<i64>,
+    pub is_essential: Option<bool>,
+    pub default_qty: Option<i64>,
+    pub default_item_id: Option<Option<i64>>,
+    pub notes: Option<String>,
+    pub sort_order: Option<i64>,
+    pub tag_ids: Option<Vec<i64>>,
 }
 
 // ── Tips ──
@@ -188,6 +266,7 @@ pub struct TripItem {
     pub notes: String,
     pub sort_order: i64,
     pub is_essential: bool,
+    pub slot_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -208,10 +287,12 @@ pub struct CreateTripItem {
     pub sort_order: i64,
     #[serde(default)]
     pub is_essential: bool,
+    pub slot_id: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateTripItem {
+    pub item_id: Option<i64>,
     pub custom_name: Option<String>,
     pub person_id: Option<Option<i64>>,
     pub qty: Option<i64>,
@@ -225,6 +306,35 @@ pub struct UpdateTripItem {
 #[derive(Debug, Deserialize)]
 pub struct CheckBody {
     pub checked: bool,
+}
+
+// ── Enriched Trip Items ──
+
+#[derive(Debug, Serialize)]
+pub struct SlotInfo {
+    pub id: i64,
+    pub slot_name: String,
+    pub category_id: i64,
+    pub is_essential: bool,
+    pub default_item_id: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TripItemEnriched {
+    pub id: i64,
+    pub trip_id: i64,
+    pub item_id: Option<i64>,
+    pub custom_name: String,
+    pub person_id: Option<i64>,
+    pub qty: i64,
+    pub checked: bool,
+    pub item_status: String,
+    pub notes: String,
+    pub sort_order: i64,
+    pub is_essential: bool,
+    pub slot_id: Option<i64>,
+    pub slot: Option<SlotInfo>,
+    pub candidates: Vec<Item>,
 }
 
 // ── Usage Stats ──

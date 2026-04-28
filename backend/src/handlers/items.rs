@@ -28,7 +28,7 @@ pub async fn create(
     Json(body): Json<CreateItem>,
 ) -> Result<Json<Item>, AppError> {
     let row = sqlx::query_as::<_, Item>(
-        "INSERT INTO items (name, brand, model, category_id, default_qty, notes) VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *",
     )
     .bind(&body.name)
     .bind(&body.brand)
@@ -36,6 +36,7 @@ pub async fn create(
     .bind(body.category_id)
     .bind(body.default_qty)
     .bind(&body.notes)
+    .bind(body.tag_id)
     .fetch_one(&pool)
     .await?;
     Ok(Json(row))
@@ -47,7 +48,7 @@ pub async fn update(
     Json(body): Json<CreateItem>,
 ) -> Result<Json<Item>, AppError> {
     let row = sqlx::query_as::<_, Item>(
-        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ? WHERE id = ? RETURNING *",
+        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ? WHERE id = ? RETURNING *",
     )
     .bind(&body.name)
     .bind(&body.brand)
@@ -55,6 +56,7 @@ pub async fn update(
     .bind(body.category_id)
     .bind(body.default_qty)
     .bind(&body.notes)
+    .bind(body.tag_id)
     .bind(id)
     .fetch_one(&pool)
     .await?;

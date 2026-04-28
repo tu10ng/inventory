@@ -1,17 +1,16 @@
 <script lang="ts">
 	import type { Category } from '$lib/types';
 
-	let { search, categoryId, categories, onSearchChange, onCategoryChange, dark = false }: {
+	let { search, categoryId, categories, onSearchChange, onCategoryChange }: {
 		search: string;
 		categoryId: number | null;
 		categories: Category[];
 		onSearchChange: (val: string) => void;
 		onCategoryChange: (id: number | null) => void;
-		dark?: boolean;
 	} = $props();
 </script>
 
-<div class="search-filter" class:dark>
+<div class="search-filter">
 	<input
 		class="search-input"
 		type="text"
@@ -44,22 +43,13 @@
 		flex: 1;
 		padding: 6px 10px;
 		border: 1px solid var(--border);
-		border-radius: 4px;
+		border-radius: 6px;
 		font-size: 14px;
 	}
 	.category-select {
 		padding: 6px 10px;
 		border: 1px solid var(--border);
-		border-radius: 4px;
+		border-radius: 6px;
 		font-size: 14px;
-	}
-	.dark .search-input,
-	.dark .category-select {
-		background: var(--inventory-surface);
-		border-color: var(--inventory-border);
-		color: var(--inventory-text);
-	}
-	.dark .search-input::placeholder {
-		color: var(--inventory-text-secondary);
 	}
 </style>

@@ -5,6 +5,13 @@ export interface Category {
 	sort_order: number;
 }
 
+export interface Tag {
+	id: number;
+	name: string;
+	category_id: number;
+	sort_order: number;
+}
+
 export interface Item {
 	id: number;
 	name: string;
@@ -13,6 +20,7 @@ export interface Item {
 	category_id: number;
 	default_qty: number;
 	notes: string;
+	tag_id: number | null;
 }
 
 export interface Activity {
@@ -29,6 +37,22 @@ export interface ActivityItem {
 	is_essential: boolean;
 	default_qty: number;
 	notes: string;
+}
+
+export interface ActivitySlot {
+	id: number;
+	activity_id: number;
+	slot_name: string;
+	category_id: number;
+	is_essential: boolean;
+	default_qty: number;
+	default_item_id: number | null;
+	notes: string;
+	sort_order: number;
+}
+
+export interface ActivitySlotWithTags extends ActivitySlot {
+	tags: Tag[];
 }
 
 export interface Tip {
@@ -65,11 +89,23 @@ export interface TripItem {
 	notes: string;
 	sort_order: number;
 	is_essential: boolean;
+	slot_id: number | null;
 }
 
 export type ItemStatus = '' | 'need_buy' | 'need_find' | 'need_charge' | 'need_fetch' | 'need_give';
 
-// Extended types for new features
+export interface SlotInfo {
+	id: number;
+	slot_name: string;
+	category_id: number;
+	is_essential: boolean;
+	default_item_id: number | null;
+}
+
+export interface TripItemEnriched extends TripItem {
+	slot: SlotInfo | null;
+	candidates: Item[];
+}
 
 export interface TripItemWithInfo extends TripItem {
 	item_info?: Item | null;

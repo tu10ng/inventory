@@ -55,7 +55,7 @@
 
 <div class="inventory-panel">
 	<div class="panel-header">
-		<h3>物品库</h3>
+		<h3>添加额外物品</h3>
 		<span class="item-count">{filteredItems.length} 件</span>
 	</div>
 
@@ -65,7 +65,6 @@
 		{categories}
 		onSearchChange={(v) => (search = v)}
 		onCategoryChange={(id) => (filterCategoryId = id)}
-		dark
 	/>
 
 	<div class="inventory-grid-container">
@@ -94,10 +93,11 @@
 
 <style>
 	.inventory-panel {
-		background: var(--inventory-bg);
-		border-radius: 12px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 8px;
 		padding: 16px;
-		color: var(--inventory-text);
+		color: var(--text);
 	}
 	.panel-header {
 		display: flex;
@@ -111,11 +111,11 @@
 	}
 	.item-count {
 		font-size: 13px;
-		color: var(--inventory-text-secondary);
+		color: var(--text-secondary);
 	}
 	.group-label {
 		font-size: 13px;
-		color: var(--inventory-text-secondary);
+		color: var(--text-secondary);
 		margin: 12px 0 6px;
 		font-weight: 500;
 	}
@@ -132,7 +132,7 @@
 	}
 	.empty {
 		text-align: center;
-		color: var(--inventory-text-secondary);
+		color: var(--text-secondary);
 		padding: 40px 0;
 	}
 </style>

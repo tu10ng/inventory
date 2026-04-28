@@ -1,30 +1,32 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Item, Category, ItemUsageCount } from '$lib/types';
+	import type { Item, Category, Tag, ItemUsageCount } from '$lib/types';
 	import SearchFilter from '$lib/components/SearchFilter.svelte';
 	import ItemCard from '$lib/components/ItemCard.svelte';
 
 	let items = $state<Item[]>([]);
 	let categories = $state<Category[]>([]);
+	let tags = $state<Tag[]>([]);
 	let usageStats = $state<Map<number, number>>(new Map());
 	let showForm = $state(false);
 	let editingId = $state<number | null>(null);
-	let form = $state({ name: '', brand: '', model: '', category_id: 0, default_qty: 1, notes: '' });
+	let form = $state({ name: '', brand: '', model: '', category_id: 0, default_qty: 1, notes: '', tag_id: null as number | null });
 	let viewMode = $state<'list' | 'grid'>('list');
 	let search = $state('');
 	let filterCategoryId = $state<number | null>(null);
 
 	async function load() {
-		const [itemsData, cats] = await Promise.all([
+		const [itemsData, cats, tagsData] = await Promise.all([
 			api.get<Item[]>('/items'),
-			api.get<Category[]>('/categories')
+			api.get<Category[]>('/categories'),
+			api.get<Tag[]>('/tags')
 		]);
 		items = itemsData;
 		categories = cats;
+		tags = tagsData;
 		if (form.category_id === 0 && categories.length > 0) {
 			form.category_id = categories[0].id;
 		}
-		// Load stats separately so failure doesn't block the page
 		try {
 			const stats = await api.get<ItemUsageCount[]>('/item-stats');
 			usageStats = new Map(stats.map((s) => [s.item_id, s.trip_count]));
@@ -34,13 +36,13 @@
 	}
 
 	function resetForm() {
-		form = { name: '', brand: '', model: '', category_id: categories[0]?.id ?? 0, default_qty: 1, notes: '' };
+		form = { name: '', brand: '', model: '', category_id: categories[0]?.id ?? 0, default_qty: 1, notes: '', tag_id: null };
 		editingId = null;
 		showForm = false;
 	}
 
 	function startEdit(item: Item) {
-		form = { name: item.name, brand: item.brand, model: item.model, category_id: item.category_id, default_qty: item.default_qty, notes: item.notes };
+		form = { name: item.name, brand: item.brand, model: item.model, category_id: item.category_id, default_qty: item.default_qty, notes: item.notes, tag_id: item.tag_id };
 		editingId = item.id;
 		showForm = true;
 	}
@@ -60,6 +62,16 @@
 		await load();
 	}
 
+	function onTagChange(tagId: number | null) {
+		form.tag_id = tagId;
+		if (tagId) {
+			const tag = tags.find(t => t.id === tagId);
+			if (tag) {
+				form.category_id = tag.category_id;
+			}
+		}
+	}
+
 	const filteredItems = $derived.by(() => {
 		let list = items;
 		if (search) {
@@ -77,8 +89,17 @@
 		return list;
 	});
 
+	const categoryTags = $derived.by(() => {
+		return tags.filter(t => t.category_id === form.category_id);
+	});
+
 	function getCategoryIcon(catId: number): string {
 		return categories.find((c) => c.id === catId)?.icon ?? '📦';
+	}
+
+	function getTagName(tagId: number | null): string {
+		if (!tagId) return '';
+		return tags.find(t => t.id === tagId)?.name ?? '';
 	}
 
 	$effect(() => { load(); });
@@ -117,6 +138,18 @@
 				</select>
 			</div>
 			<div style="display: flex; gap: 10px;">
+				<select value={form.tag_id ?? ''} onchange={(e) => onTagChange(e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
+					<option value="">无标签</option>
+					{#each categoryTags as t}
+						<option value={t.id}>{t.name}</option>
+					{/each}
+					{#if form.tag_id && !categoryTags.find(t => t.id === form.tag_id)}
+						{@const otherTag = tags.find(t => t.id === form.tag_id)}
+						{#if otherTag}
+							<option value={otherTag.id}>{otherTag.name} (其他分类)</option>
+						{/if}
+					{/if}
+				</select>
 				<input bind:value={form.brand} placeholder="品牌" style="flex: 1;" />
 				<input bind:value={form.model} placeholder="型号" style="flex: 1;" />
 				<input type="number" bind:value={form.default_qty} min="1" style="width: 60px;" />
@@ -146,6 +179,9 @@
 								qty={item.default_qty}
 								onclick={() => startEdit(item)}
 							/>
+							{#if item.tag_id}
+								<div class="tag-badge">{getTagName(item.tag_id)}</div>
+							{/if}
 							{#if usageStats.get(item.id)}
 								<div class="usage-badge" title="被 {usageStats.get(item.id)} 个行程使用">
 									{usageStats.get(item.id)} 行程
@@ -167,6 +203,9 @@
 					<div class="card list-item">
 						<div class="list-item-info">
 							<strong>{item.name}</strong>
+							{#if item.tag_id}
+								<span class="tag-inline">{getTagName(item.tag_id)}</span>
+							{/if}
 							{#if item.brand || item.model}
 								<span class="list-detail">{item.brand} {item.model}</span>
 							{/if}
@@ -241,6 +280,25 @@
 	}
 	.grid-card-wrapper {
 		position: relative;
+	}
+	.tag-badge {
+		position: absolute;
+		top: 4px;
+		left: 4px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		color: var(--text-secondary);
+		font-size: 10px;
+		padding: 1px 6px;
+		border-radius: 8px;
+	}
+	.tag-inline {
+		font-size: 12px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		color: var(--text-secondary);
+		padding: 0 6px;
+		border-radius: 8px;
 	}
 	.usage-badge {
 		position: absolute;

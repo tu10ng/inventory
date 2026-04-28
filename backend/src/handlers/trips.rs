@@ -97,23 +97,25 @@ pub async fn populate(
         .activity_id
         .ok_or_else(|| anyhow::anyhow!("Trip has no activity"))?;
 
-    let activity_items = sqlx::query_as::<_, ActivityItem>(
-        "SELECT * FROM activity_items WHERE activity_id = ? ORDER BY id",
+    // Use activity_slots instead of activity_items
+    let slots = sqlx::query_as::<_, ActivitySlot>(
+        "SELECT * FROM activity_slots WHERE activity_id = ? ORDER BY sort_order, id",
     )
     .bind(activity_id)
     .fetch_all(&pool)
     .await?;
 
-    for (i, ai) in activity_items.iter().enumerate() {
+    for (i, slot) in slots.iter().enumerate() {
         sqlx::query(
-            "INSERT OR IGNORE INTO trip_items (trip_id, item_id, qty, notes, sort_order, is_essential) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO trip_items (trip_id, item_id, qty, notes, sort_order, is_essential, slot_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(trip_id)
-        .bind(ai.item_id)
-        .bind(ai.default_qty)
-        .bind(&ai.notes)
+        .bind(slot.default_item_id)
+        .bind(slot.default_qty)
+        .bind(&slot.notes)
         .bind(i as i64)
-        .bind(ai.is_essential)
+        .bind(slot.is_essential)
+        .bind(slot.id)
         .execute(&pool)
         .await?;
     }
@@ -141,16 +143,16 @@ pub async fn resync(
         .activity_id
         .ok_or_else(|| anyhow::anyhow!("Trip has no activity"))?;
 
-    let activity_items = sqlx::query_as::<_, ActivityItem>(
-        "SELECT * FROM activity_items WHERE activity_id = ? ORDER BY id",
+    let slots = sqlx::query_as::<_, ActivitySlot>(
+        "SELECT * FROM activity_slots WHERE activity_id = ? ORDER BY sort_order, id",
     )
     .bind(activity_id)
     .fetch_all(&pool)
     .await?;
 
-    // Get existing item_ids in this trip
-    let existing: Vec<i64> = sqlx::query_scalar(
-        "SELECT item_id FROM trip_items WHERE trip_id = ? AND item_id IS NOT NULL",
+    // Get existing slot_ids in this trip
+    let existing_slot_ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT slot_id FROM trip_items WHERE trip_id = ? AND slot_id IS NOT NULL",
     )
     .bind(trip_id)
     .fetch_all(&pool)
@@ -164,17 +166,18 @@ pub async fn resync(
     .await?;
 
     let mut sort = max_sort + 1;
-    for ai in &activity_items {
-        if !existing.contains(&ai.item_id) {
+    for slot in &slots {
+        if !existing_slot_ids.contains(&slot.id) {
             sqlx::query(
-                "INSERT INTO trip_items (trip_id, item_id, qty, notes, sort_order, is_essential) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO trip_items (trip_id, item_id, qty, notes, sort_order, is_essential, slot_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(trip_id)
-            .bind(ai.item_id)
-            .bind(ai.default_qty)
-            .bind(&ai.notes)
+            .bind(slot.default_item_id)
+            .bind(slot.default_qty)
+            .bind(&slot.notes)
             .bind(sort)
-            .bind(ai.is_essential)
+            .bind(slot.is_essential)
+            .bind(slot.id)
             .execute(&pool)
             .await?;
             sort += 1;
@@ -221,7 +224,7 @@ pub async fn clone(
 
     for ti in &original_items {
         sqlx::query(
-            "INSERT INTO trip_items (trip_id, item_id, custom_name, person_id, qty, checked, item_status, notes, sort_order, is_essential) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)",
+            "INSERT INTO trip_items (trip_id, item_id, custom_name, person_id, qty, checked, item_status, notes, sort_order, is_essential, slot_id) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)",
         )
         .bind(new_trip.id)
         .bind(ti.item_id)
@@ -232,6 +235,7 @@ pub async fn clone(
         .bind(&ti.notes)
         .bind(ti.sort_order)
         .bind(ti.is_essential)
+        .bind(ti.slot_id)
         .execute(&pool)
         .await?;
     }

@@ -1,24 +1,41 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Activity, ActivityItem, Item, Tip } from '$lib/types';
+	import type { Activity, ActivitySlotWithTags, Item, Tag, Tip, Category } from '$lib/types';
 
 	let activities = $state<Activity[]>([]);
 	let allItems = $state<Item[]>([]);
+	let tags = $state<Tag[]>([]);
+	let categories = $state<Category[]>([]);
 	let showForm = $state(false);
 	let editingId = $state<number | null>(null);
 	let form = $state({ name: '', description: '', icon: '' });
 
 	// Detail view
 	let selectedId = $state<number | null>(null);
-	let activityItems = $state<ActivityItem[]>([]);
+	let slots = $state<ActivitySlotWithTags[]>([]);
 	let tips = $state<Tip[]>([]);
-	let addItemId = $state<number | null>(null);
 	let newTip = $state('');
 
+	// Slot form
+	let showSlotForm = $state(false);
+	let editingSlotId = $state<number | null>(null);
+	let slotForm = $state({
+		slot_name: '',
+		category_id: 0,
+		is_essential: true,
+		default_qty: 1,
+		default_item_id: null as number | null,
+		notes: '',
+		sort_order: 0,
+		tag_ids: [] as number[]
+	});
+
 	async function load() {
-		[activities, allItems] = await Promise.all([
+		[activities, allItems, tags, categories] = await Promise.all([
 			api.get<Activity[]>('/activities'),
-			api.get<Item[]>('/items')
+			api.get<Item[]>('/items'),
+			api.get<Tag[]>('/tags'),
+			api.get<Category[]>('/categories')
 		]);
 	}
 
@@ -52,24 +69,78 @@
 
 	async function selectActivity(id: number) {
 		selectedId = id;
-		[activityItems, tips] = await Promise.all([
-			api.get<ActivityItem[]>(`/activities/${id}/items`),
+		[slots, tips] = await Promise.all([
+			api.get<ActivitySlotWithTags[]>(`/activities/${id}/slots`),
 			api.get<Tip[]>(`/activities/${id}/tips`)
 		]);
 	}
 
-	async function addItem() {
-		if (!addItemId || !selectedId) return;
-		await api.post(`/activities/${selectedId}/items`, { item_id: addItemId });
-		addItemId = null;
-		activityItems = await api.get<ActivityItem[]>(`/activities/${selectedId}/items`);
+	// ── Slot management ──
+
+	function resetSlotForm() {
+		slotForm = {
+			slot_name: '',
+			category_id: categories[0]?.id ?? 0,
+			is_essential: true,
+			default_qty: 1,
+			default_item_id: null,
+			notes: '',
+			sort_order: slots.length,
+			tag_ids: []
+		};
+		editingSlotId = null;
+		showSlotForm = false;
 	}
 
-	async function removeItem(itemId: number) {
-		if (!selectedId) return;
-		await api.del(`/activities/${selectedId}/items/${itemId}`);
-		activityItems = await api.get<ActivityItem[]>(`/activities/${selectedId}/items`);
+	function startEditSlot(slot: ActivitySlotWithTags) {
+		slotForm = {
+			slot_name: slot.slot_name,
+			category_id: slot.category_id,
+			is_essential: slot.is_essential,
+			default_qty: slot.default_qty,
+			default_item_id: slot.default_item_id,
+			notes: slot.notes,
+			sort_order: slot.sort_order,
+			tag_ids: slot.tags.map(t => t.id)
+		};
+		editingSlotId = slot.id;
+		showSlotForm = true;
 	}
+
+	async function saveSlot() {
+		if (!selectedId) return;
+		if (editingSlotId) {
+			await api.put(`/activity-slots/${editingSlotId}`, slotForm);
+		} else {
+			await api.post(`/activities/${selectedId}/slots`, slotForm);
+		}
+		resetSlotForm();
+		slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
+	}
+
+	async function removeSlot(id: number) {
+		await api.del(`/activity-slots/${id}`);
+		if (selectedId) {
+			slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
+		}
+	}
+
+	async function toggleSlotEssential(slot: ActivitySlotWithTags) {
+		await api.put(`/activity-slots/${slot.id}`, { is_essential: !slot.is_essential });
+		if (selectedId) {
+			slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
+		}
+	}
+
+	function toggleTagId(tagId: number) {
+		if (slotForm.tag_ids.includes(tagId)) {
+			slotForm.tag_ids = slotForm.tag_ids.filter(id => id !== tagId);
+		} else {
+			slotForm.tag_ids = [...slotForm.tag_ids, tagId];
+		}
+	}
+
+	// ── Tips ──
 
 	async function addTip() {
 		if (!newTip || !selectedId) return;
@@ -83,23 +154,26 @@
 		if (selectedId) tips = await api.get<Tip[]>(`/activities/${selectedId}/tips`);
 	}
 
-	async function toggleEssential(ai: ActivityItem) {
-		// Update via PUT on the activity item endpoint — re-add with toggled is_essential
-		// Since there's no direct update endpoint for activity_items, we remove and re-add
-		if (!selectedId) return;
-		await api.del(`/activities/${selectedId}/items/${ai.item_id}`);
-		await api.post(`/activities/${selectedId}/items`, {
-			item_id: ai.item_id,
-			is_essential: !ai.is_essential,
-			default_qty: ai.default_qty,
-			notes: ai.notes
-		});
-		activityItems = await api.get<ActivityItem[]>(`/activities/${selectedId}/items`);
+	// ── Helpers ──
+
+	const slotFormTags = $derived.by(() => {
+		return tags.filter(t => t.category_id === slotForm.category_id);
+	});
+
+	const candidateItems = $derived.by(() => {
+		if (slotForm.tag_ids.length === 0) return allItems;
+		return allItems.filter(i => i.tag_id && slotForm.tag_ids.includes(i.tag_id));
+	});
+
+	function getCategoryName(catId: number): string {
+		const c = categories.find(c => c.id === catId);
+		return c ? `${c.icon} ${c.name}` : '';
 	}
 
-	function itemName(id: number) {
-		const it = allItems.find((i) => i.id === id);
-		return it ? `${it.name}${it.brand ? ' ' + it.brand : ''}${it.model ? ' ' + it.model : ''}` : `#${id}`;
+	function getItemDisplay(itemId: number | null): string {
+		if (!itemId) return '无';
+		const it = allItems.find(i => i.id === itemId);
+		return it ? `${it.name}${it.brand ? ' ' + it.brand : ''}${it.model ? ' ' + it.model : ''}` : `#${itemId}`;
 	}
 
 	$effect(() => { load(); });
@@ -127,9 +201,9 @@
 	</div>
 {/if}
 
-<div style="display: flex; gap: 20px;">
+<div class="activities-layout">
 	<!-- Activity list -->
-	<div style="flex: 1;">
+	<div class="activities-list">
 		{#each activities as a}
 			<div
 				class="card"
@@ -162,35 +236,103 @@
 	{#if selectedId}
 		{@const selected = activities.find((a) => a.id === selectedId)}
 		{#if selected}
-			<div style="flex: 1;">
-				<h3>{selected.icon} {selected.name} - 物品列表</h3>
-
-				<div style="display: flex; gap: 8px; margin: 12px 0;">
-					<select bind:value={addItemId} style="flex: 1;">
-						<option value={null}>选择物品添加...</option>
-						{#each allItems as it}
-							<option value={it.id}>{it.name} {it.brand} {it.model}</option>
-						{/each}
-					</select>
-					<button class="primary" onclick={addItem} disabled={!addItemId}>添加</button>
+			<div class="detail-panel">
+				<div class="detail-header">
+					<h3>{selected.icon} {selected.name} - 槽位列表</h3>
+					<button class="primary small" onclick={() => { if (showSlotForm) resetSlotForm(); else { resetSlotForm(); showSlotForm = true; } }}>
+						{showSlotForm && !editingSlotId ? '取消' : '+ 添加槽位'}
+					</button>
 				</div>
 
-				{#each activityItems as ai}
-					<div class="card" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 14px;">
-						<span>
+				{#if showSlotForm}
+					<div class="card slot-form">
+						<div class="slot-form-row">
+							<input bind:value={slotForm.slot_name} placeholder="槽位名称（如：硬壳/雨衣）" style="flex: 2;" />
+							<select bind:value={slotForm.category_id} style="flex: 1;">
+								{#each categories as c}
+									<option value={c.id}>{c.icon} {c.name}</option>
+								{/each}
+							</select>
+						</div>
+						<div class="slot-form-row">
+							<label class="inline-label">
+								<input type="checkbox" bind:checked={slotForm.is_essential} />
+								必备
+							</label>
+							<label class="inline-label">
+								数量
+								<input type="number" bind:value={slotForm.default_qty} min="1" style="width: 50px;" />
+							</label>
+						</div>
+						<div class="tag-select">
+							<span class="tag-select-label">接受标签：</span>
+							{#each slotFormTags as t}
+								<button
+									class="tag-chip"
+									class:selected={slotForm.tag_ids.includes(t.id)}
+									onclick={() => toggleTagId(t.id)}
+								>
+									{t.name}
+								</button>
+							{/each}
+							{#if slotFormTags.length === 0}
+								<span style="color: var(--text-secondary); font-size: 13px;">该分类无标签</span>
+							{/if}
+						</div>
+						<div class="slot-form-row">
+							<select value={slotForm.default_item_id ?? ''} onchange={(e) => slotForm.default_item_id = e.currentTarget.value ? Number(e.currentTarget.value) : null} style="flex: 1;">
+								<option value="">默认物品（无）</option>
+								{#each candidateItems as it}
+									<option value={it.id}>{it.name}{it.brand ? ` ${it.brand}` : ''}{it.model ? ` ${it.model}` : ''}</option>
+								{/each}
+							</select>
+						</div>
+						<input bind:value={slotForm.notes} placeholder="备注" />
+						<button class="primary" onclick={saveSlot} disabled={!slotForm.slot_name}>
+							{editingSlotId ? '更新槽位' : '添加槽位'}
+						</button>
+					</div>
+				{/if}
+
+				{#each slots as slot (slot.id)}
+					<div class="card slot-row">
+						<div class="slot-main">
 							<button
-								class="small"
-								style="margin-right: 4px; color: {ai.is_essential ? 'var(--warning)' : 'var(--text-secondary)'};"
-								onclick={() => toggleEssential(ai)}
-								title={ai.is_essential ? '必备（点击取消）' : '非必备（点击标记为必备）'}
+								class="small essential-btn"
+								style="color: {slot.is_essential ? 'var(--warning)' : 'var(--text-secondary)'};"
+								onclick={() => toggleSlotEssential(slot)}
+								title={slot.is_essential ? '必备（点击取消）' : '非必备（点击标记为必备）'}
 							>
-								{ai.is_essential ? '★' : '☆'}
+								{slot.is_essential ? '★' : '☆'}
 							</button>
-							{itemName(ai.item_id)}{ai.default_qty > 1 ? ` x${ai.default_qty}` : ''}
-						</span>
-						<button class="small danger" onclick={() => removeItem(ai.item_id)}>移除</button>
+							<div class="slot-info">
+								<strong>{slot.slot_name}</strong>
+								{#if slot.default_qty > 1}
+									<span class="slot-qty">x{slot.default_qty}</span>
+								{/if}
+								<span class="slot-category">{getCategoryName(slot.category_id)}</span>
+							</div>
+						</div>
+						<div class="slot-tags">
+							{#each slot.tags as t}
+								<span class="tag-chip-small">{t.name}</span>
+							{/each}
+						</div>
+						<div class="slot-default">
+							默认: {getItemDisplay(slot.default_item_id)}
+						</div>
+						<div class="slot-actions">
+							<button class="small" onclick={() => startEditSlot(slot)}>编辑</button>
+							<button class="small danger" onclick={() => removeSlot(slot.id)}>删除</button>
+						</div>
 					</div>
 				{/each}
+
+				{#if slots.length === 0}
+					<div class="card" style="text-align: center; color: var(--text-secondary); padding: 24px;">
+						暂无槽位，点击上方按钮添加
+					</div>
+				{/if}
 
 				<h3 style="margin-top: 20px;">提示</h3>
 				<div style="display: flex; gap: 8px; margin: 12px 0;">
@@ -207,3 +349,124 @@
 		{/if}
 	{/if}
 </div>
+
+<style>
+	.activities-layout {
+		display: flex;
+		gap: 20px;
+	}
+	.activities-list {
+		flex: 1;
+		min-width: 0;
+	}
+	.detail-panel {
+		flex: 1.5;
+		min-width: 0;
+	}
+	.detail-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 12px;
+	}
+	.slot-form {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		margin-bottom: 12px;
+	}
+	.slot-form-row {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+	}
+	.inline-label {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 14px;
+		white-space: nowrap;
+	}
+	.tag-select {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
+	}
+	.tag-select-label {
+		font-size: 13px;
+		color: var(--text-secondary);
+		white-space: nowrap;
+	}
+	.tag-chip {
+		font-size: 12px;
+		padding: 2px 8px;
+		border-radius: 12px;
+		border: 1px solid var(--border);
+		background: var(--surface);
+		cursor: pointer;
+	}
+	.tag-chip.selected {
+		background: var(--primary);
+		color: white;
+		border-color: var(--primary);
+	}
+	.tag-chip-small {
+		font-size: 11px;
+		padding: 1px 6px;
+		border-radius: 8px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		color: var(--text-secondary);
+	}
+	.slot-row {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 8px 14px;
+		flex-wrap: wrap;
+	}
+	.slot-main {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		flex: 1;
+		min-width: 0;
+	}
+	.essential-btn {
+		flex-shrink: 0;
+	}
+	.slot-info {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.slot-qty {
+		color: var(--text-secondary);
+		font-size: 13px;
+	}
+	.slot-category {
+		font-size: 12px;
+		color: var(--text-secondary);
+	}
+	.slot-tags {
+		display: flex;
+		gap: 4px;
+		flex-wrap: wrap;
+	}
+	.slot-default {
+		font-size: 13px;
+		color: var(--text-secondary);
+		white-space: nowrap;
+	}
+	.slot-actions {
+		display: flex;
+		gap: 6px;
+		flex-shrink: 0;
+	}
+	@media (max-width: 768px) {
+		.activities-layout {
+			flex-direction: column;
+		}
+	}
+</style>

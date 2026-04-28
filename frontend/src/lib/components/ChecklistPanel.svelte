@@ -1,28 +1,31 @@
 <script lang="ts">
-	import type { Trip, TripItem, Item, Category, Tip, Person, ItemStatus } from '$lib/types';
+	import type { Trip, TripItemEnriched, Item, Category, Tip, Person, ItemStatus } from '$lib/types';
 	import { api } from '$lib/api/client';
 	import ProgressBar from './ProgressBar.svelte';
 	import CategoryGroup from './CategoryGroup.svelte';
 	import TripItemRow from './TripItemRow.svelte';
+	import SlotRow from './SlotRow.svelte';
 
 	let {
 		trip,
-		tripItems = $bindable(),
+		enrichedItems = $bindable(),
 		allItems,
 		categories,
 		tips,
 		people,
 		onPopulate,
-		onResync
+		onResync,
+		onReload
 	}: {
 		trip: Trip;
-		tripItems: TripItem[];
+		enrichedItems: TripItemEnriched[];
 		allItems: Item[];
 		categories: Category[];
 		tips: Tip[];
 		people: Person[];
 		onPopulate: () => void;
 		onResync: () => void;
+		onReload: () => void;
 	} = $props();
 
 	let collapsed = $state<Record<number, boolean>>({});
@@ -40,26 +43,28 @@
 		return allItems.find((i) => i.id === itemId) ?? null;
 	}
 
-	function getCategoryForItem(itemId: number | null): Category | null {
-		const item = getItemInfo(itemId);
-		if (!item) return null;
-		return categories.find((c) => c.id === item.category_id) ?? null;
-	}
-
 	function toggleCollapse(catId: number) {
 		collapsed[catId] = !collapsed[catId];
 	}
 
 	const groupedItems = $derived.by(() => {
-		const groups: { category: Category; items: TripItem[] }[] = [];
-		const uncategorized: TripItem[] = [];
-		const catMap = new Map<number, TripItem[]>();
+		const groups: { category: Category; items: TripItemEnriched[] }[] = [];
+		const uncategorized: TripItemEnriched[] = [];
+		const catMap = new Map<number, TripItemEnriched[]>();
 
-		for (const ti of tripItems) {
-			const cat = getCategoryForItem(ti.item_id);
-			if (cat) {
-				if (!catMap.has(cat.id)) catMap.set(cat.id, []);
-				catMap.get(cat.id)!.push(ti);
+		for (const ti of enrichedItems) {
+			// Use slot's category_id if available, otherwise use item's category
+			let catId: number | null = null;
+			if (ti.slot) {
+				catId = ti.slot.category_id;
+			} else if (ti.item_id) {
+				const item = getItemInfo(ti.item_id);
+				catId = item?.category_id ?? null;
+			}
+
+			if (catId !== null) {
+				if (!catMap.has(catId)) catMap.set(catId, []);
+				catMap.get(catId)!.push(ti);
 			} else {
 				uncategorized.push(ti);
 			}
@@ -81,28 +86,32 @@
 		return groups;
 	});
 
-	const totalChecked = $derived(tripItems.filter((t) => t.checked).length);
-	const totalItems = $derived(tripItems.length);
+	const totalChecked = $derived(enrichedItems.filter((t) => t.checked).length);
+	const totalItems = $derived(enrichedItems.length);
 
-	async function toggleCheck(ti: TripItem) {
-		const updated = await api.patch<TripItem>(`/trip-items/${ti.id}/check`, {
+	async function toggleCheck(ti: TripItemEnriched) {
+		await api.patch<unknown>(`/trip-items/${ti.id}/check`, {
 			checked: !ti.checked
 		});
-		tripItems = tripItems.map((t) => (t.id === updated.id ? updated : t));
+		onReload();
 	}
 
-	async function updateField(ti: TripItem, field: string, value: unknown) {
-		const updated = await api.put<TripItem>(`/trip-items/${ti.id}`, {
-			...ti,
+	async function updateField(ti: TripItemEnriched, field: string, value: unknown) {
+		await api.put<unknown>(`/trip-items/${ti.id}`, {
 			[field]: value
 		});
-		tripItems = tripItems.map((t) => (t.id === updated.id ? updated : t));
+		onReload();
+	}
+
+	async function changeSlotItem(ti: TripItemEnriched, newItemId: number) {
+		await api.put<unknown>(`/trip-items/${ti.id}`, { item_id: newItemId });
+		onReload();
 	}
 
 	async function removeTripItem(id: number) {
 		await api.del(`/trip-items/${id}`);
-		tripItems = tripItems.filter((t) => t.id !== id);
 		selectedIds.delete(id);
+		onReload();
 	}
 
 	async function addTripItem() {
@@ -114,7 +123,7 @@
 		addCustomName = '';
 		addQty = 1;
 		showAddForm = false;
-		tripItems = await api.get<TripItem[]>(`/trips/${trip.id}/items`);
+		onReload();
 	}
 
 	function toggleSelect(id: number) {
@@ -133,9 +142,10 @@
 		else if (action === 'person') body.person_id = value;
 		else if (action === 'status') body.item_status = value;
 
-		tripItems = await api.patch<TripItem[]>(`/trips/${trip.id}/items/bulk`, body);
+		await api.patch<unknown>(`/trips/${trip.id}/items/bulk`, body);
 		selectedIds = new Set();
 		selectable = false;
+		onReload();
 	}
 </script>
 
@@ -150,14 +160,14 @@
 {/if}
 
 <div class="actions-bar">
-	{#if trip.activity_id && tripItems.length === 0}
+	{#if trip.activity_id && enrichedItems.length === 0}
 		<button class="primary" onclick={onPopulate}>从模板填充清单</button>
 	{/if}
-	{#if trip.activity_id && tripItems.length > 0}
+	{#if trip.activity_id && enrichedItems.length > 0}
 		<button onclick={onResync}>同步模板</button>
 	{/if}
 	<button onclick={() => (showAddForm = !showAddForm)}>
-		{showAddForm ? '取消' : '+ 添加物品'}
+		{showAddForm ? '取消' : '+ 添加额外物品'}
 	</button>
 	<button onclick={() => { selectable = !selectable; if (!selectable) selectedIds = new Set(); }}>
 		{selectable ? '退出选择' : '批量操作'}
@@ -221,30 +231,47 @@
 		onToggle={() => toggleCollapse(group.category.id)}
 	>
 		{#each group.items as ti (ti.id)}
-			<TripItemRow
-				tripItem={ti}
-				itemInfo={getItemInfo(ti.item_id)}
-				{people}
-				selected={selectedIds.has(ti.id)}
-				{selectable}
-				onToggleCheck={() => toggleCheck(ti)}
-				onUpdateStatus={(s) => updateField(ti, 'item_status', s)}
-				onUpdateQty={(q) => updateField(ti, 'qty', q)}
-				onUpdateNotes={(n) => updateField(ti, 'notes', n)}
-				onUpdatePerson={(id) => updateField(ti, 'person_id', id)}
-				onRemove={() => removeTripItem(ti.id)}
-				onToggleSelect={() => toggleSelect(ti.id)}
-			/>
+			{#if ti.slot_id}
+				<SlotRow
+					tripItem={ti}
+					{people}
+					selected={selectedIds.has(ti.id)}
+					{selectable}
+					onToggleCheck={() => toggleCheck(ti)}
+					onUpdateStatus={(s) => updateField(ti, 'item_status', s)}
+					onUpdateQty={(q) => updateField(ti, 'qty', q)}
+					onUpdateNotes={(n) => updateField(ti, 'notes', n)}
+					onUpdatePerson={(id) => updateField(ti, 'person_id', id)}
+					onRemove={() => removeTripItem(ti.id)}
+					onToggleSelect={() => toggleSelect(ti.id)}
+					onChangeItem={(newId) => changeSlotItem(ti, newId)}
+				/>
+			{:else}
+				<TripItemRow
+					tripItem={ti}
+					itemInfo={getItemInfo(ti.item_id)}
+					{people}
+					selected={selectedIds.has(ti.id)}
+					{selectable}
+					onToggleCheck={() => toggleCheck(ti)}
+					onUpdateStatus={(s) => updateField(ti, 'item_status', s)}
+					onUpdateQty={(q) => updateField(ti, 'qty', q)}
+					onUpdateNotes={(n) => updateField(ti, 'notes', n)}
+					onUpdatePerson={(id) => updateField(ti, 'person_id', id)}
+					onRemove={() => removeTripItem(ti.id)}
+					onToggleSelect={() => toggleSelect(ti.id)}
+				/>
+			{/if}
 		{/each}
 	</CategoryGroup>
 {/each}
 
-{#if tripItems.length === 0}
+{#if enrichedItems.length === 0}
 	<div class="card empty-state">
 		{#if trip.activity_id}
 			清单为空，点击"从模板填充清单"自动添加物品
 		{:else}
-			清单为空，点击"添加物品"手动添加
+			清单为空，点击"添加额外物品"手动添加
 		{/if}
 	</div>
 {/if}

@@ -33,8 +33,8 @@
 
 <style>
 	.item-card {
-		background: var(--inventory-surface);
-		border: 1px solid var(--inventory-border);
+		background: var(--surface);
+		border: 1px solid var(--border);
 		border-radius: 8px;
 		padding: 10px 8px;
 		text-align: center;
@@ -49,9 +49,9 @@
 		gap: 2px;
 	}
 	.item-card:hover {
-		border-color: var(--inventory-accent);
+		border-color: var(--primary);
 		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 	}
 	.item-card.already-added {
 		opacity: 0.5;
@@ -61,19 +61,19 @@
 	}
 	.card-name {
 		font-size: 13px;
-		color: var(--inventory-text);
+		color: var(--text);
 		font-weight: 500;
 		line-height: 1.2;
 	}
 	.card-detail {
 		font-size: 11px;
-		color: var(--inventory-text-secondary);
+		color: var(--text-secondary);
 	}
 	.card-qty {
 		position: absolute;
 		top: 4px;
 		right: 6px;
-		background: var(--inventory-accent);
+		background: var(--primary);
 		color: white;
 		font-size: 10px;
 		padding: 0 5px;
@@ -82,8 +82,8 @@
 	}
 	.added-tag {
 		font-size: 10px;
-		color: var(--inventory-text-secondary);
-		background: rgba(255, 255, 255, 0.1);
+		color: var(--text-secondary);
+		background: var(--bg);
 		padding: 0 6px;
 		border-radius: 4px;
 		margin-top: 2px;

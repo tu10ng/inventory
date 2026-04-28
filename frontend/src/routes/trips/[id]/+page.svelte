@@ -2,14 +2,14 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api/client';
-	import type { Trip, TripItem, Item, Category, Tip, Person } from '$lib/types';
+	import type { Trip, TripItem, TripItemEnriched, Item, Category, Tip, Person } from '$lib/types';
 	import { TRIP_STATUS_LABELS } from '$lib/utils/status';
 	import SplitPane from '$lib/components/SplitPane.svelte';
 	import ChecklistPanel from '$lib/components/ChecklistPanel.svelte';
 	import InventoryPanel from '$lib/components/InventoryPanel.svelte';
 
 	let trip = $state<Trip | null>(null);
-	let tripItems = $state<TripItem[]>([]);
+	let enrichedItems = $state<TripItemEnriched[]>([]);
 	let allItems = $state<Item[]>([]);
 	let categories = $state<Category[]>([]);
 	let tips = $state<Tip[]>([]);
@@ -17,34 +17,45 @@
 
 	const tripId = $derived(Number(page.params.id));
 
-	const tripItemIds = $derived(new Set(tripItems.filter((ti) => ti.item_id).map((ti) => ti.item_id!)));
+	const tripItemIds = $derived(new Set(enrichedItems.filter((ti) => ti.item_id).map((ti) => ti.item_id!)));
 
 	async function load() {
 		const id = tripId;
-		const [t, ti, items, cats, ppl] = await Promise.all([
+		const [t, items, cats, ppl] = await Promise.all([
 			api.get<Trip>(`/trips/${id}`),
-			api.get<TripItem[]>(`/trips/${id}/items`),
 			api.get<Item[]>('/items'),
 			api.get<Category[]>('/categories'),
 			api.get<Person[]>('/people')
 		]);
 		trip = t;
-		tripItems = ti;
 		allItems = items;
 		categories = cats;
 		people = ppl;
 
+		// Load enriched items
+		enrichedItems = await api.get<TripItemEnriched[]>(`/trips/${id}/items/enriched`);
+
 		if (t.activity_id) {
-			tips = await api.get<Tip[]>(`/activities/${t.activity_id}/tips`);
+			try {
+				tips = await api.get<Tip[]>(`/activities/${t.activity_id}/tips`);
+			} catch {
+				// tips not critical
+			}
 		}
 	}
 
+	async function reloadItems() {
+		enrichedItems = await api.get<TripItemEnriched[]>(`/trips/${tripId}/items/enriched`);
+	}
+
 	async function populate() {
-		tripItems = await api.post<TripItem[]>(`/trips/${tripId}/populate`);
+		await api.post<TripItem[]>(`/trips/${tripId}/populate`);
+		await reloadItems();
 	}
 
 	async function resync() {
-		tripItems = await api.post<TripItem[]>(`/trips/${tripId}/resync`);
+		await api.post<TripItem[]>(`/trips/${tripId}/resync`);
+		await reloadItems();
 	}
 
 	async function updateTripStatus(status: string) {
@@ -63,7 +74,7 @@
 			item_id: itemId,
 			qty: item?.default_qty ?? 1
 		});
-		tripItems = await api.get<TripItem[]>(`/trips/${tripId}/items`);
+		await reloadItems();
 	}
 
 	$effect(() => {
@@ -99,13 +110,14 @@
 		{#snippet left()}
 			<ChecklistPanel
 				trip={trip!}
-				bind:tripItems
+				bind:enrichedItems
 				{allItems}
 				{categories}
 				{tips}
 				{people}
 				onPopulate={populate}
 				onResync={resync}
+				onReload={reloadItems}
 			/>
 		{/snippet}
 		{#snippet right()}

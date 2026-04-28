@@ -2,6 +2,7 @@ pub mod activities;
 pub mod categories;
 pub mod items;
 pub mod people;
+pub mod tags;
 pub mod trip_items;
 pub mod trips;
 
@@ -14,6 +15,9 @@ pub fn router() -> Router<SqlitePool> {
         // Categories
         .route("/api/categories", get(categories::list).post(categories::create))
         .route("/api/categories/{id}", put(categories::update).delete(categories::delete))
+        // Tags
+        .route("/api/tags", get(tags::list).post(tags::create))
+        .route("/api/tags/{id}", put(tags::update).delete(tags::delete))
         // Items
         .route("/api/items", get(items::list).post(items::create))
         .route("/api/items/{id}", get(items::get).put(items::update).delete(items::delete))
@@ -27,7 +31,9 @@ pub fn router() -> Router<SqlitePool> {
         .route("/api/activities/{id}", get(activities::get).put(activities::update).delete(activities::delete))
         .route("/api/activities/{id}/items", get(activities::list_items).post(activities::add_item))
         .route("/api/activities/{activity_id}/items/{item_id}", delete(activities::remove_item))
+        .route("/api/activities/{id}/slots", get(activities::list_slots).post(activities::create_slot))
         .route("/api/activities/{id}/tips", get(activities::list_tips).post(activities::create_tip))
+        .route("/api/activity-slots/{id}", put(activities::update_slot).delete(activities::delete_slot))
         .route("/api/tips/{id}", put(activities::update_tip).delete(activities::delete_tip))
         // Trips
         .route("/api/trips", get(trips::list).post(trips::create))
@@ -35,9 +41,11 @@ pub fn router() -> Router<SqlitePool> {
         .route("/api/trips/{id}/populate", post(trips::populate))
         .route("/api/trips/{id}/resync", post(trips::resync))
         .route("/api/trips/{id}/clone", post(trips::clone))
-        .route("/api/trips/{id}/items", get(trip_items::list).post(trip_items::create))
+        // Trip items: enriched MUST be registered before the generic /items route
+        .route("/api/trips/{id}/items/enriched", get(trip_items::list_enriched))
         .route("/api/trips/{id}/items/bulk", patch(trip_items::bulk_update))
-        // Trip items
+        .route("/api/trips/{id}/items", get(trip_items::list).post(trip_items::create))
+        // Trip items (standalone)
         .route("/api/trip-items/{id}", put(trip_items::update).delete(trip_items::delete))
         .route("/api/trip-items/{id}/check", patch(trip_items::check))
 }
