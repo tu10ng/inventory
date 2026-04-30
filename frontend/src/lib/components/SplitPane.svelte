@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import StickyPanel from './StickyPanel.svelte';
 
 	let { left, right }: {
 		left: Snippet;
@@ -44,7 +45,9 @@
 
 	{#if !rightCollapsed}
 		<div class="right-panel" class:mobile-hidden={activeTab !== 'inventory'}>
-			{@render right()}
+			<StickyPanel>
+				{@render right()}
+			</StickyPanel>
 		</div>
 	{/if}
 </div>
@@ -106,12 +109,8 @@
 	.right-panel {
 		flex: 45;
 		min-width: 0;
-		position: sticky;
-		top: 16px;
-		max-height: calc(100vh - 150px);
-		overflow-y: auto;
-		overscroll-behavior: contain;
 		border-radius: 12px;
+		align-self: stretch;
 	}
 
 	@media (max-width: 768px) {
@@ -128,8 +127,11 @@
 		.right-panel {
 			flex: 1;
 			width: 100%;
+		}
+		.right-panel :global(.sticky-panel) {
 			position: static;
 			max-height: none;
+			overflow-y: visible;
 		}
 		.mobile-hidden {
 			display: none;
