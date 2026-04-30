@@ -17,7 +17,7 @@
 		onclick?: () => void;
 	} = $props();
 
-	const isDraggable = $derived(itemId > 0 && enrichedItems.length > 0);
+	const isDraggable = $derived(itemId > 0);
 	let dragging = $state(false);
 
 	function handleDragStart(e: DragEvent) {

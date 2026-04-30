@@ -13,6 +13,54 @@
 	let exportLabel = $state('📋');
 	let exportTimer: ReturnType<typeof setTimeout> | undefined;
 
+	let panelDropOver = $state(false);
+
+	// Always reset when drag ends globally (covers stopPropagation in SlotRow, confirm dialogs, etc.)
+	$effect(() => {
+		if (dragState.draggingItem === null) {
+			panelDropOver = false;
+		}
+	});
+
+	function handlePanelDragOver(e: DragEvent) {
+		e.preventDefault();
+		e.dataTransfer!.dropEffect = 'copy';
+		panelDropOver = true;
+	}
+
+	function handlePanelDragLeave(e: DragEvent) {
+		const ct = e.currentTarget as HTMLElement;
+		if (ct === e.target || !ct.contains(e.relatedTarget as Node)) {
+			panelDropOver = false;
+		}
+	}
+
+	function handlePanelDrop(e: DragEvent) {
+		e.preventDefault();
+		panelDropOver = false;
+		try {
+			const data = JSON.parse(e.dataTransfer!.getData('application/json'));
+			if (data.itemId) addItemByDrop(data.itemId);
+		} catch { /* ignore bad data */ }
+	}
+
+	async function addItemByDrop(itemId: number) {
+		const existing = enrichedItems.find(ti => ti.item_id === itemId);
+		if (existing) {
+			const itemInfo = allItems.find(i => i.id === itemId);
+			const name = itemInfo?.name ?? '该物品';
+			if (!window.confirm(`"${name}" 已在清单中，确定要再次添加吗？`)) return;
+		}
+		const itemInfo = allItems.find(i => i.id === itemId);
+		const qty = itemInfo?.default_qty ?? 1;
+		try {
+			await api.post(`/trips/${trip.id}/items`, { item_id: itemId, qty });
+		} catch (e) {
+			console.error('添加物品失败', e);
+		}
+		onReload();
+	}
+
 	let {
 		trip,
 		enrichedItems = $bindable(),
@@ -220,6 +268,14 @@
 	}
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="checklist-drop-target"
+	class:drag-over={panelDropOver}
+	ondragover={handlePanelDragOver}
+	ondragleave={handlePanelDragLeave}
+	ondrop={handlePanelDrop}
+>
 <ProgressBar checked={totalChecked} total={totalItems} />
 
 {#if tips.length > 0}
@@ -347,10 +403,11 @@
 		{#if trip.activity_id}
 			清单为空，点击"从模板填充清单"自动添加物品
 		{:else}
-			清单为空，点击"添加额外物品"手动添加
+			清单为空，点击"添加额外物品"或从右侧拖拽物品添加
 		{/if}
 	</div>
 {/if}
+</div>
 
 <style>
 	.tips-card {
@@ -402,5 +459,14 @@
 		text-align: center;
 		color: var(--text-secondary);
 		padding: 40px;
+	}
+	.checklist-drop-target {
+		border-radius: 8px;
+		transition: outline 0.15s, background 0.15s;
+	}
+	.checklist-drop-target.drag-over {
+		outline: 2px dashed var(--primary);
+		outline-offset: -2px;
+		background: rgba(59, 130, 246, 0.04);
 	}
 </style>

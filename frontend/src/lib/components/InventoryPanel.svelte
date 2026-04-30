@@ -67,7 +67,7 @@
 		onCategoryChange={(id) => (filterCategoryId = id)}
 	/>
 
-	<p class="drag-hint">拖拽物品卡片到左侧槽位</p>
+	<p class="drag-hint">拖拽物品卡片到左侧清单</p>
 
 	<div class="inventory-grid-container">
 		{#each groupedFiltered as group}

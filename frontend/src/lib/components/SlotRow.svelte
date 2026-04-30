@@ -56,6 +56,7 @@
 
 	function handleDrop(e: DragEvent) {
 		e.preventDefault();
+		e.stopPropagation();
 		dragOver = false;
 		if (!isValidDropTarget) return;
 		try {
