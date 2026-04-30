@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api/client';
-	import type { Trip, TripItem, TripItemEnriched, Item, Category, Tip, Person } from '$lib/types';
+	import type { Trip, TripItem, TripItemEnriched, Item, Category, Tip, Person, ResyncPreview, ResyncPreviewItem } from '$lib/types';
 	import { TRIP_STATUS_LABELS } from '$lib/utils/status';
 	import SplitPane from '$lib/components/SplitPane.svelte';
 	import ChecklistPanel from '$lib/components/ChecklistPanel.svelte';
@@ -53,7 +53,36 @@
 		await reloadItems();
 	}
 
+	function previewItemLabel(item: ResyncPreviewItem): string {
+		const name = item.item_name || item.custom_name || item.slot_name || '未知物品';
+		return `  - ${name}（${item.reason}）`;
+	}
+
 	async function resync() {
+		const preview = await api.post<ResyncPreview>(`/trips/${tripId}/resync-preview`);
+		if (preview.items_to_remove.length === 0 && preview.items_to_add.length === 0) {
+			alert('模板没有变化，无需同步。');
+			return;
+		}
+
+		const lines: string[] = ['同步模板将执行以下操作：\n'];
+		if (preview.items_to_remove.length > 0) {
+			lines.push(`移除 ${preview.items_to_remove.length} 项：`);
+			for (const item of preview.items_to_remove) {
+				lines.push(previewItemLabel(item));
+			}
+		}
+		if (preview.items_to_add.length > 0) {
+			if (preview.items_to_remove.length > 0) lines.push('');
+			lines.push(`新增 ${preview.items_to_add.length} 项：`);
+			for (const item of preview.items_to_add) {
+				lines.push(previewItemLabel(item));
+			}
+		}
+		lines.push('\n确定执行吗？');
+
+		if (!window.confirm(lines.join('\n'))) return;
+
 		await api.post<TripItem[]>(`/trips/${tripId}/resync`);
 		await reloadItems();
 	}

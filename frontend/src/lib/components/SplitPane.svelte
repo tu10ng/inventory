@@ -108,8 +108,9 @@
 		min-width: 0;
 		position: sticky;
 		top: 16px;
-		max-height: calc(100vh - 48px);
+		max-height: calc(100vh - 150px);
 		overflow-y: auto;
+		overscroll-behavior: contain;
 		border-radius: 12px;
 	}
 

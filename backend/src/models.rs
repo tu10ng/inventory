@@ -370,6 +370,23 @@ pub struct TripRef {
     pub status: String,
 }
 
+// ── Resync Preview ──
+
+#[derive(Debug, Serialize)]
+pub struct ResyncPreview {
+    pub items_to_remove: Vec<ResyncPreviewItem>,
+    pub items_to_add: Vec<ResyncPreviewItem>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ResyncPreviewItem {
+    pub trip_item_id: Option<i64>,
+    pub slot_name: Option<String>,
+    pub item_name: Option<String>,
+    pub custom_name: Option<String>,
+    pub reason: String,
+}
+
 // ── Bulk Update ──
 
 #[derive(Debug, Deserialize)]

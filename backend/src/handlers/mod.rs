@@ -40,6 +40,7 @@ pub fn router() -> Router<SqlitePool> {
         .route("/api/trips/{id}", get(trips::get).put(trips::update).delete(trips::delete))
         .route("/api/trips/{id}/populate", post(trips::populate))
         .route("/api/trips/{id}/resync", post(trips::resync))
+        .route("/api/trips/{id}/resync-preview", post(trips::resync_preview))
         .route("/api/trips/{id}/clone", post(trips::clone))
         // Trip items: enriched MUST be registered before the generic /items route
         .route("/api/trips/{id}/items/enriched", get(trip_items::list_enriched))

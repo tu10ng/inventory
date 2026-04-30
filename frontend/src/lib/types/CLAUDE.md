@@ -27,6 +27,8 @@
 | `ItemUsageStats` | 物品使用详情（item_id, trips: TripRef[]） |
 | `TripRef` | 行程引用（id, name, status） |
 | `BulkUpdateTripItems` | 批量更新请求体（ids, checked?, person_id?, item_status?） |
+| `ResyncPreview` | 同步预览（items_to_remove, items_to_add） |
+| `ResyncPreviewItem` | 预览条目（trip_item_id, slot_name, item_name, custom_name, reason） |
 | `DndItem` | 拖拽物品数据结构 |
 
 ## 维护规则

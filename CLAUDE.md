@@ -79,7 +79,8 @@ RESTful，前缀 `/api`。
 | PATCH | `/api/trip-items/{id}/check` | 切换勾选 |
 | PATCH | `/api/trips/{id}/items/bulk` | 批量更新行程物品 |
 | POST | `/api/trips/{id}/populate` | 从模板填充物品 |
-| POST | `/api/trips/{id}/resync` | 从模板同步新增物品 |
+| POST | `/api/trips/{id}/resync` | 从模板同步（移除模板外物品+补充新槽位） |
+| POST | `/api/trips/{id}/resync-preview` | 同步预览（返回将移除/新增的物品列表） |
 | POST | `/api/trips/{id}/clone` | 克隆行程 |
 | GET | `/api/item-stats` | 物品使用统计（独立路径，避免 `{id}` 冲突） |
 | GET | `/api/item-stats/{id}` | 单个物品使用详情 |
@@ -92,3 +93,13 @@ RESTful，前缀 `/api`。
 - Svelte 5 runes 模式：所有组件使用 `$state`/`$derived`/`$effect`/`$props`
 - Axum 0.8 路径参数用 `{id}` 语法（非 `:id`），**literal 路径要避免与 `{id}` 歧义**（已踩坑：`/items/stats` 被 `/items/{id}` 抢匹配，改为 `/item-stats`）
 - 前端 adapter-static + SPA fallback，`ssr = false`
+
+## 业务逻辑设计教训
+
+以下问题在初版中被遗漏，根因是**只关注了数据/API 的技术正确性，忽视了用户操作流程中的防错设计和信息透明度**：
+
+1. **添加物品无查重**：把"添加"当作纯 CRUD 实现，没有从用户真实场景出发——用户可能忘记已经加过，或从物品库面板重复点击。教训：**任何"新增"操作都应检查是否与已有数据冲突，至少给予提醒**。
+2. **resync 逻辑散乱**：最初只处理"新增模板槽位"，后来逐步补丁式追加删除逻辑（5 个独立 DELETE），每次只修一个 edge case。没有退一步从"resync 的完整行为定义"出发重新设计。教训：**当一个函数被反复追加补丁时，应该停下来重新定义它的整体行为，而不是继续堆叠**。
+3. **同步无预览**：开发者知道 resync 会做什么所以觉得一键执行合理，但用户不知道——可能丢失手动添加的物品却毫无察觉。教训：**任何批量删除/修改操作，必须先展示将发生的变化让用户确认（preview → confirm 模式）**。
+
+总结：实现功能时不能只想"API 入参出参对不对"，要**模拟用户的完整操作路径**，在每个有副作用的步骤问自己：用户知道会发生什么吗？操作可逆吗？有没有防误触？

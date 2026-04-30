@@ -147,6 +147,14 @@
 	}
 
 	async function addTripItem() {
+		if (addItemId) {
+			const existing = enrichedItems.find(ti => ti.item_id === addItemId);
+			if (existing) {
+				const itemInfo = allItems.find(i => i.id === addItemId);
+				const name = itemInfo?.name ?? '该物品';
+				if (!window.confirm(`"${name}" 已在清单中，确定要再次添加吗？`)) return;
+			}
+		}
 		const body: Record<string, unknown> = { qty: addQty };
 		if (addItemId) body.item_id = addItemId;
 		if (addCustomName) body.custom_name = addCustomName;

@@ -35,7 +35,9 @@
 ### trips.rs
 - `list` / `get` / `create` / `update` / `delete` — 行程 CRUD
 - `populate(trip_id)` — 从关联活动模板填充物品（`INSERT OR IGNORE`，含 is_essential）
-- `resync(trip_id)` — 仅添加模板中新增的物品（不重复，不删除已有）
+- `resync(trip_id)` — 同步模板：移除模板外物品（含所有手动添加项）+ 去重 + 补充新槽位
+- `resync_preview(trip_id)` — 返回 `ResyncPreview`：将移除和新增的物品列表（含 reason），供前端确认
+- `compute_resync_diff()` — 内部函数，计算 resync 差异，preview 和 resync 共用
 - `clone(trip_id)` — 复制行程及所有物品，checked 重置为 false，名称加"(副本)"
 
 ### trip_items.rs

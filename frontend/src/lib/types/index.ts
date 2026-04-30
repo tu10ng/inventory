@@ -135,6 +135,19 @@ export interface BulkUpdateTripItems {
 	item_status?: ItemStatus;
 }
 
+export interface ResyncPreviewItem {
+	trip_item_id: number | null;
+	slot_name: string | null;
+	item_name: string | null;
+	custom_name: string | null;
+	reason: string;
+}
+
+export interface ResyncPreview {
+	items_to_remove: ResyncPreviewItem[];
+	items_to_add: ResyncPreviewItem[];
+}
+
 export interface DndItem {
 	id: string;
 	item_id: number;
