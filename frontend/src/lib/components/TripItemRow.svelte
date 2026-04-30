@@ -5,13 +5,16 @@
 	import InlineEdit from './InlineEdit.svelte';
 
 	let { tripItem, itemInfo, people, selected = false, selectable = false,
-		onToggleCheck, onUpdateStatus, onUpdateQty, onUpdateNotes, onUpdatePerson, onRemove, onToggleSelect
+		canSaveAsSlot = false,
+		onToggleCheck, onUpdateStatus, onUpdateQty, onUpdateNotes, onUpdatePerson, onRemove, onToggleSelect,
+		onSaveAsSlot
 	}: {
 		tripItem: TripItem;
 		itemInfo: Item | null;
 		people: Person[];
 		selected?: boolean;
 		selectable?: boolean;
+		canSaveAsSlot?: boolean;
 		onToggleCheck: () => void;
 		onUpdateStatus: (s: ItemStatus) => void;
 		onUpdateQty: (q: number) => void;
@@ -19,6 +22,7 @@
 		onUpdatePerson: (id: number | null) => void;
 		onRemove: () => void;
 		onToggleSelect?: () => void;
+		onSaveAsSlot?: () => void;
 	} = $props();
 </script>
 
@@ -70,6 +74,9 @@
 			placeholder="备注..."
 			oncommit={(v) => onUpdateNotes(String(v))}
 		/>
+		{#if canSaveAsSlot && itemInfo}
+			<button class="small save-slot-btn" onclick={onSaveAsSlot} title="保存到模板">↑</button>
+		{/if}
 		<button class="small danger" onclick={onRemove}>×</button>
 	</div>
 </div>
@@ -132,5 +139,14 @@
 	}
 	.item-detail {
 		color: var(--text-secondary);
+	}
+	.save-slot-btn {
+		color: var(--primary);
+		border-color: var(--primary);
+		font-weight: 600;
+	}
+	.save-slot-btn:hover {
+		background: var(--primary);
+		color: white;
 	}
 </style>

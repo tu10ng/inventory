@@ -1,4 +1,14 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Deserialize a present-but-null JSON field as `Some(None)`,
+/// and an absent field as `None` (via `#[serde(default)]`).
+fn deserialize_some<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
+}
 
 // ── Categories ──
 
@@ -292,8 +302,10 @@ pub struct CreateTripItem {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateTripItem {
+    #[serde(default, deserialize_with = "deserialize_some")]
     pub item_id: Option<Option<i64>>,
     pub custom_name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_some")]
     pub person_id: Option<Option<i64>>,
     pub qty: Option<i64>,
     pub checked: Option<bool>,
@@ -364,6 +376,7 @@ pub struct TripRef {
 pub struct BulkUpdateTripItems {
     pub ids: Vec<i64>,
     pub checked: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_some")]
     pub person_id: Option<Option<i64>>,
     pub item_status: Option<String>,
 }

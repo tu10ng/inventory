@@ -6,7 +6,7 @@
 
 	let { tripItem, people, selected = false, selectable = false,
 		isDragging = false, isValidDropTarget = false,
-		onToggleCheck, onUpdateStatus, onUpdateQty, onUpdateNotes, onUpdatePerson, onRemove, onToggleSelect,
+		onToggleCheck, onUpdateStatus, onUpdateQty, onUpdateNotes, onUpdatePerson, onToggleSelect,
 		onAssignItem, onClearItem
 	}: {
 		tripItem: TripItemEnriched;
@@ -20,7 +20,6 @@
 		onUpdateQty: (q: number) => void;
 		onUpdateNotes: (n: string) => void;
 		onUpdatePerson: (id: number | null) => void;
-		onRemove: () => void;
 		onToggleSelect?: () => void;
 		onAssignItem: (newItemId: number) => void;
 		onClearItem: () => void;
@@ -167,7 +166,6 @@
 			{people}
 			onchange={onUpdatePerson}
 		/>
-		<button class="small danger" onclick={onRemove}>×</button>
 	</div>
 </div>
 
@@ -269,22 +267,24 @@
 		font-weight: 500;
 	}
 	.clear-btn {
-		background: none;
-		border: none;
+		background: #f1f5f9;
+		border: 1px solid #cbd5e1;
 		color: var(--text-secondary);
 		cursor: pointer;
 		font-size: 14px;
-		padding: 0 2px;
+		padding: 0;
 		line-height: 1;
 		border-radius: 50%;
-		width: 18px;
-		height: 18px;
+		width: 24px;
+		height: 24px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		flex-shrink: 0;
 	}
 	.clear-btn:hover {
 		background: var(--danger);
+		border-color: var(--danger);
 		color: white;
 	}
 	.drop-target {

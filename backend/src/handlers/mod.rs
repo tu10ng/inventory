@@ -48,4 +48,5 @@ pub fn router() -> Router<SqlitePool> {
         // Trip items (standalone)
         .route("/api/trip-items/{id}", put(trip_items::update).delete(trip_items::delete))
         .route("/api/trip-items/{id}/check", patch(trip_items::check))
+        .route("/api/trip-items/{id}/save-as-slot", post(trip_items::save_as_slot))
 }

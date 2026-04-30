@@ -298,3 +298,70 @@ pub async fn check(
     .await?;
     Ok(Json(row))
 }
+
+pub async fn save_as_slot(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<i64>,
+) -> Result<Json<TripItem>, AppError> {
+    // 1. Fetch the trip_item
+    let ti = sqlx::query_as::<_, TripItem>("SELECT * FROM trip_items WHERE id = ?")
+        .bind(id)
+        .fetch_one(&pool)
+        .await?;
+
+    // Must have an item_id to create a slot from
+    let item_id = ti.item_id.ok_or_else(|| {
+        anyhow::anyhow!("Trip item has no item_id, cannot save as slot")
+    })?;
+
+    // 2. Fetch the item to get category_id and tag_id
+    let item = sqlx::query_as::<_, Item>("SELECT * FROM items WHERE id = ?")
+        .bind(item_id)
+        .fetch_one(&pool)
+        .await?;
+
+    // 3. Find the trip's activity_id
+    let trip = sqlx::query_as::<_, Trip>("SELECT * FROM trips WHERE id = ?")
+        .bind(ti.trip_id)
+        .fetch_one(&pool)
+        .await?;
+
+    let activity_id = trip.activity_id.ok_or_else(|| {
+        anyhow::anyhow!("Trip has no activity, cannot save as slot")
+    })?;
+
+    // 4. Create the activity_slot
+    let slot = sqlx::query_as::<_, ActivitySlot>(
+        "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, default_item_id, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *"
+    )
+    .bind(activity_id)
+    .bind(&item.name)
+    .bind(item.category_id)
+    .bind(ti.is_essential)
+    .bind(ti.qty)
+    .bind(Some(item_id))
+    .bind(&ti.notes)
+    .bind(0i64)
+    .fetch_one(&pool)
+    .await?;
+
+    // 5. Create slot_tag association if item has a tag
+    if let Some(tag_id) = item.tag_id {
+        sqlx::query("INSERT OR IGNORE INTO activity_slot_tags (slot_id, tag_id) VALUES (?, ?)")
+            .bind(slot.id)
+            .bind(tag_id)
+            .execute(&pool)
+            .await?;
+    }
+
+    // 6. Update trip_item to point to the new slot
+    let row = sqlx::query_as::<_, TripItem>(
+        "UPDATE trip_items SET slot_id = ? WHERE id = ? RETURNING *",
+    )
+    .bind(slot.id)
+    .bind(id)
+    .fetch_one(&pool)
+    .await?;
+
+    Ok(Json(row))
+}

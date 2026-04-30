@@ -93,32 +93,52 @@
 	const totalItems = $derived(enrichedItems.length);
 
 	async function toggleCheck(ti: TripItemEnriched) {
-		await api.patch<unknown>(`/trip-items/${ti.id}/check`, {
-			checked: !ti.checked
-		});
+		try {
+			await api.patch<unknown>(`/trip-items/${ti.id}/check`, {
+				checked: !ti.checked
+			});
+		} catch (e) {
+			console.error('切换勾选失败', e);
+		}
 		onReload();
 	}
 
 	async function updateField(ti: TripItemEnriched, field: string, value: unknown) {
-		await api.put<unknown>(`/trip-items/${ti.id}`, {
-			[field]: value
-		});
+		try {
+			await api.put<unknown>(`/trip-items/${ti.id}`, {
+				[field]: value
+			});
+		} catch (e) {
+			console.error('更新字段失败', e);
+		}
 		onReload();
 	}
 
 	async function assignSlotItem(ti: TripItemEnriched, newItemId: number) {
-		await api.put<unknown>(`/trip-items/${ti.id}`, { item_id: newItemId });
+		try {
+			await api.put<unknown>(`/trip-items/${ti.id}`, { item_id: newItemId });
+		} catch (e) {
+			console.error('分配物品失败', e);
+		}
 		onReload();
 	}
 
 	async function clearSlotItem(ti: TripItemEnriched) {
-		await api.put<unknown>(`/trip-items/${ti.id}`, { item_id: null });
+		try {
+			await api.put<unknown>(`/trip-items/${ti.id}`, { item_id: null });
+		} catch (e) {
+			console.error('清空物品失败', e);
+		}
 		onReload();
 	}
 
 	async function removeTripItem(id: number) {
-		await api.del(`/trip-items/${id}`);
-		selectedIds.delete(id);
+		try {
+			await api.del(`/trip-items/${id}`);
+			selectedIds.delete(id);
+		} catch (e) {
+			console.error('删除物品失败', e);
+		}
 		onReload();
 	}
 
@@ -126,11 +146,15 @@
 		const body: Record<string, unknown> = { qty: addQty };
 		if (addItemId) body.item_id = addItemId;
 		if (addCustomName) body.custom_name = addCustomName;
-		await api.post(`/trips/${trip.id}/items`, body);
-		addItemId = null;
-		addCustomName = '';
-		addQty = 1;
-		showAddForm = false;
+		try {
+			await api.post(`/trips/${trip.id}/items`, body);
+			addItemId = null;
+			addCustomName = '';
+			addQty = 1;
+			showAddForm = false;
+		} catch (e) {
+			console.error('添加物品失败', e);
+		}
 		onReload();
 	}
 
@@ -139,6 +163,16 @@
 		if (next.has(id)) next.delete(id);
 		else next.add(id);
 		selectedIds = next;
+	}
+
+	async function saveTripItemAsSlot(ti: TripItemEnriched) {
+		if (!trip.activity_id) return;
+		try {
+			await api.post(`/trip-items/${ti.id}/save-as-slot`, {});
+		} catch (e) {
+			console.error('保存到模板失败', e);
+		}
+		onReload();
 	}
 
 	async function bulkAction(action: 'check' | 'uncheck' | 'person' | 'status', value?: unknown) {
@@ -150,9 +184,13 @@
 		else if (action === 'person') body.person_id = value;
 		else if (action === 'status') body.item_status = value;
 
-		await api.patch<unknown>(`/trips/${trip.id}/items/bulk`, body);
-		selectedIds = new Set();
-		selectable = false;
+		try {
+			await api.patch<unknown>(`/trips/${trip.id}/items/bulk`, body);
+			selectedIds = new Set();
+			selectable = false;
+		} catch (e) {
+			console.error('批量操作失败', e);
+		}
 		onReload();
 	}
 </script>
@@ -252,7 +290,6 @@
 					onUpdateQty={(q) => updateField(ti, 'qty', q)}
 					onUpdateNotes={(n) => updateField(ti, 'notes', n)}
 					onUpdatePerson={(id) => updateField(ti, 'person_id', id)}
-					onRemove={() => removeTripItem(ti.id)}
 					onToggleSelect={() => toggleSelect(ti.id)}
 					onAssignItem={(newId) => assignSlotItem(ti, newId)}
 					onClearItem={() => clearSlotItem(ti)}
@@ -264,6 +301,7 @@
 					{people}
 					selected={selectedIds.has(ti.id)}
 					{selectable}
+					canSaveAsSlot={!!trip.activity_id}
 					onToggleCheck={() => toggleCheck(ti)}
 					onUpdateStatus={(s) => updateField(ti, 'item_status', s)}
 					onUpdateQty={(q) => updateField(ti, 'qty', q)}
@@ -271,6 +309,7 @@
 					onUpdatePerson={(id) => updateField(ti, 'person_id', id)}
 					onRemove={() => removeTripItem(ti.id)}
 					onToggleSelect={() => toggleSelect(ti.id)}
+					onSaveAsSlot={() => saveTripItemAsSlot(ti)}
 				/>
 			{/if}
 		{/each}
