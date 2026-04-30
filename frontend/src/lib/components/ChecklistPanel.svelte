@@ -6,8 +6,12 @@
 	import CategoryGroup from './CategoryGroup.svelte';
 	import TripItemRow from './TripItemRow.svelte';
 	import SlotRow from './SlotRow.svelte';
+	import { generateTripText } from '$lib/utils/export';
 
 	const dragState = getDragState();
+
+	let exportLabel = $state('📋');
+	let exportTimer: ReturnType<typeof setTimeout> | undefined;
 
 	let {
 		trip,
@@ -175,6 +179,19 @@
 		onReload();
 	}
 
+	async function copyExportText() {
+		const text = generateTripText(trip, groupedItems, allItems, people, tips, totalChecked, totalItems);
+		try {
+			await navigator.clipboard.writeText(text);
+			clearTimeout(exportTimer);
+			exportLabel = '已复制';
+			exportTimer = setTimeout(() => { exportLabel = '📋'; }, 2000);
+		} catch {
+			// Fallback: prompt user to copy manually
+			prompt('复制以下文本:', text);
+		}
+	}
+
 	async function bulkAction(action: 'check' | 'uncheck' | 'person' | 'status', value?: unknown) {
 		const ids = [...selectedIds];
 		if (ids.length === 0) return;
@@ -219,6 +236,7 @@
 		{selectable ? '退出选择' : '批量操作'}
 	</button>
 	<button class="no-print" onclick={() => window.print()} title="打印清单">🖨️</button>
+	<button class="no-print" onclick={copyExportText} title="复制清单文本">{exportLabel}</button>
 </div>
 
 {#if selectable && selectedIds.size > 0}

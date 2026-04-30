@@ -11,6 +11,10 @@ cleanup() {
     echo "正在停止服务..."
     [[ -n "$BACKEND_PGID" ]]  && kill -- -"$BACKEND_PGID"  2>/dev/null
     [[ -n "$FRONTEND_PGID" ]] && kill -- -"$FRONTEND_PGID" 2>/dev/null
+    sleep 1
+    # 确保子进程全部退出
+    [[ -n "$BACKEND_PGID" ]]  && kill -9 -- -"$BACKEND_PGID"  2>/dev/null
+    [[ -n "$FRONTEND_PGID" ]] && kill -9 -- -"$FRONTEND_PGID" 2>/dev/null
     wait 2>/dev/null
     echo "已停止"
 }

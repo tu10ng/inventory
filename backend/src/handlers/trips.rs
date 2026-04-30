@@ -150,6 +150,37 @@ pub async fn resync(
     .fetch_all(&pool)
     .await?;
 
+    // Delete trip_items whose slot_id is no longer in the template
+    let template_slot_ids: Vec<i64> = slots.iter().map(|s| s.id).collect();
+    if template_slot_ids.is_empty() {
+        sqlx::query("DELETE FROM trip_items WHERE trip_id = ? AND slot_id IS NOT NULL")
+            .bind(trip_id)
+            .execute(&pool)
+            .await?;
+    } else {
+        let placeholders = template_slot_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "DELETE FROM trip_items WHERE trip_id = ? AND slot_id IS NOT NULL AND slot_id NOT IN ({})",
+            placeholders
+        );
+        let mut query = sqlx::query(&sql).bind(trip_id);
+        for id in &template_slot_ids {
+            query = query.bind(id);
+        }
+        query.execute(&pool).await?;
+    }
+
+    // Deduplicate: keep only the oldest trip_item per slot_id
+    sqlx::query(
+        "DELETE FROM trip_items WHERE trip_id = ? AND slot_id IS NOT NULL AND id NOT IN (
+            SELECT MIN(id) FROM trip_items WHERE trip_id = ? AND slot_id IS NOT NULL GROUP BY slot_id
+        )"
+    )
+    .bind(trip_id)
+    .bind(trip_id)
+    .execute(&pool)
+    .await?;
+
     // Get existing slot_ids in this trip
     let existing_slot_ids: Vec<i64> = sqlx::query_scalar(
         "SELECT slot_id FROM trip_items WHERE trip_id = ? AND slot_id IS NOT NULL",
@@ -183,6 +214,17 @@ pub async fn resync(
             sort += 1;
         }
     }
+
+    // Remove manually-added items that duplicate a template item (same item_id)
+    sqlx::query(
+        "DELETE FROM trip_items WHERE trip_id = ? AND slot_id IS NULL AND item_id IN (
+            SELECT item_id FROM trip_items WHERE trip_id = ? AND slot_id IS NOT NULL
+        )"
+    )
+    .bind(trip_id)
+    .bind(trip_id)
+    .execute(&pool)
+    .await?;
 
     let items = sqlx::query_as::<_, TripItem>(
         "SELECT * FROM trip_items WHERE trip_id = ? ORDER BY sort_order, id",
