@@ -46,7 +46,6 @@ export interface ActivitySlot {
 	category_id: number;
 	is_essential: boolean;
 	default_qty: number;
-	default_item_id: number | null;
 	notes: string;
 	sort_order: number;
 }
@@ -99,7 +98,6 @@ export interface SlotInfo {
 	slot_name: string;
 	category_id: number;
 	is_essential: boolean;
-	default_item_id: number | null;
 }
 
 export interface TripItemEnriched extends TripItem {

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Activity, ActivitySlotWithTags, Item, Tag, Tip, Category } from '$lib/types';
+	import CategoryGroup from '$lib/components/CategoryGroup.svelte';
+	import type { Activity, ActivitySlotWithTags, Tag, Tip, Category } from '$lib/types';
 
 	let activities = $state<Activity[]>([]);
-	let allItems = $state<Item[]>([]);
 	let tags = $state<Tag[]>([]);
 	let categories = $state<Category[]>([]);
 	let showForm = $state(false);
@@ -24,16 +24,14 @@
 		category_id: 0,
 		is_essential: true,
 		default_qty: 1,
-		default_item_id: null as number | null,
 		notes: '',
 		sort_order: 0,
 		tag_ids: [] as number[]
 	});
 
 	async function load() {
-		[activities, allItems, tags, categories] = await Promise.all([
+		[activities, tags, categories] = await Promise.all([
 			api.get<Activity[]>('/activities'),
-			api.get<Item[]>('/items'),
 			api.get<Tag[]>('/tags'),
 			api.get<Category[]>('/categories')
 		]);
@@ -83,7 +81,6 @@
 			category_id: categories[0]?.id ?? 0,
 			is_essential: true,
 			default_qty: 1,
-			default_item_id: null,
 			notes: '',
 			sort_order: slots.length,
 			tag_ids: []
@@ -98,7 +95,6 @@
 			category_id: slot.category_id,
 			is_essential: slot.is_essential,
 			default_qty: slot.default_qty,
-			default_item_id: slot.default_item_id,
 			notes: slot.notes,
 			sort_order: slot.sort_order,
 			tag_ids: slot.tags.map(t => t.id)
@@ -160,21 +156,23 @@
 		return tags.filter(t => t.category_id === slotForm.category_id);
 	});
 
-	const candidateItems = $derived.by(() => {
-		if (slotForm.tag_ids.length === 0) return allItems;
-		return allItems.filter(i => i.tag_id && slotForm.tag_ids.includes(i.tag_id));
+	const groupedSlots = $derived.by(() => {
+		const catMap = new Map<number, ActivitySlotWithTags[]>();
+		for (const slot of slots) {
+			if (!catMap.has(slot.category_id)) catMap.set(slot.category_id, []);
+			catMap.get(slot.category_id)!.push(slot);
+		}
+		const groups: { category: Category; slots: ActivitySlotWithTags[] }[] = [];
+		for (const cat of categories) {
+			const catSlots = catMap.get(cat.id);
+			if (catSlots && catSlots.length > 0) {
+				groups.push({ category: cat, slots: catSlots });
+			}
+		}
+		return groups;
 	});
 
-	function getCategoryName(catId: number): string {
-		const c = categories.find(c => c.id === catId);
-		return c ? `${c.icon} ${c.name}` : '';
-	}
-
-	function getItemDisplay(itemId: number | null): string {
-		if (!itemId) return '无';
-		const it = allItems.find(i => i.id === itemId);
-		return it ? `${it.name}${it.brand ? ' ' + it.brand : ''}${it.model ? ' ' + it.model : ''}` : `#${itemId}`;
-	}
+	let slotCollapsed = $state<Record<number, boolean>>({});
 
 	$effect(() => { load(); });
 </script>
@@ -279,14 +277,6 @@
 								<span style="color: var(--text-secondary); font-size: 13px;">该分类无标签</span>
 							{/if}
 						</div>
-						<div class="slot-form-row">
-							<select value={slotForm.default_item_id ?? ''} onchange={(e) => slotForm.default_item_id = e.currentTarget.value ? Number(e.currentTarget.value) : null} style="flex: 1;">
-								<option value="">默认物品（无）</option>
-								{#each candidateItems as it}
-									<option value={it.id}>{it.name}{it.brand ? ` ${it.brand}` : ''}{it.model ? ` ${it.model}` : ''}</option>
-								{/each}
-							</select>
-						</div>
 						<input bind:value={slotForm.notes} placeholder="备注" />
 						<button class="primary" onclick={saveSlot} disabled={!slotForm.slot_name}>
 							{editingSlotId ? '更新槽位' : '添加槽位'}
@@ -294,38 +284,46 @@
 					</div>
 				{/if}
 
-				{#each slots as slot (slot.id)}
-					<div class="card slot-row">
-						<div class="slot-main">
-							<button
-								class="small essential-btn"
-								style="color: {slot.is_essential ? 'var(--warning)' : 'var(--text-secondary)'};"
-								onclick={() => toggleSlotEssential(slot)}
-								title={slot.is_essential ? '必备（点击取消）' : '非必备（点击标记为必备）'}
-							>
-								{slot.is_essential ? '★' : '☆'}
-							</button>
-							<div class="slot-info">
-								<strong>{slot.slot_name}</strong>
-								{#if slot.default_qty > 1}
-									<span class="slot-qty">x{slot.default_qty}</span>
-								{/if}
-								<span class="slot-category">{getCategoryName(slot.category_id)}</span>
+				{#each groupedSlots as group (group.category.id)}
+					{@const essentialCount = group.slots.filter(s => s.is_essential).length}
+					<CategoryGroup
+						icon={group.category.icon}
+						name={group.category.name}
+						checked={essentialCount}
+						total={group.slots.length}
+						collapsed={slotCollapsed[group.category.id] ?? false}
+						onToggle={() => slotCollapsed[group.category.id] = !slotCollapsed[group.category.id]}
+					>
+						{#each group.slots as slot (slot.id)}
+							<div class="slot-row">
+								<div class="slot-main">
+									<button
+										class="small essential-btn"
+										style="color: {slot.is_essential ? 'var(--warning)' : 'var(--text-secondary)'};"
+										onclick={() => toggleSlotEssential(slot)}
+										title={slot.is_essential ? '必备（点击取消）' : '非必备（点击标记为必备）'}
+									>
+										{slot.is_essential ? '★' : '☆'}
+									</button>
+									<div class="slot-info">
+										<strong>{slot.slot_name}</strong>
+										{#if slot.default_qty > 1}
+											<span class="slot-qty">x{slot.default_qty}</span>
+										{/if}
+									</div>
+								</div>
+								<div class="slot-tags">
+									{#each slot.tags as t}
+										<span class="tag-chip-small">{t.name}</span>
+									{/each}
+								</div>
+								<div class="slot-actions">
+									<button class="small" onclick={() => startEditSlot(slot)}>编辑</button>
+									<button class="small danger" onclick={() => removeSlot(slot.id)}>删除</button>
+								</div>
 							</div>
-						</div>
-						<div class="slot-tags">
-							{#each slot.tags as t}
-								<span class="tag-chip-small">{t.name}</span>
-							{/each}
-						</div>
-						<div class="slot-default">
-							默认: {getItemDisplay(slot.default_item_id)}
-						</div>
-						<div class="slot-actions">
-							<button class="small" onclick={() => startEditSlot(slot)}>编辑</button>
-							<button class="small danger" onclick={() => removeSlot(slot.id)}>删除</button>
-						</div>
-					</div>
+						{/each}
+					</CategoryGroup>
 				{/each}
 
 				{#if slots.length === 0}
@@ -425,6 +423,7 @@
 		gap: 12px;
 		padding: 8px 14px;
 		flex-wrap: wrap;
+		border-top: 1px solid var(--border);
 	}
 	.slot-main {
 		display: flex;
@@ -445,19 +444,10 @@
 		color: var(--text-secondary);
 		font-size: 13px;
 	}
-	.slot-category {
-		font-size: 12px;
-		color: var(--text-secondary);
-	}
 	.slot-tags {
 		display: flex;
 		gap: 4px;
 		flex-wrap: wrap;
-	}
-	.slot-default {
-		font-size: 13px;
-		color: var(--text-secondary);
-		white-space: nowrap;
 	}
 	.slot-actions {
 		display: flex;

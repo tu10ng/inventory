@@ -136,7 +136,6 @@ pub struct ActivitySlot {
     pub category_id: i64,
     pub is_essential: bool,
     pub default_qty: i64,
-    pub default_item_id: Option<i64>,
     pub notes: String,
     pub sort_order: i64,
 }
@@ -149,7 +148,6 @@ pub struct ActivitySlotWithTags {
     pub category_id: i64,
     pub is_essential: bool,
     pub default_qty: i64,
-    pub default_item_id: Option<i64>,
     pub notes: String,
     pub sort_order: i64,
     pub tags: Vec<Tag>,
@@ -163,7 +161,6 @@ pub struct CreateActivitySlot {
     pub is_essential: bool,
     #[serde(default = "default_qty")]
     pub default_qty: i64,
-    pub default_item_id: Option<i64>,
     #[serde(default)]
     pub notes: String,
     #[serde(default)]
@@ -178,7 +175,6 @@ pub struct UpdateActivitySlot {
     pub category_id: Option<i64>,
     pub is_essential: Option<bool>,
     pub default_qty: Option<i64>,
-    pub default_item_id: Option<Option<i64>>,
     pub notes: Option<String>,
     pub sort_order: Option<i64>,
     pub tag_ids: Option<Vec<i64>>,
@@ -328,7 +324,6 @@ pub struct SlotInfo {
     pub slot_name: String,
     pub category_id: i64,
     pub is_essential: bool,
-    pub default_item_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]

@@ -163,7 +163,6 @@ pub async fn list_slots(
             category_id: slot.category_id,
             is_essential: slot.is_essential,
             default_qty: slot.default_qty,
-            default_item_id: slot.default_item_id,
             notes: slot.notes,
             sort_order: slot.sort_order,
             tags,
@@ -188,14 +187,13 @@ pub async fn create_slot(
     Json(body): Json<CreateActivitySlot>,
 ) -> Result<Json<ActivitySlotWithTags>, AppError> {
     let slot = sqlx::query_as::<_, ActivitySlot>(
-        "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, default_item_id, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *",
     )
     .bind(activity_id)
     .bind(&body.slot_name)
     .bind(body.category_id)
     .bind(body.is_essential)
     .bind(body.default_qty)
-    .bind(body.default_item_id)
     .bind(&body.notes)
     .bind(body.sort_order)
     .fetch_one(&pool)
@@ -222,7 +220,6 @@ pub async fn create_slot(
         category_id: slot.category_id,
         is_essential: slot.is_essential,
         default_qty: slot.default_qty,
-        default_item_id: slot.default_item_id,
         notes: slot.notes,
         sort_order: slot.sort_order,
         tags,
@@ -243,21 +240,16 @@ pub async fn update_slot(
     let category_id = body.category_id.unwrap_or(existing.category_id);
     let is_essential = body.is_essential.unwrap_or(existing.is_essential);
     let default_qty = body.default_qty.unwrap_or(existing.default_qty);
-    let default_item_id = match body.default_item_id {
-        Some(v) => v,
-        None => existing.default_item_id,
-    };
     let notes = body.notes.unwrap_or(existing.notes);
     let sort_order = body.sort_order.unwrap_or(existing.sort_order);
 
     let slot = sqlx::query_as::<_, ActivitySlot>(
-        "UPDATE activity_slots SET slot_name = ?, category_id = ?, is_essential = ?, default_qty = ?, default_item_id = ?, notes = ?, sort_order = ? WHERE id = ? RETURNING *",
+        "UPDATE activity_slots SET slot_name = ?, category_id = ?, is_essential = ?, default_qty = ?, notes = ?, sort_order = ? WHERE id = ? RETURNING *",
     )
     .bind(&slot_name)
     .bind(category_id)
     .bind(is_essential)
     .bind(default_qty)
-    .bind(default_item_id)
     .bind(&notes)
     .bind(sort_order)
     .bind(id)
@@ -294,7 +286,6 @@ pub async fn update_slot(
         category_id: slot.category_id,
         is_essential: slot.is_essential,
         default_qty: slot.default_qty,
-        default_item_id: slot.default_item_id,
         notes: slot.notes,
         sort_order: slot.sort_order,
         tags,

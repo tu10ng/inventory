@@ -110,7 +110,7 @@ pub async fn populate(
             "INSERT OR IGNORE INTO trip_items (trip_id, item_id, qty, notes, sort_order, is_essential, slot_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(trip_id)
-        .bind(slot.default_item_id)
+        .bind(None::<i64>)
         .bind(slot.default_qty)
         .bind(&slot.notes)
         .bind(i as i64)
@@ -271,14 +271,7 @@ pub async fn resync_preview(
 
     let mut items_to_add = Vec::new();
     for slot in &diff.slots_to_add {
-        let item_name = if let Some(item_id) = slot.default_item_id {
-            sqlx::query_scalar::<_, String>("SELECT name FROM items WHERE id = ?")
-                .bind(item_id)
-                .fetch_optional(&pool)
-                .await?
-        } else {
-            None
-        };
+        let item_name: Option<String> = None;
         items_to_add.push(ResyncPreviewItem {
             trip_item_id: None,
             slot_name: Some(slot.slot_name.clone()),
@@ -325,7 +318,7 @@ pub async fn resync(
             "INSERT INTO trip_items (trip_id, item_id, qty, notes, sort_order, is_essential, slot_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(trip_id)
-        .bind(slot.default_item_id)
+        .bind(None::<i64>)
         .bind(slot.default_qty)
         .bind(&slot.notes)
         .bind(sort)

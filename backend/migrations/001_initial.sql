@@ -46,7 +46,6 @@ CREATE TABLE IF NOT EXISTS activity_slots (
     category_id INTEGER NOT NULL REFERENCES categories(id),
     is_essential INTEGER NOT NULL DEFAULT 1,
     default_qty INTEGER NOT NULL DEFAULT 1,
-    default_item_id INTEGER REFERENCES items(id),
     notes TEXT NOT NULL DEFAULT '',
     sort_order INTEGER NOT NULL DEFAULT 0
 );
@@ -170,30 +169,30 @@ INSERT OR IGNORE INTO activity_items (id, activity_id, item_id) VALUES
     (21, 1, 21), (22, 1, 22), (23, 1, 23);
 
 -- Seed activity_slots (23 slots for activity 1)
-INSERT OR IGNORE INTO activity_slots (id, activity_id, slot_name, category_id, is_essential, default_qty, default_item_id, sort_order) VALUES
-    (1,  1, '软壳衣',     1, 1, 1, 1,  1),
-    (2,  1, '软壳裤',     1, 1, 1, 2,  2),
-    (3,  1, '硬壳/雨衣',  1, 1, 1, 3,  3),
-    (4,  1, '速干衣',     1, 1, 2, 4,  4),
-    (5,  1, '抓绒',       1, 1, 1, 5,  5),
-    (6,  1, '羽绒',       1, 1, 1, 6,  6),
-    (7,  1, '袜子',       1, 1, 2, 7,  7),
-    (8,  1, '徒步鞋',     2, 1, 2, 8,  8),
-    (9,  1, '登山杖',     2, 1, 2, 9,  9),
-    (10, 1, '轻装包',     2, 1, 1, 10, 10),
-    (11, 1, '头灯',       2, 1, 1, 11, 11),
-    (12, 1, '墨镜',       2, 1, 1, 12, 12),
-    (13, 1, '防晒霜',     6, 1, 1, 13, 13),
-    (14, 1, '充电宝',     4, 1, 1, 14, 14),
-    (15, 1, '手表充电线', 4, 1, 1, 15, 15),
-    (16, 1, '手机充电线', 4, 1, 1, 16, 16),
-    (17, 1, '创口贴',     5, 1, 1, 17, 17),
-    (18, 1, '碘伏棉签',   5, 1, 1, 18, 18),
-    (19, 1, '零食',       3, 1, 1, 19, 19),
-    (20, 1, '能量胶(等渗)', 3, 1, 1, 20, 20),
-    (21, 1, '能量胶(高渗)', 3, 1, 1, 21, 21),
-    (22, 1, '电解质',     3, 1, 1, 22, 22),
-    (23, 1, '高反药',     3, 1, 1, 23, 23);
+INSERT OR IGNORE INTO activity_slots (id, activity_id, slot_name, category_id, is_essential, default_qty, sort_order) VALUES
+    (1,  1, '软壳衣',     1, 1, 1, 1),
+    (2,  1, '软壳裤',     1, 1, 1, 2),
+    (3,  1, '硬壳/雨衣',  1, 1, 1, 3),
+    (4,  1, '速干衣',     1, 1, 2, 4),
+    (5,  1, '抓绒',       1, 1, 1, 5),
+    (6,  1, '羽绒',       1, 1, 1, 6),
+    (7,  1, '袜子',       1, 1, 2, 7),
+    (8,  1, '徒步鞋',     2, 1, 2, 8),
+    (9,  1, '登山杖',     2, 1, 2, 9),
+    (10, 1, '轻装包',     2, 1, 1, 10),
+    (11, 1, '头灯',       2, 1, 1, 11),
+    (12, 1, '墨镜',       2, 1, 1, 12),
+    (13, 1, '防晒霜',     6, 1, 1, 13),
+    (14, 1, '充电宝',     4, 1, 1, 14),
+    (15, 1, '手表充电线', 4, 1, 1, 15),
+    (16, 1, '手机充电线', 4, 1, 1, 16),
+    (17, 1, '创口贴',     5, 1, 1, 17),
+    (18, 1, '碘伏棉签',   5, 1, 1, 18),
+    (19, 1, '零食',       3, 1, 1, 19),
+    (20, 1, '能量胶(等渗)', 3, 1, 1, 20),
+    (21, 1, '能量胶(高渗)', 3, 1, 1, 21),
+    (22, 1, '电解质',     3, 1, 1, 22),
+    (23, 1, '高反药',     3, 1, 1, 23);
 
 -- Seed activity_slot_tags (each slot accepts its default item's tag)
 INSERT OR IGNORE INTO activity_slot_tags (id, slot_id, tag_id) VALUES

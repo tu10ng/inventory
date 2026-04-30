@@ -109,7 +109,6 @@ pub async fn list_enriched(
                 slot_name: s.slot_name.clone(),
                 category_id: s.category_id,
                 is_essential: s.is_essential,
-                default_item_id: s.default_item_id,
             });
 
             // Gather candidates from all tags of this slot
@@ -332,14 +331,13 @@ pub async fn save_as_slot(
 
     // 4. Create the activity_slot
     let slot = sqlx::query_as::<_, ActivitySlot>(
-        "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, default_item_id, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *"
+        "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *"
     )
     .bind(activity_id)
     .bind(&item.name)
     .bind(item.category_id)
     .bind(ti.is_essential)
     .bind(ti.qty)
-    .bind(Some(item_id))
     .bind(&ti.notes)
     .bind(0i64)
     .fetch_one(&pool)
