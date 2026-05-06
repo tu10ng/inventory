@@ -82,9 +82,9 @@ CREATE TABLE IF NOT EXISTS trips (
 CREATE TABLE IF NOT EXISTS trip_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
-    item_id INTEGER REFERENCES items(id),
+    item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
     custom_name TEXT NOT NULL DEFAULT '',
-    person_id INTEGER REFERENCES people(id),
+    person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
     qty INTEGER NOT NULL DEFAULT 1,
     checked INTEGER NOT NULL DEFAULT 0,
     item_status TEXT NOT NULL DEFAULT '' CHECK(item_status IN ('', 'need_buy', 'need_find', 'need_charge', 'need_fetch', 'need_give')),

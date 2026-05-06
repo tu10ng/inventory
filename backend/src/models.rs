@@ -482,3 +482,58 @@ pub struct AiParseResponse {
     pub items: Vec<AiParsedItem>,
     pub new_tags: Vec<Tag>,
 }
+
+// ── AI Organize ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action_type")]
+pub enum OrganizeAction {
+    #[serde(rename = "update")]
+    Update {
+        item_id: i64,
+        reason: String,
+        fields: OrganizeUpdateFields,
+    },
+    #[serde(rename = "split")]
+    Split {
+        item_id: i64,
+        reason: String,
+        new_items: Vec<AiParsedItem>,
+    },
+    #[serde(rename = "delete")]
+    Delete {
+        item_id: i64,
+        reason: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizeUpdateFields {
+    pub name: Option<String>,
+    pub brand: Option<String>,
+    pub model: Option<String>,
+    pub category_name: Option<String>,
+    pub tag_name: Option<String>,
+    pub category_id: Option<i64>,
+    pub tag_id: Option<Option<i64>>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrganizePreviewResponse {
+    pub actions: Vec<OrganizeAction>,
+    pub new_tags: Vec<Tag>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OrganizeApplyRequest {
+    pub actions: Vec<OrganizeAction>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OrganizeApplyResponse {
+    pub updated: i64,
+    pub created: i64,
+    pub deleted: i64,
+    pub new_tags: Vec<Tag>,
+}

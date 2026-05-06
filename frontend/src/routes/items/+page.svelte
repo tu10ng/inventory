@@ -8,6 +8,7 @@
 	import ItemDetailPanel from '$lib/components/ItemDetailPanel.svelte';
 	import ItemForm from '$lib/components/ItemForm.svelte';
 	import AiAddModal from '$lib/components/AiAddModal.svelte';
+	import AiOrganizeModal from '$lib/components/AiOrganizeModal.svelte';
 	import { ALL_COLUMNS, loadVisibleColumns } from '$lib/utils/columns';
 
 	let items = $state<Item[]>([]);
@@ -26,6 +27,7 @@
 	const visibleColumns = $derived(ALL_COLUMNS.filter(c => visibleKeys.includes(c.key)));
 
 	let showAiModal = $state(false);
+	let showOrganizeModal = $state(false);
 
 	let sortKey = $state<string | null>(null);
 	let sortDir = $state<'asc' | 'desc'>('asc');
@@ -245,6 +247,7 @@
 			<ColumnPicker bind:visibleKeys />
 			<button class="primary" onclick={startCreate}>+ 添加物品</button>
 			<button onclick={() => showAiModal = true}>AI 添加</button>
+		<button onclick={() => showOrganizeModal = true}>AI 整理</button>
 		</div>
 		<ItemListTable
 			items={sortedItems}
@@ -299,6 +302,20 @@
 		{tags}
 		onConfirm={handleAiConfirm}
 		onClose={() => showAiModal = false}
+		onNewTags={(newTags) => {
+			const existingIds = new Set(tags.map(t => t.id));
+			tags = [...tags, ...newTags.filter(t => !existingIds.has(t.id))];
+		}}
+	/>
+{/if}
+
+{#if showOrganizeModal}
+	<AiOrganizeModal
+		{items}
+		{categories}
+		{tags}
+		onDone={() => load()}
+		onClose={() => showOrganizeModal = false}
 		onNewTags={(newTags) => {
 			const existingIds = new Set(tags.map(t => t.id));
 			tags = [...tags, ...newTags.filter(t => !existingIds.has(t.id))];

@@ -25,6 +25,8 @@ pub fn router() -> Router<SqlitePool> {
         .route("/api/item-stats", get(items::usage_stats))
         .route("/api/item-stats/{id}", get(items::usage_detail))
         .route("/api/ai/parse-items", post(ai::parse_items))
+        .route("/api/ai/organize-preview", post(ai::organize_preview))
+        .route("/api/ai/organize-apply", post(ai::organize_apply))
         // People
         .route("/api/people", get(people::list).post(people::create))
         .route("/api/people/{id}", put(people::update).delete(people::delete))

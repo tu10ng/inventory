@@ -196,3 +196,33 @@ export interface AiParseResponse {
 	items: AiParsedItem[];
 	new_tags: Tag[];
 }
+
+// ── AI Organize ──
+
+export interface OrganizeUpdateFields {
+	name?: string;
+	brand?: string;
+	model?: string;
+	category_name?: string;
+	tag_name?: string;
+	category_id?: number;
+	tag_id?: number | null;
+	notes?: string;
+}
+
+export type OrganizeAction =
+	| { action_type: 'update'; item_id: number; reason: string; fields: OrganizeUpdateFields }
+	| { action_type: 'split'; item_id: number; reason: string; new_items: AiParsedItem[] }
+	| { action_type: 'delete'; item_id: number; reason: string };
+
+export interface OrganizePreviewResponse {
+	actions: OrganizeAction[];
+	new_tags: Tag[];
+}
+
+export interface OrganizeApplyResponse {
+	updated: number;
+	created: number;
+	deleted: number;
+	new_tags: Tag[];
+}
