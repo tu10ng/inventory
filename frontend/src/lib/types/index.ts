@@ -169,15 +169,30 @@ export interface DndItem {
 	already_added: boolean;
 }
 
-export interface ClassifyResponse {
-	suggested_category_id: number | null;
-	suggested_attributes: {
-		warmth_rating: number;
-		encumbrance: number;
-		waterproof: number;
-		env_protection: number;
-		durability: number;
-		breathable: number;
-	} | null;
-	confidence: number;
+export interface AiParsedItem {
+	name: string;
+	brand: string;
+	model: string;
+	category_name: string | null;
+	tag_name: string | null;
+	category_id: number | null;
+	tag_id: number | null;
+	notes: string;
+	warmth_rating: number;
+	material: string;
+	encumbrance: number;
+	waterproof: number;
+	weight_grams: number;
+	season: string;
+	body_parts: string;
+	env_protection: number;
+	durability: number;
+	storage_ml: number;
+	breathable: number;
+	default_qty: number;
+}
+
+export interface AiParseResponse {
+	items: AiParsedItem[];
+	new_tags: Tag[];
 }

@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Item, Category, Tag, ItemUsageCount } from '$lib/types';
+	import type { Item, Category, Tag, ItemUsageCount, AiParsedItem } from '$lib/types';
 	import SearchFilter from '$lib/components/SearchFilter.svelte';
 	import ColumnPicker from '$lib/components/ColumnPicker.svelte';
 	import ItemListTable from '$lib/components/ItemListTable.svelte';
 	import PanelContainer from '$lib/components/PanelContainer.svelte';
 	import ItemDetailPanel from '$lib/components/ItemDetailPanel.svelte';
 	import ItemForm from '$lib/components/ItemForm.svelte';
+	import AiAddModal from '$lib/components/AiAddModal.svelte';
 	import { ALL_COLUMNS, loadVisibleColumns } from '$lib/utils/columns';
 
 	let items = $state<Item[]>([]);
@@ -23,6 +24,8 @@
 	let collapsedCategories = $state<Set<number>>(new Set());
 	let visibleKeys = $state<string[]>(loadVisibleColumns());
 	const visibleColumns = $derived(ALL_COLUMNS.filter(c => visibleKeys.includes(c.key)));
+
+	let showAiModal = $state(false);
 
 	let sortKey = $state<string | null>(null);
 	let sortDir = $state<'asc' | 'desc'>('asc');
@@ -89,6 +92,38 @@
 	function handleCancel() {
 		selectedItem = null;
 		panelMode = null;
+	}
+
+	async function handleAiConfirm(aiItems: AiParsedItem[]) {
+		showAiModal = false;
+		for (const item of aiItems) {
+			const payload = {
+				name: item.name,
+				brand: item.brand || '',
+				model: item.model || '',
+				category_id: item.category_id ?? categories[0]?.id ?? 1,
+				default_qty: item.default_qty || 1,
+				notes: item.notes || '',
+				tag_id: item.tag_id ?? null,
+				warmth_rating: item.warmth_rating || 0,
+				material: item.material || '',
+				encumbrance: item.encumbrance || 0,
+				waterproof: item.waterproof || 0,
+				weight_grams: item.weight_grams || 0,
+				season: item.season || '',
+				body_parts: item.body_parts || '',
+				env_protection: item.env_protection || 0,
+				durability: item.durability || 0,
+				storage_ml: item.storage_ml || 0,
+				breathable: item.breathable || 0
+			};
+			try {
+				await api.post('/items', payload);
+			} catch (e) {
+				console.error('Failed to create item:', item.name, e);
+			}
+		}
+		await load();
 	}
 
 	function toggleCategory(catId: number) {
@@ -209,6 +244,7 @@
 			/>
 			<ColumnPicker bind:visibleKeys />
 			<button class="primary" onclick={startCreate}>+ 添加物品</button>
+			<button onclick={() => showAiModal = true}>AI 添加</button>
 		</div>
 		<ItemListTable
 			items={sortedItems}
@@ -256,6 +292,19 @@
 	</div>
 </div>
 </div>
+
+{#if showAiModal}
+	<AiAddModal
+		{categories}
+		{tags}
+		onConfirm={handleAiConfirm}
+		onClose={() => showAiModal = false}
+		onNewTags={(newTags) => {
+			const existingIds = new Set(tags.map(t => t.id));
+			tags = [...tags, ...newTags.filter(t => !existingIds.has(t.id))];
+		}}
+	/>
+{/if}
 
 <style>
 	.page-container {

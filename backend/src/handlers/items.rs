@@ -3,7 +3,7 @@ use axum::Json;
 use sqlx::SqlitePool;
 
 use crate::error::AppError;
-use crate::models::{ClassifyRequest, ClassifyResponse, CreateItem, Item, ItemUsageCount, ItemUsageStats, TripRef};
+use crate::models::{CreateItem, Item, ItemUsageCount, ItemUsageStats, TripRef};
 
 pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Item>>, AppError> {
     let rows = sqlx::query_as::<_, Item>("SELECT * FROM items ORDER BY category_id, id")
@@ -118,13 +118,3 @@ pub async fn usage_detail(
     Ok(Json(ItemUsageStats { item_id: id, trips }))
 }
 
-pub async fn classify(
-    Json(_body): Json<ClassifyRequest>,
-) -> Result<Json<ClassifyResponse>, AppError> {
-    // Placeholder — will integrate LLM classification later
-    Ok(Json(ClassifyResponse {
-        suggested_category_id: None,
-        suggested_attributes: None,
-        confidence: 0.0,
-    }))
-}

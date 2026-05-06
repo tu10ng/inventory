@@ -426,30 +426,59 @@ pub struct BulkUpdateTripItems {
     pub item_status: Option<String>,
 }
 
-// ── Item Classification (LLM placeholder) ──
+// ── AI Parse ──
 
 #[derive(Debug, Deserialize)]
-pub struct ClassifyRequest {
+pub struct AiParseRequest {
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiParsedItem {
+    #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub brand: String,
     #[serde(default)]
     pub model: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ClassifyResponse {
-    pub suggested_category_id: Option<i64>,
-    pub suggested_attributes: Option<SuggestedAttributes>,
-    pub confidence: f64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SuggestedAttributes {
+    #[serde(default)]
+    pub category_name: Option<String>,
+    #[serde(default)]
+    pub tag_name: Option<String>,
+    #[serde(default)]
+    pub category_id: Option<i64>,
+    #[serde(default)]
+    pub tag_id: Option<i64>,
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
     pub warmth_rating: i64,
+    #[serde(default)]
+    pub material: String,
+    #[serde(default)]
     pub encumbrance: i64,
+    #[serde(default)]
     pub waterproof: i64,
+    #[serde(default)]
+    pub weight_grams: i64,
+    #[serde(default)]
+    pub season: String,
+    #[serde(default)]
+    pub body_parts: String,
+    #[serde(default)]
     pub env_protection: i64,
+    #[serde(default)]
     pub durability: i64,
+    #[serde(default)]
+    pub storage_ml: i64,
+    #[serde(default)]
     pub breathable: i64,
+    #[serde(default = "default_qty")]
+    pub default_qty: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AiParseResponse {
+    pub items: Vec<AiParsedItem>,
+    pub new_tags: Vec<Tag>,
 }

@@ -1,4 +1,5 @@
 pub mod activities;
+pub mod ai;
 pub mod categories;
 pub mod items;
 pub mod people;
@@ -23,7 +24,7 @@ pub fn router() -> Router<SqlitePool> {
         .route("/api/items/{id}", get(items::get).put(items::update).delete(items::delete))
         .route("/api/item-stats", get(items::usage_stats))
         .route("/api/item-stats/{id}", get(items::usage_detail))
-        .route("/api/item-classify", post(items::classify))
+        .route("/api/ai/parse-items", post(ai::parse_items))
         // People
         .route("/api/people", get(people::list).post(people::create))
         .route("/api/people/{id}", put(people::update).delete(people::delete))
