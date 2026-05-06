@@ -49,7 +49,7 @@ pub struct CreateTag {
 
 // ── Items ──
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Item {
     pub id: i64,
     pub name: String,
@@ -59,6 +59,17 @@ pub struct Item {
     pub default_qty: i64,
     pub notes: String,
     pub tag_id: Option<i64>,
+    pub warmth_rating: i64,
+    pub material: String,
+    pub encumbrance: i64,
+    pub waterproof: i64,
+    pub weight_grams: i64,
+    pub season: String,
+    pub body_parts: String,
+    pub env_protection: i64,
+    pub durability: i64,
+    pub storage_ml: i64,
+    pub breathable: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +85,28 @@ pub struct CreateItem {
     #[serde(default)]
     pub notes: String,
     pub tag_id: Option<i64>,
+    #[serde(default)]
+    pub warmth_rating: i64,
+    #[serde(default)]
+    pub material: String,
+    #[serde(default)]
+    pub encumbrance: i64,
+    #[serde(default)]
+    pub waterproof: i64,
+    #[serde(default)]
+    pub weight_grams: i64,
+    #[serde(default)]
+    pub season: String,
+    #[serde(default)]
+    pub body_parts: String,
+    #[serde(default)]
+    pub env_protection: i64,
+    #[serde(default)]
+    pub durability: i64,
+    #[serde(default)]
+    pub storage_ml: i64,
+    #[serde(default)]
+    pub breathable: i64,
 }
 
 fn default_qty() -> i64 {
@@ -391,4 +424,32 @@ pub struct BulkUpdateTripItems {
     #[serde(default, deserialize_with = "deserialize_some")]
     pub person_id: Option<Option<i64>>,
     pub item_status: Option<String>,
+}
+
+// ── Item Classification (LLM placeholder) ──
+
+#[derive(Debug, Deserialize)]
+pub struct ClassifyRequest {
+    pub name: String,
+    #[serde(default)]
+    pub brand: String,
+    #[serde(default)]
+    pub model: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClassifyResponse {
+    pub suggested_category_id: Option<i64>,
+    pub suggested_attributes: Option<SuggestedAttributes>,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SuggestedAttributes {
+    pub warmth_rating: i64,
+    pub encumbrance: i64,
+    pub waterproof: i64,
+    pub env_protection: i64,
+    pub durability: i64,
+    pub breathable: i64,
 }

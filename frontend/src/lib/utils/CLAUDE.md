@@ -28,3 +28,17 @@
 | `planning` | 计划中 |
 | `packing` | 打包中 |
 | `done` | 已完成 |
+
+### columns.ts
+
+物品库列表的列定义和持久化配置。
+
+| 导出 | 类型 | 用途 |
+|------|------|------|
+| `ALL_COLUMNS` | `ItemColumnDef[]` | 所有可用列定义（name/tag/brand/model/weight/warmth/encumbrance/waterproof/breathable/env_protection/durability/usage） |
+| `loadVisibleColumns()` | `() => string[]` | 从 localStorage 读取可见列 key 列表，默认 `['name','tag','brand','model','weight','warmth','waterproof']` |
+| `saveVisibleColumns()` | `(keys: string[]) => void` | 持久化可见列到 localStorage（key: `inventory-visible-columns`） |
+
+- `name` 列强制可见，不可关闭
+- 每列有 `render` 类型：`text` / `number` / `bool` / `bar` / `stars` / `tag` / `weight`
+- 每列有 `getValue(item, ctx?)` 函数从 Item 提取值，ctx 可携带 tags 和 usageStats

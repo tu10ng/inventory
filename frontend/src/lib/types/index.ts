@@ -21,6 +21,17 @@ export interface Item {
 	default_qty: number;
 	notes: string;
 	tag_id: number | null;
+	warmth_rating: number;
+	material: string;
+	encumbrance: number;
+	waterproof: number;
+	weight_grams: number;
+	season: string;
+	body_parts: string;
+	env_protection: number;
+	durability: number;
+	storage_ml: number;
+	breathable: number;
 }
 
 export interface Activity {
@@ -156,4 +167,26 @@ export interface DndItem {
 	category_icon: string;
 	default_qty: number;
 	already_added: boolean;
+}
+
+export interface ItemColumnDef {
+	key: string;
+	label: string;
+	width: string;
+	render: 'text' | 'number' | 'bool' | 'bar' | 'stars' | 'tag' | 'weight';
+	getValue: (item: Item, ctx?: { tags?: Tag[]; usageStats?: Map<number, number> }) => unknown;
+	sortable?: boolean;
+}
+
+export interface ClassifyResponse {
+	suggested_category_id: number | null;
+	suggested_attributes: {
+		warmth_rating: number;
+		encumbrance: number;
+		waterproof: number;
+		env_protection: number;
+		durability: number;
+		breathable: number;
+	} | null;
+	confidence: number;
 }

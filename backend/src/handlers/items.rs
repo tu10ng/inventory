@@ -3,7 +3,7 @@ use axum::Json;
 use sqlx::SqlitePool;
 
 use crate::error::AppError;
-use crate::models::{CreateItem, Item, ItemUsageCount, ItemUsageStats, TripRef};
+use crate::models::{ClassifyRequest, ClassifyResponse, CreateItem, Item, ItemUsageCount, ItemUsageStats, TripRef};
 
 pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Item>>, AppError> {
     let rows = sqlx::query_as::<_, Item>("SELECT * FROM items ORDER BY category_id, id")
@@ -28,7 +28,7 @@ pub async fn create(
     Json(body): Json<CreateItem>,
 ) -> Result<Json<Item>, AppError> {
     let row = sqlx::query_as::<_, Item>(
-        "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id, warmth_rating, material, encumbrance, waterproof, weight_grams, season, body_parts, env_protection, durability, storage_ml, breathable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
     )
     .bind(&body.name)
     .bind(&body.brand)
@@ -37,6 +37,17 @@ pub async fn create(
     .bind(body.default_qty)
     .bind(&body.notes)
     .bind(body.tag_id)
+    .bind(body.warmth_rating)
+    .bind(&body.material)
+    .bind(body.encumbrance)
+    .bind(body.waterproof)
+    .bind(body.weight_grams)
+    .bind(&body.season)
+    .bind(&body.body_parts)
+    .bind(body.env_protection)
+    .bind(body.durability)
+    .bind(body.storage_ml)
+    .bind(body.breathable)
     .fetch_one(&pool)
     .await?;
     Ok(Json(row))
@@ -48,7 +59,7 @@ pub async fn update(
     Json(body): Json<CreateItem>,
 ) -> Result<Json<Item>, AppError> {
     let row = sqlx::query_as::<_, Item>(
-        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ? WHERE id = ? RETURNING *",
+        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ?, warmth_rating = ?, material = ?, encumbrance = ?, waterproof = ?, weight_grams = ?, season = ?, body_parts = ?, env_protection = ?, durability = ?, storage_ml = ?, breathable = ? WHERE id = ? RETURNING *",
     )
     .bind(&body.name)
     .bind(&body.brand)
@@ -57,6 +68,17 @@ pub async fn update(
     .bind(body.default_qty)
     .bind(&body.notes)
     .bind(body.tag_id)
+    .bind(body.warmth_rating)
+    .bind(&body.material)
+    .bind(body.encumbrance)
+    .bind(body.waterproof)
+    .bind(body.weight_grams)
+    .bind(&body.season)
+    .bind(&body.body_parts)
+    .bind(body.env_protection)
+    .bind(body.durability)
+    .bind(body.storage_ml)
+    .bind(body.breathable)
     .bind(id)
     .fetch_one(&pool)
     .await?;
@@ -94,4 +116,15 @@ pub async fn usage_detail(
     .fetch_all(&pool)
     .await?;
     Ok(Json(ItemUsageStats { item_id: id, trips }))
+}
+
+pub async fn classify(
+    Json(_body): Json<ClassifyRequest>,
+) -> Result<Json<ClassifyResponse>, AppError> {
+    // Placeholder — will integrate LLM classification later
+    Ok(Json(ClassifyResponse {
+        suggested_category_id: None,
+        suggested_attributes: None,
+        confidence: 0.0,
+    }))
 }

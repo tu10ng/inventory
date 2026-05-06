@@ -9,7 +9,7 @@ SvelteKit file-based routing，SPA 模式（`ssr = false`, `adapter-static`）�
 | `/` | `+page.svelte` | 首页：最近行程列表 + 快速创建入口 |
 | `/trips` | `trips/+page.svelte` | 行程列表：创建/删除/克隆行程 |
 | `/trips/[id]` | `trips/[id]/+page.svelte` | 行程详情：双栏布局（ChecklistPanel + InventoryPanel） |
-| `/items` | `items/+page.svelte` | 物品库：搜索/筛选 + 列表/网格视图切换 + 使用统计 |
+| `/items` | `items/+page.svelte` | 物品库：CDDA 风格双面板（分类表格列表 + 详情面板），列配置可自定义 |
 | `/activities` | `activities/+page.svelte` | 活动模板：CRUD + 关联物品(含 is_essential) + 提示管理 |
 
 ## 布局
@@ -43,11 +43,12 @@ export const ssr = false;
 `+page.ts`: `export const prerender = false`（动态路由）
 
 ### 物品库 (`items/+page.svelte`)
-- 搜索框 + 分类筛选（SearchFilter 组件）
-- 列表/网格视图切换
-- 网格视图使用 ItemCard，列表视图使用传统卡片
-- 使用统计 badge（从 `/api/item-stats` 加载，失败不阻塞页面）
-- CRUD 表单
+CDDA 风格双面板布局：
+- **工具栏**：SearchFilter + ColumnPicker（齿轮按钮，列选择持久化到 localStorage）+ 添加按钮
+- **左面板 ItemListTable**：CSS Grid 表格，物品按 category 分组，分类标题可折叠，点击行选中物品
+- **右面板 PanelContainer**：sticky 容器，条件渲染 ItemDetailPanel / ItemForm / 空状态
+- 使用统计（从 `/api/item-stats` 加载，失败不阻塞页面）
+- CRUD 流程：panelMode 状态（detail / edit / create / null）控制右面板内容
 
 ### 活动模板 (`activities/+page.svelte`)
 - 左右布局：活动列表 | 选中活动的详情

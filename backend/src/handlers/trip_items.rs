@@ -119,16 +119,7 @@ pub async fn list_enriched(
                     if let Some(items) = items_by_tag.get(tag_id) {
                         for item in items {
                             if seen_ids.insert(item.id) {
-                                candidates.push(Item {
-                                    id: item.id,
-                                    name: item.name.clone(),
-                                    brand: item.brand.clone(),
-                                    model: item.model.clone(),
-                                    category_id: item.category_id,
-                                    default_qty: item.default_qty,
-                                    notes: item.notes.clone(),
-                                    tag_id: item.tag_id,
-                                });
+                                candidates.push(item.clone());
                             }
                         }
                     }

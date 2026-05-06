@@ -30,6 +30,7 @@
 | `ResyncPreview` | 同步预览（items_to_remove, items_to_add） |
 | `ResyncPreviewItem` | 预览条目（trip_item_id, slot_name, item_name, custom_name, reason） |
 | `DndItem` | 拖拽物品数据结构 |
+| `ItemColumnDef` | 物品列表列定义（key, label, width, render, getValue, sortable?） |
 
 ## 维护规则
 

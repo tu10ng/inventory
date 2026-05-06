@@ -1,19 +1,27 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import type { Item, Category, Tag, ItemUsageCount } from '$lib/types';
+	import { ALL_COLUMNS, loadVisibleColumns, saveVisibleColumns } from '$lib/utils/columns';
 	import SearchFilter from '$lib/components/SearchFilter.svelte';
-	import ItemCard from '$lib/components/ItemCard.svelte';
+	import ItemListTable from '$lib/components/ItemListTable.svelte';
+	import ColumnPicker from '$lib/components/ColumnPicker.svelte';
+	import PanelContainer from '$lib/components/PanelContainer.svelte';
+	import ItemDetailPanel from '$lib/components/ItemDetailPanel.svelte';
+	import ItemForm from '$lib/components/ItemForm.svelte';
 
 	let items = $state<Item[]>([]);
 	let categories = $state<Category[]>([]);
 	let tags = $state<Tag[]>([]);
 	let usageStats = $state<Map<number, number>>(new Map());
-	let showForm = $state(false);
-	let editingId = $state<number | null>(null);
-	let form = $state({ name: '', brand: '', model: '', category_id: 0, default_qty: 1, notes: '', tag_id: null as number | null });
-	let viewMode = $state<'list' | 'grid'>('list');
+
+	let selectedItem = $state<Item | null>(null);
+	let panelMode = $state<'detail' | 'edit' | 'create' | null>(null);
+
 	let search = $state('');
 	let filterCategoryId = $state<number | null>(null);
+
+	let visibleColumnKeys = $state<string[]>(loadVisibleColumns());
+	let collapsedCategories = $state<Set<number>>(new Set());
 
 	async function load() {
 		const [itemsData, cats, tagsData] = await Promise.all([
@@ -24,9 +32,6 @@
 		items = itemsData;
 		categories = cats;
 		tags = tagsData;
-		if (form.category_id === 0 && categories.length > 0) {
-			form.category_id = categories[0].id;
-		}
 		try {
 			const stats = await api.get<ItemUsageCount[]>('/item-stats');
 			usageStats = new Map(stats.map((s) => [s.item_id, s.trip_count]));
@@ -35,41 +40,56 @@
 		}
 	}
 
-	function resetForm() {
-		form = { name: '', brand: '', model: '', category_id: categories[0]?.id ?? 0, default_qty: 1, notes: '', tag_id: null };
-		editingId = null;
-		showForm = false;
+	function selectItem(item: Item) {
+		selectedItem = item;
+		panelMode = 'detail';
 	}
 
-	function startEdit(item: Item) {
-		form = { name: item.name, brand: item.brand, model: item.model, category_id: item.category_id, default_qty: item.default_qty, notes: item.notes, tag_id: item.tag_id };
-		editingId = item.id;
-		showForm = true;
+	function startCreate() {
+		selectedItem = null;
+		panelMode = 'create';
 	}
 
-	async function save() {
-		if (editingId) {
-			await api.put(`/items/${editingId}`, form);
+	function startEdit() {
+		panelMode = 'edit';
+	}
+
+	async function handleSave(data: Record<string, unknown>) {
+		if (panelMode === 'edit' && selectedItem) {
+			const updated = await api.put<Item>(`/items/${selectedItem.id}`, data);
+			selectedItem = updated;
+			panelMode = 'detail';
 		} else {
-			await api.post('/items', form);
+			const created = await api.post<Item>('/items', data);
+			selectedItem = created;
+			panelMode = 'detail';
 		}
-		resetForm();
 		await load();
 	}
 
-	async function remove(id: number) {
-		await api.del(`/items/${id}`);
+	async function handleDelete() {
+		if (!selectedItem) return;
+		if (!confirm(`确定删除「${selectedItem.name}」？`)) return;
+		await api.del(`/items/${selectedItem.id}`);
+		selectedItem = null;
+		panelMode = null;
 		await load();
 	}
 
-	function onTagChange(tagId: number | null) {
-		form.tag_id = tagId;
-		if (tagId) {
-			const tag = tags.find(t => t.id === tagId);
-			if (tag) {
-				form.category_id = tag.category_id;
-			}
+	function handleCancel() {
+		if (panelMode === 'edit' && selectedItem) {
+			panelMode = 'detail';
+		} else {
+			selectedItem = null;
+			panelMode = null;
 		}
+	}
+
+	function toggleCategory(catId: number) {
+		const next = new Set(collapsedCategories);
+		if (next.has(catId)) next.delete(catId);
+		else next.add(catId);
+		collapsedCategories = next;
 	}
 
 	const filteredItems = $derived.by(() => {
@@ -89,18 +109,17 @@
 		return list;
 	});
 
-	const categoryTags = $derived.by(() => {
-		return tags.filter(t => t.category_id === form.category_id);
+	const visibleColumns = $derived(
+		ALL_COLUMNS.filter((c) => visibleColumnKeys.includes(c.key))
+	);
+
+	// Keep selectedItem in sync after reload
+	$effect(() => {
+		if (selectedItem) {
+			const fresh = items.find(i => i.id === selectedItem!.id);
+			if (fresh) selectedItem = fresh;
+		}
 	});
-
-	function getCategoryIcon(catId: number): string {
-		return categories.find((c) => c.id === catId)?.icon ?? '📦';
-	}
-
-	function getTagName(tagId: number | null): string {
-		if (!tagId) return '';
-		return tags.find(t => t.id === tagId)?.name ?? '';
-	}
 
 	$effect(() => { load(); });
 </script>
@@ -108,137 +127,70 @@
 <div class="page-header">
 	<h1>物品库</h1>
 	<div class="header-actions">
-		<div class="view-toggle">
-			<button class="small" class:active={viewMode === 'list'} onclick={() => (viewMode = 'list')}>列表</button>
-			<button class="small" class:active={viewMode === 'grid'} onclick={() => (viewMode = 'grid')}>网格</button>
-		</div>
-		<button class="primary" onclick={() => { if (showForm) resetForm(); else showForm = true; }}>
-			{showForm ? '取消' : '+ 添加物品'}
-		</button>
+		<button class="primary" onclick={startCreate}>+ 添加物品</button>
 	</div>
 </div>
 
-<SearchFilter
-	{search}
-	categoryId={filterCategoryId}
-	{categories}
-	onSearchChange={(v) => (search = v)}
-	onCategoryChange={(id) => (filterCategoryId = id)}
-/>
+<div class="toolbar">
+	<SearchFilter
+		{search}
+		categoryId={filterCategoryId}
+		{categories}
+		onSearchChange={(v) => (search = v)}
+		onCategoryChange={(id) => (filterCategoryId = id)}
+	/>
+	<ColumnPicker bind:visibleKeys={visibleColumnKeys} />
+</div>
 
-{#if showForm}
-	<div class="card">
-		<div style="display: flex; flex-direction: column; gap: 10px;">
-			<div style="display: flex; gap: 10px;">
-				<input bind:value={form.name} placeholder="物品名称" style="flex: 1;" />
-				<select bind:value={form.category_id}>
-					{#each categories as c}
-						<option value={c.id}>{c.icon} {c.name}</option>
-					{/each}
-				</select>
-			</div>
-			<div style="display: flex; gap: 10px;">
-				<select value={form.tag_id ?? ''} onchange={(e) => onTagChange(e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
-					<option value="">无标签</option>
-					{#each categoryTags as t}
-						<option value={t.id}>{t.name}</option>
-					{/each}
-					{#if form.tag_id && !categoryTags.find(t => t.id === form.tag_id)}
-						{@const otherTag = tags.find(t => t.id === form.tag_id)}
-						{#if otherTag}
-							<option value={otherTag.id}>{otherTag.name} (其他分类)</option>
-						{/if}
-					{/if}
-				</select>
-				<input bind:value={form.brand} placeholder="品牌" style="flex: 1;" />
-				<input bind:value={form.model} placeholder="型号" style="flex: 1;" />
-				<input type="number" bind:value={form.default_qty} min="1" style="width: 60px;" />
-			</div>
-			<input bind:value={form.notes} placeholder="备注" />
-			<button class="primary" onclick={save} disabled={!form.name}>
-				{editingId ? '更新' : '添加'}
-			</button>
-		</div>
+<div class="split-layout">
+	<div class="left-panel">
+		<ItemListTable
+			items={filteredItems}
+			{categories}
+			{tags}
+			{usageStats}
+			{visibleColumns}
+			selectedItemId={selectedItem?.id ?? null}
+			{collapsedCategories}
+			onSelect={selectItem}
+			onToggleCategory={toggleCategory}
+		/>
 	</div>
-{/if}
 
-{#if viewMode === 'grid'}
-	{#each categories as cat}
-		{@const catItems = filteredItems.filter((i) => i.category_id === cat.id)}
-		{#if catItems.length > 0}
-			<div class="grid-section">
-				<h3 class="grid-section-title">{cat.icon} {cat.name} ({catItems.length})</h3>
-				<div class="items-grid">
-					{#each catItems as item (item.id)}
-						<div class="grid-card-wrapper">
-							<ItemCard
-								name={item.name}
-								brand={item.brand}
-								model={item.model}
-								categoryIcon={cat.icon}
-								qty={item.default_qty}
-								onclick={() => startEdit(item)}
-							/>
-							{#if item.tag_id}
-								<div class="tag-badge">{getTagName(item.tag_id)}</div>
-							{/if}
-							{#if usageStats.get(item.id)}
-								<div class="usage-badge" title="被 {usageStats.get(item.id)} 个行程使用">
-									{usageStats.get(item.id)} 行程
-								</div>
-							{/if}
-						</div>
-					{/each}
-				</div>
-			</div>
-		{/if}
-	{/each}
-{:else}
-	{#each categories as cat}
-		{@const catItems = filteredItems.filter((i) => i.category_id === cat.id)}
-		{#if catItems.length > 0}
-			<div style="margin-bottom: 16px;">
-				<h3 style="margin-bottom: 8px;">{cat.icon} {cat.name} ({catItems.length})</h3>
-				{#each catItems as item (item.id)}
-					<div class="card list-item">
-						<div class="list-item-info">
-							<strong>{item.name}</strong>
-							{#if item.tag_id}
-								<span class="tag-inline">{getTagName(item.tag_id)}</span>
-							{/if}
-							{#if item.brand || item.model}
-								<span class="list-detail">{item.brand} {item.model}</span>
-							{/if}
-							{#if item.default_qty > 1}
-								<span class="list-detail"> x{item.default_qty}</span>
-							{/if}
-							{#if item.notes}
-								<span class="list-notes">{item.notes}</span>
-							{/if}
-							{#if usageStats.get(item.id)}
-								<span class="usage-inline">{usageStats.get(item.id)} 行程使用</span>
-							{/if}
-						</div>
-						<div style="display: flex; gap: 6px;">
-							<button class="small" onclick={() => startEdit(item)}>编辑</button>
-							<button class="small danger" onclick={() => remove(item.id)}>删除</button>
-						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
-	{/each}
-{/if}
-
-{#if filteredItems.length === 0}
-	<div class="card" style="text-align: center; color: var(--text-secondary); padding: 40px;">
-		{#if items.length === 0}
-			物品库为空，点击上方按钮添加物品
+	<PanelContainer>
+		{#if panelMode === 'detail' && selectedItem}
+			<ItemDetailPanel
+				item={selectedItem}
+				{categories}
+				{tags}
+				usageCount={usageStats.get(selectedItem.id) ?? 0}
+				onEdit={startEdit}
+				onDelete={handleDelete}
+			/>
+		{:else if panelMode === 'edit' && selectedItem}
+			<ItemForm
+				item={selectedItem}
+				{categories}
+				{tags}
+				onSave={handleSave}
+				onCancel={handleCancel}
+			/>
+		{:else if panelMode === 'create'}
+			<ItemForm
+				{categories}
+				{tags}
+				onSave={handleSave}
+				onCancel={handleCancel}
+			/>
 		{:else}
-			没有匹配的物品
+			<div class="empty-panel">
+				<div class="empty-icon">📋</div>
+				<p>选择物品查看详情</p>
+				<p class="empty-hint">或点击"添加物品"创建新物品</p>
+			</div>
 		{/if}
-	</div>
-{/if}
+	</PanelContainer>
+</div>
 
 <style>
 	.page-header {
@@ -252,88 +204,51 @@
 		gap: 8px;
 		align-items: center;
 	}
-	.view-toggle {
+	.toolbar {
 		display: flex;
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		overflow: hidden;
-	}
-	.view-toggle button {
-		border: none;
-		border-radius: 0;
-		padding: 4px 10px;
-	}
-	.view-toggle button.active {
-		background: var(--primary);
-		color: white;
-	}
-	.grid-section {
-		margin-bottom: 16px;
-	}
-	.grid-section-title {
-		margin-bottom: 8px;
-	}
-	.items-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-		gap: 10px;
-	}
-	.grid-card-wrapper {
-		position: relative;
-	}
-	.tag-badge {
-		position: absolute;
-		top: 4px;
-		left: 4px;
-		background: var(--surface);
-		border: 1px solid var(--border);
-		color: var(--text-secondary);
-		font-size: 10px;
-		padding: 1px 6px;
-		border-radius: 8px;
-	}
-	.tag-inline {
-		font-size: 12px;
-		background: var(--surface);
-		border: 1px solid var(--border);
-		color: var(--text-secondary);
-		padding: 0 6px;
-		border-radius: 8px;
-	}
-	.usage-badge {
-		position: absolute;
-		bottom: 4px;
-		right: 4px;
-		background: var(--primary);
-		color: white;
-		font-size: 10px;
-		padding: 1px 6px;
-		border-radius: 8px;
-	}
-	.list-item {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		padding: 10px 16px;
-	}
-	.list-item-info {
-		display: flex;
-		align-items: center;
 		gap: 8px;
-		flex-wrap: wrap;
+		align-items: flex-start;
+		margin-bottom: 12px;
 	}
-	.list-detail {
-		color: var(--text-secondary);
+	.toolbar :global(.search-filter) {
+		flex: 1;
+		margin-bottom: 0;
 	}
-	.list-notes {
-		color: var(--text-secondary);
-		font-size: 13px;
+	.split-layout {
+		display: flex;
+		gap: 16px;
+		align-items: flex-start;
 	}
-	.usage-inline {
-		font-size: 11px;
-		background: #e8f0fe;
-		color: var(--primary);
-		padding: 0 6px;
+	.left-panel {
+		flex: 1;
+		min-width: 0;
+	}
+	.empty-panel {
+		background: var(--surface);
+		border: 1px solid var(--border);
 		border-radius: 8px;
+		padding: 40px 20px;
+		text-align: center;
+		color: var(--text-secondary);
+	}
+	.empty-icon {
+		font-size: 40px;
+		margin-bottom: 12px;
+	}
+	.empty-hint {
+		font-size: 13px;
+		margin-top: 4px;
+		opacity: 0.7;
+	}
+
+	@media (max-width: 768px) {
+		.split-layout {
+			flex-direction: column;
+		}
+		.split-layout :global(.panel-container) {
+			width: 100%;
+			position: static;
+			max-height: none;
+		}
 	}
 </style>

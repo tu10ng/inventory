@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -15,6 +16,7 @@ pub async fn init_pool() -> SqlitePool {
         .expect("failed to connect to database");
 
     run_migrations(&pool).await;
+    sync_categories(&pool).await;
     pool
 }
 
@@ -38,4 +40,30 @@ async fn run_migrations(pool: &SqlitePool) {
         }
     }
     tracing::info!("Database migrations complete");
+}
+
+#[derive(Deserialize)]
+struct CategoryConfig {
+    id: i64,
+    name: String,
+    icon: String,
+    sort_order: i64,
+}
+
+async fn sync_categories(pool: &SqlitePool) {
+    let json = include_str!("../config/categories.json");
+    let configs: Vec<CategoryConfig> = serde_json::from_str(json).expect("invalid categories.json");
+    for c in &configs {
+        sqlx::query(
+            "INSERT INTO categories (id, name, icon, sort_order) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, icon = excluded.icon, sort_order = excluded.sort_order",
+        )
+        .bind(c.id)
+        .bind(&c.name)
+        .bind(&c.icon)
+        .bind(c.sort_order)
+        .execute(pool)
+        .await
+        .expect("failed to sync category");
+    }
+    tracing::info!("Synced {} categories from config", configs.len());
 }
