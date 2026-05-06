@@ -12,11 +12,8 @@
 
 <style>
 	.panel-container {
-		position: sticky;
-		top: 16px;
-		align-self: flex-start;
+		height: 100%;
 		overflow-y: auto;
-		max-height: calc(100vh - 80px);
 		width: 100%;
 	}
 </style>

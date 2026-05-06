@@ -1,23 +1,38 @@
 <script lang="ts">
 	import type { Item, Category, Tag } from '$lib/types';
+	import type { ItemColumnDef } from '$lib/utils/columns';
 
 	let {
 		items,
 		categories,
 		tags,
+		visibleColumns = [],
 		selectedItemId,
 		collapsedCategories,
+		sortKey = null,
+		sortDir = 'asc',
+		columnFilters = new Map(),
 		onSelect,
 		onToggleCategory,
+		onSort,
+		onFilterChange,
 	}: {
 		items: Item[];
 		categories: Category[];
 		tags: Tag[];
+		visibleColumns?: ItemColumnDef[];
 		selectedItemId: number | null;
 		collapsedCategories: Set<number>;
+		sortKey?: string | null;
+		sortDir?: 'asc' | 'desc';
+		columnFilters?: Map<string, Set<string>>;
 		onSelect: (item: Item) => void;
 		onToggleCategory: (catId: number) => void;
+		onSort?: (key: string) => void;
+		onFilterChange?: (key: string, values: Set<string>) => void;
 	} = $props();
+
+	let openFilter = $state<string | null>(null);
 
 	const groupedItems = $derived.by(() => {
 		const groups: { category: Category; items: Item[] }[] = [];
@@ -30,13 +45,127 @@
 		return groups;
 	});
 
+	const tagMap = $derived(new Map(tags.map(t => [t.id, t])));
+
 	function getTag(item: Item): Tag | undefined {
 		if (!item.tag_id) return undefined;
-		return tags.find(t => t.id === item.tag_id);
+		return tagMap.get(item.tag_id);
+	}
+
+	function getCellValue(item: Item, col: ItemColumnDef): unknown {
+		return (item as unknown as Record<string, unknown>)[col.key];
+	}
+
+	function handleSort(key: string) {
+		onSort?.(key);
+	}
+
+	function toggleFilter(key: string, e: MouseEvent) {
+		e.stopPropagation();
+		openFilter = openFilter === key ? null : key;
+	}
+
+	function handleFilterValue(colKey: string, value: string) {
+		const current = columnFilters.get(colKey) ?? new Set<string>();
+		const next = new Set(current);
+		if (next.has(value)) next.delete(value);
+		else next.add(value);
+		onFilterChange?.(colKey, next);
+	}
+
+	function clearFilter(colKey: string, e: MouseEvent) {
+		e.stopPropagation();
+		onFilterChange?.(colKey, new Set());
+		openFilter = null;
+	}
+
+	// Compute unique values for a filterable column across all items passed in
+	function getUniqueValues(col: ItemColumnDef): string[] {
+		const vals = new Set<string>();
+		for (const item of items) {
+			if (col.type === 'tag') {
+				const t = getTag(item);
+				vals.add(t ? t.name : '-');
+			} else if (col.type === 'bool') {
+				const v = getCellValue(item, col) as number;
+				vals.add(v > 0 ? '1' : '0');
+			} else {
+				const v = getCellValue(item, col);
+				vals.add(v ? String(v) : '-');
+			}
+		}
+		return [...vals].sort();
+	}
+
+	function getFilterDisplayLabel(col: ItemColumnDef, val: string): string {
+		if (col.type === 'bool') return val === '1' ? '✓' : '✗';
+		return val;
+	}
+
+	function closeFilter(e: MouseEvent) {
+		if (openFilter) openFilter = null;
 	}
 </script>
 
-<div class="item-list-table">
+<svelte:window onclick={closeFilter} />
+
+<div class="item-list-table" style="--extra-cols: {visibleColumns.length}">
+	<!-- Header -->
+	{#if visibleColumns.length > 0}
+		<div class="header-row">
+			<button class="hdr-name hdr-btn" onclick={() => handleSort('name')}>
+				<span>名称</span>
+				{#if sortKey === 'name'}
+					<span class="sort-icon">{sortDir === 'asc' ? '▲' : '▼'}</span>
+				{/if}
+			</button>
+			{#each visibleColumns as col (col.key)}
+				<span class="hdr-col">
+					<button class="hdr-btn" onclick={() => handleSort(col.key)}>
+						<span>{col.label}</span>
+						{#if sortKey === col.key}
+							<span class="sort-icon">{sortDir === 'asc' ? '▲' : '▼'}</span>
+						{/if}
+					</button>
+					{#if col.filterable !== false && (col.type === 'text' || col.type === 'tag' || col.type === 'bool')}
+						<button
+							class="filter-btn"
+							class:active={columnFilters.has(col.key) && columnFilters.get(col.key)!.size > 0}
+							onclick={(e) => toggleFilter(col.key, e)}
+							title="筛选"
+						>▿</button>
+						{#if openFilter === col.key}
+							<div class="filter-dropdown" onclick={(e) => e.stopPropagation()}>
+								<div class="filter-header">
+									<span>筛选: {col.label}</span>
+									<button class="filter-clear" onclick={(e) => clearFilter(col.key, e)}>清除</button>
+								</div>
+								<div class="filter-options">
+									{#each getUniqueValues(col) as val}
+										{@const checked = columnFilters.get(col.key)?.has(val) ?? false}
+										<label class="filter-option">
+											<input type="checkbox" checked={checked} onchange={() => handleFilterValue(col.key, val)} />
+											<span>{getFilterDisplayLabel(col, val)}</span>
+										</label>
+									{/each}
+								</div>
+							</div>
+						{/if}
+					{/if}
+				</span>
+			{/each}
+		</div>
+	{:else}
+		<div class="header-row">
+			<button class="hdr-name hdr-btn" onclick={() => handleSort('name')}>
+				<span>名称</span>
+				{#if sortKey === 'name'}
+					<span class="sort-icon">{sortDir === 'asc' ? '▲' : '▼'}</span>
+				{/if}
+			</button>
+		</div>
+	{/if}
+
 	{#each groupedItems as group (group.category.id)}
 		<button
 			class="category-row"
@@ -56,13 +185,75 @@
 					class:selected={item.id === selectedItemId}
 					onclick={() => onSelect(item)}
 				>
-					<span class="item-name">{item.name}</span>
-					{#if itemTag}
-						<span class="item-tag">{itemTag.name}</span>
-					{/if}
-					{#if item.brand || item.model}
-						<span class="item-brand">{item.brand}{item.brand && item.model ? ' ' : ''}{item.model}</span>
-					{/if}
+					<span class="item-name">
+						{item.name}
+						{#if visibleColumns.length === 0 && itemTag}
+							<span class="inline-tag">{itemTag.name}</span>
+						{/if}
+						{#if visibleColumns.length === 0 && (item.brand || item.model)}
+							<span class="inline-brand">{item.brand}{item.brand && item.model ? ' ' : ''}{item.model}</span>
+						{/if}
+					</span>
+					{#each visibleColumns as col (col.key)}
+						<span class="cell cell-{col.type}">
+							{#if col.type === 'tag'}
+								{@const t = getTag(item)}
+								{#if t}
+									<span class="cell-pill">{t.name}</span>
+								{:else}
+									<span class="cell-empty">-</span>
+								{/if}
+							{:else if col.type === 'text'}
+								{@const v = getCellValue(item, col)}
+								{#if v}
+									<span class="cell-text">{v}</span>
+								{:else}
+									<span class="cell-empty">-</span>
+								{/if}
+							{:else if col.type === 'number'}
+								{@const v = getCellValue(item, col) as number}
+								{#if v}
+									<span class="cell-num">{v}{col.suffix ? col.suffix : ''}</span>
+								{:else}
+									<span class="cell-empty">-</span>
+								{/if}
+							{:else if col.type === 'weight'}
+								{@const v = getCellValue(item, col) as number}
+								{#if v}
+									<span class="cell-num">{v}g</span>
+								{:else}
+									<span class="cell-empty">-</span>
+								{/if}
+							{:else if col.type === 'bool'}
+								{@const v = getCellValue(item, col) as number}
+								{#if v > 0}
+									<span class="cell-bool yes">✓</span>
+								{:else}
+									<span class="cell-bool no">✗</span>
+								{/if}
+							{:else if col.type === 'bar'}
+								{@const v = getCellValue(item, col) as number}
+								{@const max = col.max ?? 10}
+								{#if v > 0}
+									<span class="cell-bar">
+										<span class="bar-track">
+											<span class="bar-fill" style="width: {Math.min(v / max * 100, 100)}%"></span>
+										</span>
+										<span class="bar-val">{v}</span>
+									</span>
+								{:else}
+									<span class="cell-empty">-</span>
+								{/if}
+							{:else if col.type === 'stars'}
+								{@const v = getCellValue(item, col) as number}
+								{#if v > 0}
+									<span class="cell-stars">{'★'.repeat(Math.min(v, 5))}{'☆'.repeat(Math.max(5 - v, 0))}</span>
+								{:else}
+									<span class="cell-empty">-</span>
+								{/if}
+							{/if}
+						</span>
+					{/each}
 				</button>
 			{/each}
 		{/if}
@@ -79,8 +270,144 @@
 	.item-list-table {
 		border: 1px solid var(--border);
 		border-radius: 8px;
-		overflow: hidden;
+		overflow-y: auto;
+		overflow-x: hidden;
 		background: var(--surface);
+		flex: 1;
+		min-height: 0;
+	}
+
+	.header-row {
+		display: grid;
+		grid-template-columns: 1fr repeat(var(--extra-cols, 0), auto);
+		gap: 0;
+		padding: 4px 12px 4px 36px;
+		background: var(--bg);
+		border-bottom: 1px solid var(--border);
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+		position: sticky;
+		top: 0;
+		z-index: 5;
+	}
+	.hdr-col {
+		text-align: center;
+		min-width: 56px;
+		padding: 0 6px;
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 2px;
+	}
+
+	.hdr-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		background: none;
+		border: none;
+		color: inherit;
+		font: inherit;
+		text-transform: inherit;
+		letter-spacing: inherit;
+		cursor: pointer;
+		padding: 2px 4px;
+		border-radius: 3px;
+		white-space: nowrap;
+	}
+	.hdr-btn:hover {
+		background: color-mix(in srgb, var(--border), transparent 30%);
+	}
+	.hdr-name {
+		text-align: left;
+	}
+
+	.sort-icon {
+		font-size: 8px;
+		opacity: 0.8;
+	}
+
+	.filter-btn {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		font-size: 10px;
+		padding: 1px 3px;
+		border-radius: 3px;
+		opacity: 0.5;
+		line-height: 1;
+	}
+	.filter-btn:hover {
+		opacity: 1;
+		background: color-mix(in srgb, var(--border), transparent 30%);
+	}
+	.filter-btn.active {
+		opacity: 1;
+		color: var(--primary);
+	}
+
+	.filter-dropdown {
+		position: absolute;
+		top: 100%;
+		right: 0;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+		min-width: 140px;
+		max-height: 240px;
+		z-index: 20;
+		text-transform: none;
+		letter-spacing: normal;
+		font-weight: 400;
+	}
+	.filter-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 6px 10px;
+		border-bottom: 1px solid var(--border);
+		font-size: 11px;
+		font-weight: 600;
+		color: var(--text-secondary);
+	}
+	.filter-clear {
+		background: none;
+		border: none;
+		color: var(--primary);
+		cursor: pointer;
+		font-size: 11px;
+		padding: 0;
+	}
+	.filter-clear:hover {
+		text-decoration: underline;
+	}
+	.filter-options {
+		padding: 4px 0;
+		max-height: 190px;
+		overflow-y: auto;
+	}
+	.filter-option {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 10px;
+		font-size: 12px;
+		color: var(--text);
+		cursor: pointer;
+	}
+	.filter-option:hover {
+		background: color-mix(in srgb, var(--surface), var(--primary) 6%);
+	}
+	.filter-option input[type='checkbox'] {
+		width: 14px;
+		height: 14px;
+		accent-color: var(--primary);
 	}
 
 	.category-row {
@@ -120,9 +447,10 @@
 	}
 
 	.item-row {
-		display: flex;
+		display: grid;
+		grid-template-columns: 1fr repeat(var(--extra-cols, 0), auto);
 		align-items: center;
-		gap: 8px;
+		gap: 0;
 		width: 100%;
 		padding: 6px 12px 6px 36px;
 		border: none;
@@ -147,9 +475,14 @@
 
 	.item-name {
 		font-weight: 500;
-		flex-shrink: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
-	.item-tag {
+	.inline-tag {
 		font-size: 11px;
 		background: #eef2ff;
 		color: var(--primary);
@@ -158,13 +491,84 @@
 		border: 1px solid #c7d2fe;
 		flex-shrink: 0;
 	}
-	.item-brand {
+	.inline-brand {
 		font-size: 12px;
 		color: var(--text-secondary);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 		min-width: 0;
+	}
+
+	.cell {
+		text-align: center;
+		min-width: 56px;
+		padding: 0 6px;
+		font-size: 12px;
+	}
+	.cell-pill {
+		font-size: 11px;
+		background: #eef2ff;
+		color: var(--primary);
+		padding: 0 6px;
+		border-radius: 8px;
+		border: 1px solid #c7d2fe;
+		white-space: nowrap;
+	}
+	.cell-text {
+		color: var(--text);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 100px;
+		display: inline-block;
+	}
+	.cell-num {
+		font-variant-numeric: tabular-nums;
+		color: var(--text);
+	}
+	.cell-empty {
+		color: var(--text-secondary);
+		opacity: 0.4;
+	}
+	.cell-bool.yes {
+		color: var(--success);
+		font-weight: 600;
+	}
+	.cell-bool.no {
+		color: var(--text-secondary);
+		opacity: 0.3;
+	}
+	.cell-bar {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.bar-track {
+		display: inline-block;
+		width: 36px;
+		height: 6px;
+		background: var(--border);
+		border-radius: 3px;
+		overflow: hidden;
+	}
+	.bar-fill {
+		display: block;
+		height: 100%;
+		background: var(--primary);
+		border-radius: 3px;
+	}
+	.bar-val {
+		font-size: 10px;
+		color: var(--text-secondary);
+		min-width: 14px;
+		text-align: right;
+	}
+	.cell-stars {
+		font-size: 11px;
+		color: #f59e0b;
+		letter-spacing: -1px;
+		white-space: nowrap;
 	}
 
 	.empty-state {

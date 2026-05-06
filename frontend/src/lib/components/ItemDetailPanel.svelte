@@ -46,8 +46,6 @@
 					{/if}
 				</div>
 			</div>
-		</div>
-		<div class="header-actions">
 			<button class="small danger" onclick={onDelete}>删除</button>
 		</div>
 	</div>
@@ -194,17 +192,16 @@
 		overflow: hidden;
 	}
 	.detail-header {
-		padding: 16px;
+		padding: 10px 12px;
 		border-bottom: 1px solid var(--border);
 	}
 	.header-top {
 		display: flex;
-		gap: 12px;
+		gap: 8px;
 		align-items: flex-start;
-		margin-bottom: 10px;
 	}
 	.cat-icon {
-		font-size: 32px;
+		font-size: 24px;
 		line-height: 1;
 	}
 	.header-info {
@@ -212,7 +209,7 @@
 		min-width: 0;
 	}
 	.item-name {
-		font-size: 18px;
+		font-size: 15px;
 		font-weight: 600;
 		line-height: 1.3;
 		word-break: break-word;
@@ -222,7 +219,7 @@
 		gap: 6px;
 		align-items: center;
 		flex-wrap: wrap;
-		margin-top: 4px;
+		margin-top: 2px;
 	}
 	.tag-pill {
 		font-size: 11px;
@@ -232,12 +229,8 @@
 		border-radius: 10px;
 		border: 1px solid #c7d2fe;
 	}
-	.header-actions {
-		display: flex;
-		gap: 6px;
-	}
 	.detail-section {
-		padding: 12px 16px;
+		padding: 6px 12px;
 		border-bottom: 1px solid var(--border);
 	}
 	.detail-section:last-child {
@@ -249,17 +242,17 @@
 		color: var(--text-secondary);
 		text-transform: uppercase;
 		letter-spacing: 0.5px;
-		margin-bottom: 8px;
+		margin-bottom: 4px;
 	}
 	.field-row {
 		display: flex;
 		align-items: center;
-		gap: 8px;
-		padding: 4px 0;
+		gap: 6px;
+		padding: 2px 0;
 		font-size: 13px;
 	}
 	.field-label {
-		width: 70px;
+		width: 60px;
 		flex-shrink: 0;
 		color: var(--text-secondary);
 	}
@@ -271,6 +264,6 @@
 		font-size: 13px;
 		color: var(--text-secondary);
 		text-align: center;
-		padding: 10px 16px;
+		padding: 6px 12px;
 	}
 </style>

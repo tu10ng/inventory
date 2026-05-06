@@ -58,13 +58,15 @@ SplitPane (行程详情)
     ├── SearchFilter
     └── ItemCard
 
-物品库页面 (items/+page.svelte)
-├── SearchFilter
-├── ColumnPicker
-├── ItemListTable
-└── PanelContainer
-    ├── ItemDetailPanel
-    └── ItemForm
+物品库页面 (items/+page.svelte) — Master-Detail 模式
+├── 左面板（自洽浏览器：工具栏 + 列表）
+│   ├── SearchFilter
+│   ├── ColumnPicker
+│   └── ItemListTable
+└── 右面板（被动响应详情区）
+    └── PanelContainer
+        ├── ItemDetailPanel
+        └── ItemForm
 ```
 
 ## 组件约定

@@ -2,10 +2,12 @@
 	import { api } from '$lib/api/client';
 	import type { Item, Category, Tag, ItemUsageCount } from '$lib/types';
 	import SearchFilter from '$lib/components/SearchFilter.svelte';
+	import ColumnPicker from '$lib/components/ColumnPicker.svelte';
 	import ItemListTable from '$lib/components/ItemListTable.svelte';
 	import PanelContainer from '$lib/components/PanelContainer.svelte';
 	import ItemDetailPanel from '$lib/components/ItemDetailPanel.svelte';
 	import ItemForm from '$lib/components/ItemForm.svelte';
+	import { ALL_COLUMNS, loadVisibleColumns } from '$lib/utils/columns';
 
 	let items = $state<Item[]>([]);
 	let categories = $state<Category[]>([]);
@@ -19,6 +21,12 @@
 	let filterCategoryId = $state<number | null>(null);
 
 	let collapsedCategories = $state<Set<number>>(new Set());
+	let visibleKeys = $state<string[]>(loadVisibleColumns());
+	const visibleColumns = $derived(ALL_COLUMNS.filter(c => visibleKeys.includes(c.key)));
+
+	let sortKey = $state<string | null>(null);
+	let sortDir = $state<'asc' | 'desc'>('asc');
+	let columnFilters = $state<Map<string, Set<string>>>(new Map());
 
 	async function load() {
 		const [itemsData, cats, tagsData] = await Promise.all([
@@ -104,7 +112,75 @@
 		if (filterCategoryId !== null) {
 			list = list.filter((i) => i.category_id === filterCategoryId);
 		}
+		// Apply column filters
+		for (const [key, vals] of columnFilters) {
+			if (vals.size === 0) continue;
+			const col = ALL_COLUMNS.find(c => c.key === key);
+			if (!col) continue;
+			list = list.filter((item) => {
+				if (col.type === 'tag') {
+					const t = item.tag_id ? tags.find(tg => tg.id === item.tag_id) : null;
+					const display = t ? t.name : '-';
+					return vals.has(display);
+				} else if (col.type === 'bool') {
+					const v = (item as unknown as Record<string, unknown>)[col.key] as number;
+					return vals.has(v > 0 ? '1' : '0');
+				} else {
+					const v = (item as unknown as Record<string, unknown>)[col.key];
+					return vals.has(v ? String(v) : '-');
+				}
+			});
+		}
 		return list;
+	});
+
+	function handleSort(key: string) {
+		if (sortKey === key) {
+			sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+		} else {
+			sortKey = key;
+			sortDir = 'asc';
+		}
+	}
+
+	function handleFilterChange(key: string, values: Set<string>) {
+		const next = new Map(columnFilters);
+		if (values.size === 0) next.delete(key);
+		else next.set(key, values);
+		columnFilters = next;
+	}
+
+	// Sort items within each category group
+	const sortedItems = $derived.by(() => {
+		if (!sortKey) return filteredItems;
+		const key = sortKey;
+		const dir = sortDir;
+		return [...filteredItems].sort((a, b) => {
+			let va: unknown, vb: unknown;
+			if (key === 'name') {
+				va = a.name;
+				vb = b.name;
+			} else if (key === 'tag') {
+				const ta = a.tag_id ? tags.find(t => t.id === a.tag_id) : null;
+				const tb = b.tag_id ? tags.find(t => t.id === b.tag_id) : null;
+				va = ta?.name ?? '';
+				vb = tb?.name ?? '';
+			} else {
+				va = (a as unknown as Record<string, unknown>)[key];
+				vb = (b as unknown as Record<string, unknown>)[key];
+			}
+			// Nullish values go last
+			if (va == null && vb == null) return 0;
+			if (va == null) return 1;
+			if (vb == null) return -1;
+			let cmp: number;
+			if (typeof va === 'string' && typeof vb === 'string') {
+				cmp = va.localeCompare(vb, 'zh');
+			} else {
+				cmp = Number(va) - Number(vb);
+			}
+			return dir === 'asc' ? cmp : -cmp;
+		});
 	});
 
 	// Keep selectedItem in sync after reload
@@ -118,33 +194,36 @@
 	$effect(() => { load(); });
 </script>
 
-<div class="page-header">
-	<h1>物品库</h1>
-	<div class="header-actions">
-		<button class="primary" onclick={startCreate}>+ 添加物品</button>
-	</div>
-</div>
-
-<div class="toolbar">
-	<SearchFilter
-		{search}
-		categoryId={filterCategoryId}
-		{categories}
-		onSearchChange={(v) => (search = v)}
-		onCategoryChange={(id) => (filterCategoryId = id)}
-	/>
-</div>
+<div class="page-container">
+<h1>物品库</h1>
 
 <div class="split-layout">
 	<div class="left-panel">
+		<div class="toolbar">
+			<SearchFilter
+				{search}
+				categoryId={filterCategoryId}
+				{categories}
+				onSearchChange={(v) => (search = v)}
+				onCategoryChange={(id) => (filterCategoryId = id)}
+			/>
+			<ColumnPicker bind:visibleKeys />
+			<button class="primary" onclick={startCreate}>+ 添加物品</button>
+		</div>
 		<ItemListTable
-			items={filteredItems}
+			items={sortedItems}
 			{categories}
 			{tags}
+			{visibleColumns}
 			selectedItemId={selectedItem?.id ?? null}
 			{collapsedCategories}
+			{sortKey}
+			{sortDir}
+			{columnFilters}
 			onSelect={selectItem}
 			onToggleCategory={toggleCategory}
+			onSort={handleSort}
+			onFilterChange={handleFilterChange}
 		/>
 	</div>
 
@@ -176,24 +255,24 @@
 		</PanelContainer>
 	</div>
 </div>
+</div>
 
 <style>
-	.page-header {
+	.page-container {
 		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 16px;
+		flex-direction: column;
+		height: calc(100vh - 48px);
 	}
-	.header-actions {
-		display: flex;
-		gap: 8px;
-		align-items: center;
+	.page-container > h1 {
+		flex-shrink: 0;
 	}
 	.toolbar {
 		display: flex;
 		gap: 8px;
 		align-items: flex-start;
 		margin-bottom: 12px;
+		flex-shrink: 0;
+		padding-bottom: 4px;
 	}
 	.toolbar :global(.search-filter) {
 		flex: 1;
@@ -202,15 +281,22 @@
 	.split-layout {
 		display: flex;
 		gap: 16px;
-		align-items: flex-start;
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
 	}
 	.left-panel {
 		flex: 1;
 		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		height: 100%;
 	}
 	.right-panel {
 		flex: 1;
 		min-width: 0;
+		overflow-y: auto;
+		height: 100%;
 	}
 	.empty-panel {
 		background: var(--surface);
@@ -231,16 +317,23 @@
 	}
 
 	@media (max-width: 768px) {
+		.page-container {
+			height: auto;
+		}
 		.split-layout {
 			flex-direction: column;
+			overflow: visible;
+		}
+		.left-panel,
+		.right-panel {
+			overflow-y: visible;
+			height: auto;
 		}
 		.right-panel {
 			width: 100%;
 		}
-		.right-panel :global(.panel-container) {
-			width: 100%;
+		.toolbar {
 			position: static;
-			max-height: none;
 		}
 	}
 </style>
