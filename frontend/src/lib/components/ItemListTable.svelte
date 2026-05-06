@@ -1,12 +1,10 @@
 <script lang="ts">
-	import type { Item, Category, Tag, ItemColumnDef } from '$lib/types';
+	import type { Item, Category, Tag } from '$lib/types';
 
 	let {
 		items,
 		categories,
 		tags,
-		usageStats,
-		visibleColumns,
 		selectedItemId,
 		collapsedCategories,
 		onSelect,
@@ -15,19 +13,11 @@
 		items: Item[];
 		categories: Category[];
 		tags: Tag[];
-		usageStats: Map<number, number>;
-		visibleColumns: ItemColumnDef[];
 		selectedItemId: number | null;
 		collapsedCategories: Set<number>;
 		onSelect: (item: Item) => void;
 		onToggleCategory: (catId: number) => void;
 	} = $props();
-
-	const ctx = $derived({ tags, usageStats });
-
-	const gridTemplateColumns = $derived(
-		visibleColumns.map((c) => c.width).join(' ')
-	);
 
 	const groupedItems = $derived.by(() => {
 		const groups: { category: Category; items: Item[] }[] = [];
@@ -40,39 +30,13 @@
 		return groups;
 	});
 
-	function renderValue(col: ItemColumnDef, item: Item): string {
-		const val = col.getValue(item, ctx);
-		if (val === null || val === undefined || val === '' || val === 0) return '';
-		switch (col.render) {
-			case 'bool':
-				return val ? '✓' : '';
-			case 'weight':
-				return val ? `${val}g` : '';
-			case 'stars': {
-				const n = Number(val);
-				return '★'.repeat(n) + '☆'.repeat(5 - n);
-			}
-			default:
-				return String(val);
-		}
-	}
-
-	function barPercent(col: ItemColumnDef, item: Item): number {
-		const val = Number(col.getValue(item, ctx));
-		if (col.key === 'warmth') return Math.min(100, Math.round((val / 50) * 100));
-		return 0;
+	function getTag(item: Item): Tag | undefined {
+		if (!item.tag_id) return undefined;
+		return tags.find(t => t.id === item.tag_id);
 	}
 </script>
 
 <div class="item-list-table">
-	<!-- Header -->
-	<div class="table-header" style:grid-template-columns={gridTemplateColumns}>
-		{#each visibleColumns as col (col.key)}
-			<div class="th">{col.label}</div>
-		{/each}
-	</div>
-
-	<!-- Groups -->
 	{#each groupedItems as group (group.category.id)}
 		<button
 			class="category-row"
@@ -86,27 +50,19 @@
 
 		{#if !collapsedCategories.has(group.category.id)}
 			{#each group.items as item (item.id)}
+				{@const itemTag = getTag(item)}
 				<button
 					class="item-row"
 					class:selected={item.id === selectedItemId}
-					style:grid-template-columns={gridTemplateColumns}
 					onclick={() => onSelect(item)}
 				>
-					{#each visibleColumns as col (col.key)}
-						<div class="td" class:td-name={col.key === 'name'} class:td-bool={col.render === 'bool'} class:td-stars={col.render === 'stars'} class:td-tag={col.render === 'tag'}>
-							{#if col.render === 'bar'}
-								{@const pct = barPercent(col, item)}
-								{#if pct > 0}
-									<div class="bar-wrap">
-										<div class="bar-fill" style:width="{pct}%"></div>
-									</div>
-									<span class="bar-val">{col.getValue(item, ctx)}</span>
-								{/if}
-							{:else}
-								{renderValue(col, item)}
-							{/if}
-						</div>
-					{/each}
+					<span class="item-name">{item.name}</span>
+					{#if itemTag}
+						<span class="item-tag">{itemTag.name}</span>
+					{/if}
+					{#if item.brand || item.model}
+						<span class="item-brand">{item.brand}{item.brand && item.model ? ' ' : ''}{item.model}</span>
+					{/if}
 				</button>
 			{/each}
 		{/if}
@@ -125,26 +81,6 @@
 		border-radius: 8px;
 		overflow: hidden;
 		background: var(--surface);
-	}
-
-	.table-header {
-		display: grid;
-		gap: 0;
-		padding: 6px 12px;
-		background: var(--bg);
-		border-bottom: 1px solid var(--border);
-		font-size: 12px;
-		font-weight: 600;
-		color: var(--text-secondary);
-		text-transform: uppercase;
-		letter-spacing: 0.3px;
-	}
-
-	.th {
-		padding: 2px 4px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 
 	.category-row {
@@ -184,10 +120,11 @@
 	}
 
 	.item-row {
-		display: grid;
-		gap: 0;
+		display: flex;
+		align-items: center;
+		gap: 8px;
 		width: 100%;
-		padding: 5px 12px;
+		padding: 6px 12px 6px 36px;
 		border: none;
 		border-bottom: 1px solid color-mix(in srgb, var(--border), transparent 50%);
 		background: var(--surface);
@@ -208,50 +145,26 @@
 		border-bottom: none;
 	}
 
-	.td {
-		padding: 2px 4px;
+	.item-name {
+		font-weight: 500;
+		flex-shrink: 0;
+	}
+	.item-tag {
+		font-size: 11px;
+		background: #eef2ff;
+		color: var(--primary);
+		padding: 0 6px;
+		border-radius: 8px;
+		border: 1px solid #c7d2fe;
+		flex-shrink: 0;
+	}
+	.item-brand {
+		font-size: 12px;
+		color: var(--text-secondary);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		display: flex;
-		align-items: center;
-	}
-	.td-name {
-		font-weight: 500;
-	}
-	.td-bool {
-		color: var(--success);
-		font-size: 14px;
-	}
-	.td-stars {
-		color: #f0ad4e;
-		font-size: 11px;
-		letter-spacing: 0.5px;
-	}
-	.td-tag {
-		font-size: 11px;
-		color: var(--primary);
-	}
-
-	.bar-wrap {
-		flex: 1;
-		height: 6px;
-		background: var(--bg);
-		border-radius: 3px;
-		overflow: hidden;
-	}
-	.bar-fill {
-		height: 100%;
-		background: var(--primary);
-		border-radius: 3px;
-	}
-	.bar-val {
-		font-size: 11px;
-		color: var(--text-secondary);
-		margin-left: 6px;
-		width: 24px;
-		text-align: right;
-		flex-shrink: 0;
+		min-width: 0;
 	}
 
 	.empty-state {

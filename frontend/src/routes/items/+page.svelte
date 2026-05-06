@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import type { Item, Category, Tag, ItemUsageCount } from '$lib/types';
-	import { ALL_COLUMNS, loadVisibleColumns, saveVisibleColumns } from '$lib/utils/columns';
 	import SearchFilter from '$lib/components/SearchFilter.svelte';
 	import ItemListTable from '$lib/components/ItemListTable.svelte';
-	import ColumnPicker from '$lib/components/ColumnPicker.svelte';
 	import PanelContainer from '$lib/components/PanelContainer.svelte';
 	import ItemDetailPanel from '$lib/components/ItemDetailPanel.svelte';
 	import ItemForm from '$lib/components/ItemForm.svelte';
@@ -15,12 +13,11 @@
 	let usageStats = $state<Map<number, number>>(new Map());
 
 	let selectedItem = $state<Item | null>(null);
-	let panelMode = $state<'detail' | 'edit' | 'create' | null>(null);
+	let panelMode = $state<'detail' | 'create' | null>(null);
 
 	let search = $state('');
 	let filterCategoryId = $state<number | null>(null);
 
-	let visibleColumnKeys = $state<string[]>(loadVisibleColumns());
 	let collapsedCategories = $state<Set<number>>(new Set());
 
 	async function load() {
@@ -50,20 +47,25 @@
 		panelMode = 'create';
 	}
 
-	function startEdit() {
-		panelMode = 'edit';
+	async function handleFieldUpdate(field: string, value: unknown) {
+		if (!selectedItem) return;
+		const data: Record<string, unknown> = { ...selectedItem, [field]: value };
+		// When category changes, clear tag if it doesn't belong to new category
+		if (field === 'category_id') {
+			const currentTag = tags.find(t => t.id === selectedItem!.tag_id);
+			if (currentTag && currentTag.category_id !== value) {
+				data.tag_id = null;
+			}
+		}
+		const updated = await api.put<Item>(`/items/${selectedItem.id}`, data);
+		selectedItem = updated;
+		await load();
 	}
 
 	async function handleSave(data: Record<string, unknown>) {
-		if (panelMode === 'edit' && selectedItem) {
-			const updated = await api.put<Item>(`/items/${selectedItem.id}`, data);
-			selectedItem = updated;
-			panelMode = 'detail';
-		} else {
-			const created = await api.post<Item>('/items', data);
-			selectedItem = created;
-			panelMode = 'detail';
-		}
+		const created = await api.post<Item>('/items', data);
+		selectedItem = created;
+		panelMode = 'detail';
 		await load();
 	}
 
@@ -77,12 +79,8 @@
 	}
 
 	function handleCancel() {
-		if (panelMode === 'edit' && selectedItem) {
-			panelMode = 'detail';
-		} else {
-			selectedItem = null;
-			panelMode = null;
-		}
+		selectedItem = null;
+		panelMode = null;
 	}
 
 	function toggleCategory(catId: number) {
@@ -108,10 +106,6 @@
 		}
 		return list;
 	});
-
-	const visibleColumns = $derived(
-		ALL_COLUMNS.filter((c) => visibleColumnKeys.includes(c.key))
-	);
 
 	// Keep selectedItem in sync after reload
 	$effect(() => {
@@ -139,7 +133,6 @@
 		onSearchChange={(v) => (search = v)}
 		onCategoryChange={(id) => (filterCategoryId = id)}
 	/>
-	<ColumnPicker bind:visibleKeys={visibleColumnKeys} />
 </div>
 
 <div class="split-layout">
@@ -148,8 +141,6 @@
 			items={filteredItems}
 			{categories}
 			{tags}
-			{usageStats}
-			{visibleColumns}
 			selectedItemId={selectedItem?.id ?? null}
 			{collapsedCategories}
 			onSelect={selectItem}
@@ -157,39 +148,33 @@
 		/>
 	</div>
 
-	<PanelContainer>
-		{#if panelMode === 'detail' && selectedItem}
-			<ItemDetailPanel
-				item={selectedItem}
-				{categories}
-				{tags}
-				usageCount={usageStats.get(selectedItem.id) ?? 0}
-				onEdit={startEdit}
-				onDelete={handleDelete}
-			/>
-		{:else if panelMode === 'edit' && selectedItem}
-			<ItemForm
-				item={selectedItem}
-				{categories}
-				{tags}
-				onSave={handleSave}
-				onCancel={handleCancel}
-			/>
-		{:else if panelMode === 'create'}
-			<ItemForm
-				{categories}
-				{tags}
-				onSave={handleSave}
-				onCancel={handleCancel}
-			/>
-		{:else}
-			<div class="empty-panel">
-				<div class="empty-icon">📋</div>
-				<p>选择物品查看详情</p>
-				<p class="empty-hint">或点击"添加物品"创建新物品</p>
-			</div>
-		{/if}
-	</PanelContainer>
+	<div class="right-panel">
+		<PanelContainer>
+			{#if panelMode === 'detail' && selectedItem}
+				<ItemDetailPanel
+					item={selectedItem}
+					{categories}
+					{tags}
+					usageCount={usageStats.get(selectedItem.id) ?? 0}
+					onUpdate={handleFieldUpdate}
+					onDelete={handleDelete}
+				/>
+			{:else if panelMode === 'create'}
+				<ItemForm
+					{categories}
+					{tags}
+					onSave={handleSave}
+					onCancel={handleCancel}
+				/>
+			{:else}
+				<div class="empty-panel">
+					<div class="empty-icon">📋</div>
+					<p>选择物品查看详情</p>
+					<p class="empty-hint">或点击"添加物品"创建新物品</p>
+				</div>
+			{/if}
+		</PanelContainer>
+	</div>
 </div>
 
 <style>
@@ -223,6 +208,10 @@
 		flex: 1;
 		min-width: 0;
 	}
+	.right-panel {
+		flex: 1;
+		min-width: 0;
+	}
 	.empty-panel {
 		background: var(--surface);
 		border: 1px solid var(--border);
@@ -245,7 +234,10 @@
 		.split-layout {
 			flex-direction: column;
 		}
-		.split-layout :global(.panel-container) {
+		.right-panel {
+			width: 100%;
+		}
+		.right-panel :global(.panel-container) {
 			width: 100%;
 			position: static;
 			max-height: none;

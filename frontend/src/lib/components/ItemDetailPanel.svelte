@@ -1,32 +1,35 @@
 <script lang="ts">
-	import type { Item, Category, Tag, ItemUsageCount } from '$lib/types';
+	import type { Item, Category, Tag } from '$lib/types';
+	import InlineEdit from './InlineEdit.svelte';
+	import InlineEditSelect from './InlineEditSelect.svelte';
+	import InlineEditToggle from './InlineEditToggle.svelte';
+	import InlineEditPills from './InlineEditPills.svelte';
+	import InlineEditStars from './InlineEditStars.svelte';
+	import InlineEditBar from './InlineEditBar.svelte';
 
-	let { item, categories, tags, usageCount = 0, onEdit, onDelete }: {
+	let { item, categories, tags, usageCount = 0, onUpdate, onDelete }: {
 		item: Item;
 		categories: Category[];
 		tags: Tag[];
 		usageCount?: number;
-		onEdit: () => void;
+		onUpdate: (field: string, value: unknown) => void;
 		onDelete: () => void;
 	} = $props();
 
 	const category = $derived(categories.find(c => c.id === item.category_id));
 	const tag = $derived(item.tag_id ? tags.find(t => t.id === item.tag_id) : null);
 
-	function starRating(value: number, max: number = 5): string {
-		return '★'.repeat(value) + '☆'.repeat(max - value);
-	}
+	const categoryOptions = $derived(categories.map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })));
+	const tagOptionsList = $derived.by(() => {
+		const filtered = tags.filter(t => t.category_id === item.category_id);
+		return [
+			{ value: null as number | null, label: '-' },
+			...filtered.map(t => ({ value: t.id as number | null, label: t.name }))
+		];
+	});
 
-	function barPercent(value: number, max: number): number {
-		return Math.min(100, Math.round((value / max) * 100));
-	}
-
-	const seasons: Record<string, string> = { '春': '🌱', '夏': '☀️', '秋': '🍂', '冬': '❄️' };
-	const bodyPartLabels: Record<string, string> = { '头': '🧢', '躯干': '👕', '腿': '👖', '脚': '👟', '手': '🧤' };
-
-	const seasonList = $derived(item.season ? item.season.split(',').filter(Boolean) : []);
-	const bodyPartList = $derived(item.body_parts ? item.body_parts.split(',').filter(Boolean) : []);
-	const materialList = $derived(item.material ? item.material.split(',').filter(Boolean) : []);
+	const seasonOptions = ['春', '夏', '秋', '冬'];
+	const bodyPartOptions = ['头', '躯干', '腿', '脚', '手'];
 </script>
 
 <div class="detail-panel">
@@ -34,144 +37,147 @@
 		<div class="header-top">
 			<span class="cat-icon">{category?.icon ?? '📦'}</span>
 			<div class="header-info">
-				<h2 class="item-name">{item.name}</h2>
+				<h2 class="item-name">
+					<InlineEdit value={item.name} oncommit={(v) => onUpdate('name', v)} placeholder="物品名称" />
+				</h2>
 				<div class="item-meta">
 					{#if tag}
 						<span class="tag-pill">{tag.name}</span>
-					{/if}
-					{#if item.brand || item.model}
-						<span class="brand-model">{item.brand} {item.model}</span>
 					{/if}
 				</div>
 			</div>
 		</div>
 		<div class="header-actions">
-			<button class="small" onclick={onEdit}>编辑</button>
 			<button class="small danger" onclick={onDelete}>删除</button>
 		</div>
 	</div>
 
+	<!-- 基本信息 -->
 	<div class="detail-section">
-		<div class="info-row">
-			<span class="info-label">默认数量</span>
-			<span class="info-value">{item.default_qty}</span>
+		<div class="field-row">
+			<span class="field-label">分类</span>
+			<span class="field-value">
+				<InlineEditSelect value={item.category_id} options={categoryOptions} oncommit={(v) => onUpdate('category_id', v)} />
+			</span>
 		</div>
-		{#if item.notes}
-			<div class="info-row">
-				<span class="info-label">备注</span>
-				<span class="info-value">{item.notes}</span>
-			</div>
-		{/if}
+		<div class="field-row">
+			<span class="field-label">标签</span>
+			<span class="field-value">
+				<InlineEditSelect value={item.tag_id} options={tagOptionsList} oncommit={(v) => onUpdate('tag_id', v)} />
+			</span>
+		</div>
+		<div class="field-row">
+			<span class="field-label">品牌</span>
+			<span class="field-value">
+				<InlineEdit value={item.brand} oncommit={(v) => onUpdate('brand', v)} placeholder="-" />
+			</span>
+		</div>
+		<div class="field-row">
+			<span class="field-label">型号</span>
+			<span class="field-value">
+				<InlineEdit value={item.model} oncommit={(v) => onUpdate('model', v)} placeholder="-" />
+			</span>
+		</div>
+		<div class="field-row">
+			<span class="field-label">默认数量</span>
+			<span class="field-value">
+				<InlineEdit value={item.default_qty} type="number" min={1} oncommit={(v) => onUpdate('default_qty', v)} />
+			</span>
+		</div>
+		<div class="field-row">
+			<span class="field-label">备注</span>
+			<span class="field-value">
+				<InlineEdit value={item.notes} oncommit={(v) => onUpdate('notes', v)} placeholder="-" />
+			</span>
+		</div>
 	</div>
 
+	<!-- 物理属性 -->
 	<div class="detail-section">
 		<h3 class="section-title">物理属性</h3>
 
-		<div class="stat-row">
-			<span class="stat-label">保暖</span>
-			{#if item.warmth_rating > 0}
-				<div class="stat-bar-wrap">
-					<div class="stat-bar" style="width: {barPercent(item.warmth_rating, 50)}%"></div>
-				</div>
-				<span class="stat-value">{item.warmth_rating}</span>
-			{:else}
-				<span class="stat-empty">-</span>
-			{/if}
-		</div>
-
-		<div class="stat-row">
-			<span class="stat-label">累赘</span>
-			{#if item.encumbrance > 0}
-				<div class="stat-bar-wrap">
-					<div class="stat-bar encumbrance" style="width: {barPercent(item.encumbrance, 10)}%"></div>
-				</div>
-				<span class="stat-value">{item.encumbrance}</span>
-			{:else}
-				<span class="stat-empty">-</span>
-			{/if}
-		</div>
-
-		<div class="stat-row">
-			<span class="stat-label">环境防护</span>
-			{#if item.env_protection > 0}
-				<span class="stat-stars">{starRating(item.env_protection)}</span>
-			{:else}
-				<span class="stat-empty">-</span>
-			{/if}
-		</div>
-
-		<div class="stat-row">
-			<span class="stat-label">耐久</span>
-			{#if item.durability > 0}
-				<span class="stat-stars">{starRating(item.durability)}</span>
-			{:else}
-				<span class="stat-empty">-</span>
-			{/if}
-		</div>
-
-		<div class="stat-row">
-			<span class="stat-label">重量</span>
-			{#if item.weight_grams > 0}
-				<span class="stat-value">{item.weight_grams}g</span>
-			{:else}
-				<span class="stat-empty">-</span>
-			{/if}
-		</div>
-
-		{#if item.storage_ml > 0}
-			<div class="stat-row">
-				<span class="stat-label">容量</span>
-				<span class="stat-value">{item.storage_ml}ml</span>
-			</div>
-		{/if}
-
-		<div class="stat-row">
-			<span class="stat-label">防水</span>
-			<span class="stat-bool" class:active={item.waterproof > 0}>
-				{item.waterproof > 0 ? '✓' : '✗'}
+		<div class="field-row">
+			<span class="field-label">重量</span>
+			<span class="field-value">
+				<InlineEdit value={item.weight_grams} type="number" min={0} suffix="g" oncommit={(v) => onUpdate('weight_grams', v)} placeholder="-" />
 			</span>
 		</div>
 
-		<div class="stat-row">
-			<span class="stat-label">透气</span>
-			<span class="stat-bool" class:active={item.breathable > 0}>
-				{item.breathable > 0 ? '✓' : '✗'}
+		<div class="field-row">
+			<span class="field-label">容量</span>
+			<span class="field-value">
+				<InlineEdit value={item.storage_ml} type="number" min={0} suffix="ml" oncommit={(v) => onUpdate('storage_ml', v)} placeholder="-" />
+			</span>
+		</div>
+
+		<div class="field-row">
+			<span class="field-label">保暖</span>
+			<span class="field-value">
+				<InlineEditBar value={item.warmth_rating} max={50} oncommit={(v) => onUpdate('warmth_rating', v)} />
+			</span>
+		</div>
+
+		<div class="field-row">
+			<span class="field-label">累赘</span>
+			<span class="field-value">
+				<InlineEditBar value={item.encumbrance} max={10} oncommit={(v) => onUpdate('encumbrance', v)} />
+			</span>
+		</div>
+
+		<div class="field-row">
+			<span class="field-label">环境防护</span>
+			<span class="field-value">
+				<InlineEditStars value={item.env_protection} oncommit={(v) => onUpdate('env_protection', v)} />
+			</span>
+		</div>
+
+		<div class="field-row">
+			<span class="field-label">耐久</span>
+			<span class="field-value">
+				<InlineEditStars value={item.durability} oncommit={(v) => onUpdate('durability', v)} />
+			</span>
+		</div>
+
+		<div class="field-row">
+			<span class="field-label">防水</span>
+			<span class="field-value">
+				<InlineEditToggle value={item.waterproof > 0} oncommit={(v) => onUpdate('waterproof', v ? 1 : 0)} />
+			</span>
+		</div>
+
+		<div class="field-row">
+			<span class="field-label">透气</span>
+			<span class="field-value">
+				<InlineEditToggle value={item.breathable > 0} oncommit={(v) => onUpdate('breathable', v ? 1 : 0)} />
 			</span>
 		</div>
 	</div>
 
-	{#if materialList.length > 0 || seasonList.length > 0 || bodyPartList.length > 0}
-		<div class="detail-section">
-			<h3 class="section-title">标签</h3>
+	<!-- 标签属性 -->
+	<div class="detail-section">
+		<h3 class="section-title">标签</h3>
 
-			{#if materialList.length > 0}
-				<div class="pill-row">
-					<span class="pill-label">材质</span>
-					{#each materialList as m}
-						<span class="pill">{m}</span>
-					{/each}
-				</div>
-			{/if}
-
-			{#if seasonList.length > 0}
-				<div class="pill-row">
-					<span class="pill-label">季节</span>
-					{#each seasonList as s}
-						<span class="pill">{seasons[s] ?? ''} {s}</span>
-					{/each}
-				</div>
-			{/if}
-
-			{#if bodyPartList.length > 0}
-				<div class="pill-row">
-					<span class="pill-label">部位</span>
-					{#each bodyPartList as bp}
-						<span class="pill">{bodyPartLabels[bp] ?? ''} {bp}</span>
-					{/each}
-				</div>
-			{/if}
+		<div class="field-row">
+			<span class="field-label">材质</span>
+			<span class="field-value">
+				<InlineEditPills value={item.material} options={[]} freeform={true} oncommit={(v) => onUpdate('material', v)} />
+			</span>
 		</div>
-	{/if}
+
+		<div class="field-row">
+			<span class="field-label">季节</span>
+			<span class="field-value">
+				<InlineEditPills value={item.season} options={seasonOptions} oncommit={(v) => onUpdate('season', v)} />
+			</span>
+		</div>
+
+		<div class="field-row">
+			<span class="field-label">部位</span>
+			<span class="field-value">
+				<InlineEditPills value={item.body_parts} options={bodyPartOptions} oncommit={(v) => onUpdate('body_parts', v)} />
+			</span>
+		</div>
+	</div>
 
 	{#if usageCount > 0}
 		<div class="detail-section usage-section">
@@ -226,10 +232,6 @@
 		border-radius: 10px;
 		border: 1px solid #c7d2fe;
 	}
-	.brand-model {
-		font-size: 13px;
-		color: var(--text-secondary);
-	}
 	.header-actions {
 		display: flex;
 		gap: 6px;
@@ -249,85 +251,21 @@
 		letter-spacing: 0.5px;
 		margin-bottom: 8px;
 	}
-	.info-row {
-		display: flex;
-		justify-content: space-between;
-		padding: 4px 0;
-		font-size: 14px;
-	}
-	.info-label {
-		color: var(--text-secondary);
-	}
-	.info-value {
-		color: var(--text);
-	}
-	.stat-row {
+	.field-row {
 		display: flex;
 		align-items: center;
 		gap: 8px;
 		padding: 4px 0;
 		font-size: 13px;
 	}
-	.stat-label {
+	.field-label {
 		width: 70px;
 		flex-shrink: 0;
 		color: var(--text-secondary);
 	}
-	.stat-bar-wrap {
+	.field-value {
 		flex: 1;
-		height: 8px;
-		background: var(--bg);
-		border-radius: 4px;
-		overflow: hidden;
-	}
-	.stat-bar {
-		height: 100%;
-		background: var(--primary);
-		border-radius: 4px;
-		transition: width 0.3s;
-	}
-	.stat-bar.encumbrance {
-		background: var(--warning);
-	}
-	.stat-value {
-		width: 40px;
-		text-align: right;
-		font-weight: 500;
-		font-size: 12px;
-	}
-	.stat-stars {
-		color: #f0ad4e;
-		letter-spacing: 1px;
-	}
-	.stat-empty {
-		color: var(--border);
-	}
-	.stat-bool {
-		color: var(--border);
-		font-size: 16px;
-	}
-	.stat-bool.active {
-		color: var(--success);
-	}
-	.pill-row {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		flex-wrap: wrap;
-		margin-bottom: 6px;
-	}
-	.pill-label {
-		font-size: 12px;
-		color: var(--text-secondary);
-		width: 36px;
-		flex-shrink: 0;
-	}
-	.pill {
-		font-size: 12px;
-		background: var(--bg);
-		border: 1px solid var(--border);
-		padding: 2px 8px;
-		border-radius: 12px;
+		min-width: 0;
 	}
 	.usage-section {
 		font-size: 13px;

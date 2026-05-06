@@ -17,7 +17,6 @@
 		align-self: flex-start;
 		overflow-y: auto;
 		max-height: calc(100vh - 80px);
-		width: 380px;
-		flex-shrink: 0;
+		width: 100%;
 	}
 </style>

@@ -1,10 +1,11 @@
 <script lang="ts">
-	let { value, type = 'text', oncommit, min, placeholder = '' }: {
+	let { value, type = 'text', oncommit, min, placeholder = '', suffix = '' }: {
 		value: string | number;
 		type?: 'text' | 'number';
 		oncommit: (val: string | number) => void;
 		min?: number;
 		placeholder?: string;
+		suffix?: string;
 	} = $props();
 
 	let editing = $state(false);
@@ -48,7 +49,7 @@
 		tabindex="0"
 		onkeydown={(e) => e.key === 'Enter' && startEdit()}
 	>
-		{value || placeholder}
+		{value || placeholder}{#if value && suffix}{suffix}{/if}
 	</span>
 {/if}
 

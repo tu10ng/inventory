@@ -169,15 +169,6 @@ export interface DndItem {
 	already_added: boolean;
 }
 
-export interface ItemColumnDef {
-	key: string;
-	label: string;
-	width: string;
-	render: 'text' | 'number' | 'bool' | 'bar' | 'stars' | 'tag' | 'weight';
-	getValue: (item: Item, ctx?: { tags?: Tag[]; usageStats?: Map<number, number> }) => unknown;
-	sortable?: boolean;
-}
-
 export interface ClassifyResponse {
 	suggested_category_id: number | null;
 	suggested_attributes: {
