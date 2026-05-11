@@ -249,8 +249,8 @@
 					onCategoryChange={(id) => (filterCategoryId = id)}
 				/>
 				<div class="group-by-select">
-					<label>分组</label>
-					<select value={groupByKey ?? ''} onchange={(e) => (groupByKey = e.currentTarget.value || null)}>
+					<label for="group-by-select">分组</label>
+					<select id="group-by-select" value={groupByKey ?? ''} onchange={(e) => (groupByKey = e.currentTarget.value || null)}>
 						<option value="">无</option>
 						{#each groupByOptions as col (col.key)}
 							<option value={col.key}>{col.label}</option>

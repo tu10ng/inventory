@@ -138,7 +138,7 @@
 				<p class="hint">选择一个之前导出的 JSON 备份文件，导入其中的物品、分类、标签和属性定义。</p>
 
 				<div class="strategy-section">
-					<label class="section-label">冲突处理策略</label>
+					<span class="section-label">冲突处理策略</span>
 					<div class="radio-group">
 						<label class="radio-label">
 							<input type="radio" name="strategy" value="skip" checked={strategy === 'skip'}

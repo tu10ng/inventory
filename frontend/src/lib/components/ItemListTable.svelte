@@ -137,7 +137,8 @@
 							title="筛选"
 						>▿</button>
 						{#if openFilter === col.key}
-							<div class="filter-dropdown" onclick={(e) => e.stopPropagation()}>
+							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+						<div class="filter-dropdown" role="region" aria-label="筛选选项" onclick={(e) => e.stopPropagation()}>
 								<div class="filter-header">
 									<span>筛选: {col.label}</span>
 									<button class="filter-clear" onclick={(e) => clearFilter(col.key, e)}>清除</button>

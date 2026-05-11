@@ -31,6 +31,7 @@
 </script>
 
 {#if editing}
+	<!-- svelte-ignore a11y_autofocus -->
 	<input
 		class="inline-input"
 		type="number"

@@ -12,15 +12,23 @@
 		onCancel: () => void;
 	} = $props();
 
+	// svelte-ignore state_referenced_locally
 	let name = $state(item?.name ?? '');
+	// svelte-ignore state_referenced_locally
 	let category_id = $state(item?.category_id ?? categories[0]?.id ?? 0);
+	// svelte-ignore state_referenced_locally
 	let tag_id = $state<number | null>(item?.tag_id ?? null);
+	// svelte-ignore state_referenced_locally
 	let brand = $state(item?.brand ?? '');
+	// svelte-ignore state_referenced_locally
 	let model = $state(item?.model ?? '');
+	// svelte-ignore state_referenced_locally
 	let default_qty = $state(item?.default_qty ?? 1);
+	// svelte-ignore state_referenced_locally
 	let notes = $state(item?.notes ?? '');
 
 	// Dynamic attrs
+	// svelte-ignore state_referenced_locally
 	let attrs = $state<Record<string, unknown>>({ ...(item?.attrs ?? {}) });
 
 	const categoryTags = $derived(tags.filter(t => t.category_id === category_id));
@@ -106,22 +114,22 @@
 	<h3 class="form-title">{isEdit ? '编辑物品' : '添加物品'}</h3>
 
 	<div class="form-group">
-		<label>名称 *</label>
-		<input bind:value={name} placeholder="物品名称" />
+		<label for="item-form-name">名称 *</label>
+		<input id="item-form-name" bind:value={name} placeholder="物品名称" />
 	</div>
 
 	<div class="form-row">
 		<div class="form-group" style="flex:1">
-			<label>分类</label>
-			<select bind:value={category_id}>
+			<label for="item-form-category">分类</label>
+			<select id="item-form-category" bind:value={category_id}>
 				{#each categories as c}
 					<option value={c.id}>{c.icon} {c.name}</option>
 				{/each}
 			</select>
 		</div>
 		<div class="form-group" style="flex:1">
-			<label>标签</label>
-			<select value={tag_id ?? ''} onchange={(e) => onTagChange(e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
+			<label for="item-form-tag">标签</label>
+			<select id="item-form-tag" value={tag_id ?? ''} onchange={(e) => onTagChange(e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
 				<option value="">无标签</option>
 				{#each categoryTags as t}
 					<option value={t.id}>{t.name}</option>
@@ -138,22 +146,22 @@
 
 	<div class="form-row">
 		<div class="form-group" style="flex:1">
-			<label>品牌</label>
-			<input bind:value={brand} placeholder="品牌" />
+			<label for="item-form-brand">品牌</label>
+			<input id="item-form-brand" bind:value={brand} placeholder="品牌" />
 		</div>
 		<div class="form-group" style="flex:1">
-			<label>型号</label>
-			<input bind:value={model} placeholder="型号" />
+			<label for="item-form-model">型号</label>
+			<input id="item-form-model" bind:value={model} placeholder="型号" />
 		</div>
 		<div class="form-group" style="width:80px">
-			<label>数量</label>
-			<input type="number" bind:value={default_qty} min="1" />
+			<label for="item-form-qty">数量</label>
+			<input id="item-form-qty" type="number" bind:value={default_qty} min="1" />
 		</div>
 	</div>
 
 	<div class="form-group">
-		<label>备注</label>
-		<input bind:value={notes} placeholder="备注" />
+		<label for="item-form-notes">备注</label>
+		<input id="item-form-notes" bind:value={notes} placeholder="备注" />
 	</div>
 
 	<!-- Known attributes (scoped) -->
@@ -166,22 +174,22 @@
 			{#if ad.attr_type === 'number' || ad.attr_type === 'weight'}
 				<div class="form-row">
 					<div class="form-group" style="flex:1">
-						<label>{ad.label}{config.suffix ? ` (${config.suffix})` : ''}</label>
-						<input type="number" value={getAttrValue(ad.key, 0)} onchange={(e) => setAttr(ad.key, Number(e.currentTarget.value))} min="0" />
+						<label for="item-form-attr-{ad.key}">{ad.label}{config.suffix ? ` (${config.suffix})` : ''}</label>
+						<input id="item-form-attr-{ad.key}" type="number" value={getAttrValue(ad.key, 0)} onchange={(e) => setAttr(ad.key, Number(e.currentTarget.value))} min="0" />
 					</div>
 				</div>
 			{:else if ad.attr_type === 'bar'}
 				<div class="form-row">
 					<div class="form-group" style="flex:1">
-						<label>{ad.label} (0-{config.max ?? 10})</label>
-						<input type="number" value={getAttrValue(ad.key, 0)} onchange={(e) => setAttr(ad.key, Number(e.currentTarget.value))} min="0" max={config.max ?? 10} />
+						<label for="item-form-attr-{ad.key}">{ad.label} (0-{config.max ?? 10})</label>
+						<input id="item-form-attr-{ad.key}" type="number" value={getAttrValue(ad.key, 0)} onchange={(e) => setAttr(ad.key, Number(e.currentTarget.value))} min="0" max={config.max ?? 10} />
 					</div>
 				</div>
 			{:else if ad.attr_type === 'stars'}
 				<div class="form-row">
 					<div class="form-group" style="flex:1">
-						<label>{ad.label} (0-{config.max ?? 5})</label>
-						<select value={getAttrValue(ad.key, 0)} onchange={(e) => setAttr(ad.key, Number(e.currentTarget.value))}>
+						<label for="item-form-attr-{ad.key}">{ad.label} (0-{config.max ?? 5})</label>
+						<select id="item-form-attr-{ad.key}" value={getAttrValue(ad.key, 0)} onchange={(e) => setAttr(ad.key, Number(e.currentTarget.value))}>
 							{#each Array.from({length: (config.max ?? 5) + 1}, (_, i) => i) as v}
 								<option value={v}>{v}</option>
 							{/each}
@@ -197,13 +205,13 @@
 				</div>
 			{:else if ad.attr_type === 'text' && config.options}
 				<div class="form-group">
-					<label>{ad.label}</label>
+					<label for="item-form-attr-{ad.key}">{ad.label}</label>
 					<div class="checkbox-row">
-						{#each config.options as opt}
+						{#each config.options as opt, idx}
 							{@const current = String(getAttrValue(ad.key, ''))}
 							{@const selected = current.split(',').filter(Boolean).includes(opt)}
 							<label class="checkbox-label">
-								<input type="checkbox" checked={selected} onchange={() => togglePillValue(ad.key, opt)} />
+								<input type="checkbox" id={idx === 0 ? `item-form-attr-${ad.key}` : undefined} checked={selected} onchange={() => togglePillValue(ad.key, opt)} />
 								{opt}
 							</label>
 						{/each}
@@ -211,8 +219,8 @@
 				</div>
 			{:else}
 				<div class="form-group">
-					<label>{ad.label}</label>
-					<input value={getAttrValue(ad.key, '')} onchange={(e) => setAttr(ad.key, e.currentTarget.value)} placeholder={ad.label} />
+					<label for="item-form-attr-{ad.key}">{ad.label}</label>
+					<input id="item-form-attr-{ad.key}" value={getAttrValue(ad.key, '')} onchange={(e) => setAttr(ad.key, e.currentTarget.value)} placeholder={ad.label} />
 				</div>
 			{/if}
 		{/each}
@@ -225,16 +233,18 @@
 		{#each adHocKeys as key (key)}
 			<div class="form-row adhoc-row">
 				<div class="form-group" style="flex:1">
-					<label>键</label>
+					<label for="item-form-adhoc-key-{key}">键</label>
 					<input
+						id="item-form-adhoc-key-{key}"
 						value={key}
 						onchange={(e) => setAdHocKey(key, e.currentTarget.value)}
 						placeholder="属性名"
 					/>
 				</div>
 				<div class="form-group" style="flex:2">
-					<label>值</label>
+					<label for="item-form-adhoc-value-{key}">值</label>
 					<input
+						id="item-form-adhoc-value-{key}"
 						value={String(getAttrValue(key, ''))}
 						onchange={(e) => setAttr(key, e.currentTarget.value)}
 						placeholder="属性值"

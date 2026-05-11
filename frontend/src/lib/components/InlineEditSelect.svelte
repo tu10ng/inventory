@@ -28,6 +28,7 @@
 </script>
 
 {#if editing}
+	<!-- svelte-ignore a11y_autofocus -->
 	<select
 		class="inline-select"
 		value={value ?? ''}
