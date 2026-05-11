@@ -1,11 +1,16 @@
 <script lang="ts">
-	import { ALL_COLUMNS, saveVisibleColumns } from '$lib/utils/columns';
+	import { getAllColumns, saveVisibleColumns } from '$lib/utils/columns';
+	import type { ItemColumnDef } from '$lib/utils/columns';
 
 	let {
+		columns = [],
 		visibleKeys = $bindable<string[]>([]),
 	}: {
+		columns?: ItemColumnDef[];
 		visibleKeys: string[];
 	} = $props();
+
+	const displayColumns = $derived(columns.length > 0 ? columns : getAllColumns());
 
 	let open = $state(false);
 
@@ -39,7 +44,7 @@
 	{#if open}
 		<div class="picker-dropdown">
 			<div class="picker-title">显示列</div>
-			{#each ALL_COLUMNS as col (col.key)}
+			{#each displayColumns as col (col.key)}
 				<label class="picker-item">
 					<input
 						type="checkbox"

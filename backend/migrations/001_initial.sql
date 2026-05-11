@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS trip_items (
     person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
     qty INTEGER NOT NULL DEFAULT 1,
     checked INTEGER NOT NULL DEFAULT 0,
-    item_status TEXT NOT NULL DEFAULT '' CHECK(item_status IN ('', 'need_buy', 'need_find', 'need_charge', 'need_fetch', 'need_give')),
+    item_status TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     sort_order INTEGER NOT NULL DEFAULT 0,
     is_essential INTEGER NOT NULL DEFAULT 0,
@@ -110,4 +110,67 @@ ALTER TABLE items ADD COLUMN body_parts TEXT NOT NULL DEFAULT '';
 ALTER TABLE items ADD COLUMN env_protection INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE items ADD COLUMN durability INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE items ADD COLUMN storage_ml INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE items ADD COLUMN breathable INTEGER NOT NULL DEFAULT 0
+ALTER TABLE items ADD COLUMN breathable INTEGER NOT NULL DEFAULT 0;
+
+-- Seed categories (only inserted on fresh DB, user can manage via CRUD after)
+INSERT OR IGNORE INTO categories (id, name, icon, sort_order) VALUES (1, '服装', '👕', 1);
+INSERT OR IGNORE INTO categories (id, name, icon, sort_order) VALUES (2, '装备', '🎒', 2);
+INSERT OR IGNORE INTO categories (id, name, icon, sort_order) VALUES (3, '营养', '🍫', 3);
+INSERT OR IGNORE INTO categories (id, name, icon, sort_order) VALUES (4, '电子', '🔋', 4);
+INSERT OR IGNORE INTO categories (id, name, icon, sort_order) VALUES (5, '急救', '🩹', 5);
+INSERT OR IGNORE INTO categories (id, name, icon, sort_order) VALUES (6, '洗漱', '🧴', 6);
+INSERT OR IGNORE INTO categories (id, name, icon, sort_order) VALUES (7, '证件', '📄', 7);
+INSERT OR IGNORE INTO categories (id, name, icon, sort_order) VALUES (8, '其他', '📦', 8);
+
+-- Status definitions (dynamic status values)
+CREATE TABLE IF NOT EXISTS status_definitions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL,
+    value TEXT NOT NULL,
+    label TEXT NOT NULL,
+    color TEXT NOT NULL DEFAULT '',
+    icon TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(scope, value)
+);
+
+-- Seed item statuses
+INSERT OR IGNORE INTO status_definitions (scope, value, label, sort_order) VALUES ('item', '', '无', 0);
+INSERT OR IGNORE INTO status_definitions (scope, value, label, sort_order) VALUES ('item', 'need_buy', '需购买', 1);
+INSERT OR IGNORE INTO status_definitions (scope, value, label, sort_order) VALUES ('item', 'need_find', '需寻找', 2);
+INSERT OR IGNORE INTO status_definitions (scope, value, label, sort_order) VALUES ('item', 'need_charge', '需充电', 3);
+INSERT OR IGNORE INTO status_definitions (scope, value, label, sort_order) VALUES ('item', 'need_fetch', '需取回', 4);
+INSERT OR IGNORE INTO status_definitions (scope, value, label, sort_order) VALUES ('item', 'need_give', '需带给', 5);
+
+-- Seed trip statuses
+INSERT OR IGNORE INTO status_definitions (scope, value, label, sort_order) VALUES ('trip', 'planning', '计划中', 1);
+INSERT OR IGNORE INTO status_definitions (scope, value, label, sort_order) VALUES ('trip', 'packing', '打包中', 2);
+INSERT OR IGNORE INTO status_definitions (scope, value, label, sort_order) VALUES ('trip', 'done', '已完成', 3);
+
+-- Attribute definitions (dynamic item properties)
+CREATE TABLE IF NOT EXISTS attribute_definitions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL,
+    attr_type TEXT NOT NULL DEFAULT 'number',
+    config TEXT NOT NULL DEFAULT '{}',
+    category_scope TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+-- Seed attribute definitions (migrated from hardcoded columns)
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('warmth_rating', '保暖', 'bar', '{"max":50}', 1);
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('weight_grams', '重量', 'weight', '{"suffix":"g"}', 2);
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('encumbrance', '累赘', 'bar', '{"max":10}', 3);
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('waterproof', '防水', 'bool', '{}', 4);
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('breathable', '透气', 'bool', '{}', 5);
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('env_protection', '环境防护', 'stars', '{"max":5}', 6);
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('durability', '耐久', 'stars', '{"max":5}', 7);
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('storage_ml', '容量', 'number', '{"suffix":"ml"}', 8);
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('material', '材质', 'text', '{}', 9);
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('season', '适用季节', 'text', '{"options":["春","夏","秋","冬"]}', 10);
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('body_parts', '覆盖部位', 'text', '{"options":["头","躯干","腿","脚","手"]}', 11);
+INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('default_qty', '数量', 'number', '{}', 12);
+
+-- Add attrs JSON column to items
+ALTER TABLE items ADD COLUMN attrs TEXT NOT NULL DEFAULT '{}'

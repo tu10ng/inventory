@@ -1,13 +1,15 @@
 pub mod activities;
 pub mod ai;
+pub mod attributes;
 pub mod categories;
 pub mod items;
 pub mod people;
+pub mod statuses;
 pub mod tags;
 pub mod trip_items;
 pub mod trips;
 
-use axum::routing::{delete, get, patch, post, put};
+use axum::routing::{get, patch, post, put};
 use axum::Router;
 use sqlx::SqlitePool;
 
@@ -27,14 +29,18 @@ pub fn router() -> Router<SqlitePool> {
         .route("/api/ai/parse-items", post(ai::parse_items))
         .route("/api/ai/organize-preview", post(ai::organize_preview))
         .route("/api/ai/organize-apply", post(ai::organize_apply))
+        // Status definitions
+        .route("/api/status-definitions", get(statuses::list).post(statuses::create))
+        .route("/api/status-definitions/{id}", put(statuses::update).delete(statuses::delete))
+        // Attribute definitions
+        .route("/api/attribute-definitions", get(attributes::list).post(attributes::create))
+        .route("/api/attribute-definitions/{id}", put(attributes::update).delete(attributes::delete))
         // People
         .route("/api/people", get(people::list).post(people::create))
         .route("/api/people/{id}", put(people::update).delete(people::delete))
         // Activities
         .route("/api/activities", get(activities::list).post(activities::create))
         .route("/api/activities/{id}", get(activities::get).put(activities::update).delete(activities::delete))
-        .route("/api/activities/{id}/items", get(activities::list_items).post(activities::add_item))
-        .route("/api/activities/{activity_id}/items/{item_id}", delete(activities::remove_item))
         .route("/api/activities/{id}/slots", get(activities::list_slots).post(activities::create_slot))
         .route("/api/activities/{id}/tips", get(activities::list_tips).post(activities::create_tip))
         .route("/api/activity-slots/{id}", put(activities::update_slot).delete(activities::delete_slot))

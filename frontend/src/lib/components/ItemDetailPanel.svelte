@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Item, Category, Tag } from '$lib/types';
+	import type { Item, Category, Tag, AttributeDefinition } from '$lib/types';
 	import InlineEdit from './InlineEdit.svelte';
 	import InlineEditSelect from './InlineEditSelect.svelte';
 	import InlineEditToggle from './InlineEditToggle.svelte';
@@ -7,10 +7,11 @@
 	import InlineEditStars from './InlineEditStars.svelte';
 	import InlineEditBar from './InlineEditBar.svelte';
 
-	let { item, categories, tags, usageCount = 0, onUpdate, onDelete }: {
+	let { item, categories, tags, attrDefs = [], usageCount = 0, onUpdate, onDelete }: {
 		item: Item;
 		categories: Category[];
 		tags: Tag[];
+		attrDefs?: AttributeDefinition[];
 		usageCount?: number;
 		onUpdate: (field: string, value: unknown) => void;
 		onDelete: () => void;
@@ -28,8 +29,18 @@
 		];
 	});
 
-	const seasonOptions = ['春', '夏', '秋', '冬'];
-	const bodyPartOptions = ['头', '躯干', '腿', '脚', '手'];
+	function getAttrConfig(ad: AttributeDefinition): { max?: number; suffix?: string; options?: string[] } {
+		try { return JSON.parse(ad.config || '{}'); } catch { return {}; }
+	}
+
+	function getAttrValue(key: string): unknown {
+		return item.attrs?.[key] ?? 0;
+	}
+
+	function updateAttr(key: string, value: unknown) {
+		const newAttrs = { ...item.attrs, [key]: value };
+		onUpdate('attrs', newAttrs);
+	}
 </script>
 
 <div class="detail-panel">
@@ -90,92 +101,35 @@
 		</div>
 	</div>
 
-	<!-- 物理属性 -->
-	<div class="detail-section">
-		<h3 class="section-title">物理属性</h3>
+	<!-- 动态属性 -->
+	{#if attrDefs.length > 0}
+		<div class="detail-section">
+			<h3 class="section-title">物理属性</h3>
 
-		<div class="field-row">
-			<span class="field-label">重量</span>
-			<span class="field-value">
-				<InlineEdit value={item.weight_grams} type="number" min={0} suffix="g" oncommit={(v) => onUpdate('weight_grams', v)} placeholder="-" />
-			</span>
+			{#each attrDefs as ad (ad.id)}
+				{@const config = getAttrConfig(ad)}
+				{@const val = getAttrValue(ad.key)}
+				<div class="field-row">
+					<span class="field-label">{ad.label}</span>
+					<span class="field-value">
+						{#if ad.attr_type === 'weight' || ad.attr_type === 'number'}
+							<InlineEdit value={val as number} type="number" min={0} suffix={config.suffix ?? ''} oncommit={(v) => updateAttr(ad.key, v)} placeholder="-" />
+						{:else if ad.attr_type === 'bar'}
+							<InlineEditBar value={val as number} max={config.max ?? 10} oncommit={(v) => updateAttr(ad.key, v)} />
+						{:else if ad.attr_type === 'stars'}
+							<InlineEditStars value={val as number} oncommit={(v) => updateAttr(ad.key, v)} />
+						{:else if ad.attr_type === 'bool'}
+							<InlineEditToggle value={(val as number) > 0} oncommit={(v) => updateAttr(ad.key, v ? 1 : 0)} />
+						{:else if ad.attr_type === 'text' && config.options}
+							<InlineEditPills value={val as string} options={config.options} oncommit={(v) => updateAttr(ad.key, v)} />
+						{:else}
+							<InlineEditPills value={val as string} options={[]} freeform={true} oncommit={(v) => updateAttr(ad.key, v)} />
+						{/if}
+					</span>
+				</div>
+			{/each}
 		</div>
-
-		<div class="field-row">
-			<span class="field-label">容量</span>
-			<span class="field-value">
-				<InlineEdit value={item.storage_ml} type="number" min={0} suffix="ml" oncommit={(v) => onUpdate('storage_ml', v)} placeholder="-" />
-			</span>
-		</div>
-
-		<div class="field-row">
-			<span class="field-label">保暖</span>
-			<span class="field-value">
-				<InlineEditBar value={item.warmth_rating} max={50} oncommit={(v) => onUpdate('warmth_rating', v)} />
-			</span>
-		</div>
-
-		<div class="field-row">
-			<span class="field-label">累赘</span>
-			<span class="field-value">
-				<InlineEditBar value={item.encumbrance} max={10} oncommit={(v) => onUpdate('encumbrance', v)} />
-			</span>
-		</div>
-
-		<div class="field-row">
-			<span class="field-label">环境防护</span>
-			<span class="field-value">
-				<InlineEditStars value={item.env_protection} oncommit={(v) => onUpdate('env_protection', v)} />
-			</span>
-		</div>
-
-		<div class="field-row">
-			<span class="field-label">耐久</span>
-			<span class="field-value">
-				<InlineEditStars value={item.durability} oncommit={(v) => onUpdate('durability', v)} />
-			</span>
-		</div>
-
-		<div class="field-row">
-			<span class="field-label">防水</span>
-			<span class="field-value">
-				<InlineEditToggle value={item.waterproof > 0} oncommit={(v) => onUpdate('waterproof', v ? 1 : 0)} />
-			</span>
-		</div>
-
-		<div class="field-row">
-			<span class="field-label">透气</span>
-			<span class="field-value">
-				<InlineEditToggle value={item.breathable > 0} oncommit={(v) => onUpdate('breathable', v ? 1 : 0)} />
-			</span>
-		</div>
-	</div>
-
-	<!-- 标签属性 -->
-	<div class="detail-section">
-		<h3 class="section-title">标签</h3>
-
-		<div class="field-row">
-			<span class="field-label">材质</span>
-			<span class="field-value">
-				<InlineEditPills value={item.material} options={[]} freeform={true} oncommit={(v) => onUpdate('material', v)} />
-			</span>
-		</div>
-
-		<div class="field-row">
-			<span class="field-label">季节</span>
-			<span class="field-value">
-				<InlineEditPills value={item.season} options={seasonOptions} oncommit={(v) => onUpdate('season', v)} />
-			</span>
-		</div>
-
-		<div class="field-row">
-			<span class="field-label">部位</span>
-			<span class="field-value">
-				<InlineEditPills value={item.body_parts} options={bodyPartOptions} oncommit={(v) => onUpdate('body_parts', v)} />
-			</span>
-		</div>
-	</div>
+	{/if}
 
 	{#if usageCount > 0}
 		<div class="detail-section usage-section">

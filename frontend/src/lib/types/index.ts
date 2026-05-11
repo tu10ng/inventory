@@ -21,17 +21,17 @@ export interface Item {
 	default_qty: number;
 	notes: string;
 	tag_id: number | null;
-	warmth_rating: number;
-	material: string;
-	encumbrance: number;
-	waterproof: number;
-	weight_grams: number;
-	season: string;
-	body_parts: string;
-	env_protection: number;
-	durability: number;
-	storage_ml: number;
-	breathable: number;
+	attrs: Record<string, unknown>;
+}
+
+export interface AttributeDefinition {
+	id: number;
+	key: string;
+	label: string;
+	attr_type: string;
+	config: string;
+	category_scope: string;
+	sort_order: number;
 }
 
 export interface Activity {
@@ -39,15 +39,6 @@ export interface Activity {
 	name: string;
 	description: string;
 	icon: string;
-}
-
-export interface ActivityItem {
-	id: number;
-	activity_id: number;
-	item_id: number;
-	is_essential: boolean;
-	default_qty: number;
-	notes: string;
 }
 
 export interface ActivitySlot {
@@ -84,7 +75,7 @@ export interface Trip {
 	start_date: string;
 	end_date: string;
 	notes: string;
-	status: 'planning' | 'packing' | 'done';
+	status: string;
 }
 
 export interface TripItem {
@@ -102,7 +93,17 @@ export interface TripItem {
 	slot_id: number | null;
 }
 
-export type ItemStatus = '' | 'need_buy' | 'need_find' | 'need_charge' | 'need_fetch' | 'need_give';
+export type ItemStatus = string;
+
+export interface StatusDefinition {
+	id: number;
+	scope: string;
+	value: string;
+	label: string;
+	color: string;
+	icon: string;
+	sort_order: number;
+}
 
 export interface SlotInfo {
 	id: number;
@@ -178,18 +179,8 @@ export interface AiParsedItem {
 	category_id: number | null;
 	tag_id: number | null;
 	notes: string;
-	warmth_rating: number;
-	material: string;
-	encumbrance: number;
-	waterproof: number;
-	weight_grams: number;
-	season: string;
-	body_parts: string;
-	env_protection: number;
-	durability: number;
-	storage_ml: number;
-	breathable: number;
 	default_qty: number;
+	attrs: Record<string, unknown>;
 }
 
 export interface AiParseResponse {

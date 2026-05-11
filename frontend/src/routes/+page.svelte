@@ -1,17 +1,20 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import type { Trip, Activity } from '$lib/types';
-	import { TRIP_STATUS_LABELS } from '$lib/utils/status';
+	import { getTripStatuses, getTripStatusLabel } from '$lib/utils/status';
+	import type { StatusDefinition } from '$lib/types';
 
 	let trips = $state<Trip[]>([]);
 	let activities = $state<Activity[]>([]);
+	let tripStatusDefs = $state<StatusDefinition[]>([]);
 	let showForm = $state(false);
 	let form = $state({ name: '', activity_id: null as number | null, start_date: '', end_date: '' });
 
 	async function load() {
-		[trips, activities] = await Promise.all([
+		[trips, activities, tripStatusDefs] = await Promise.all([
 			api.get<Trip[]>('/trips'),
-			api.get<Activity[]>('/activities')
+			api.get<Activity[]>('/activities'),
+			getTripStatuses()
 		]);
 	}
 
@@ -65,7 +68,7 @@
 		<a href="/trips/{trip.id}" class="card trip-card" style="display: block; text-decoration: none; color: inherit;">
 			<div style="display: flex; justify-content: space-between; align-items: center;">
 				<strong>{trip.name}</strong>
-				<span class="badge {trip.status}">{TRIP_STATUS_LABELS[trip.status]}</span>
+				<span class="badge {trip.status}">{getTripStatusLabel(trip.status)}</span>
 			</div>
 			{#if trip.start_date}
 				<div style="color: var(--text-secondary); font-size: 14px; margin-top: 4px;">

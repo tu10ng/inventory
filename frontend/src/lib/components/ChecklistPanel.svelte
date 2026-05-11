@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Trip, TripItemEnriched, Item, Category, Tip, Person, ItemStatus } from '$lib/types';
+	import type { Trip, TripItemEnriched, Item, Category, Tip, Person, StatusDefinition } from '$lib/types';
 	import { api } from '$lib/api/client';
 	import { getDragState } from '$lib/stores/dragState.svelte';
 	import ProgressBar from './ProgressBar.svelte';
@@ -68,6 +68,7 @@
 		categories,
 		tips,
 		people,
+		statusDefs = [],
 		onPopulate,
 		onResync,
 		onReload
@@ -78,6 +79,7 @@
 		categories: Category[];
 		tips: Tip[];
 		people: Person[];
+		statusDefs?: StatusDefinition[];
 		onPopulate: () => void;
 		onResync: () => void;
 		onReload: () => void;
@@ -363,6 +365,7 @@
 				<SlotRow
 					tripItem={ti}
 					{people}
+					{statusDefs}
 					selected={selectedIds.has(ti.id)}
 					{selectable}
 					isDragging={dragState.draggingItem !== null}
@@ -381,6 +384,7 @@
 					tripItem={ti}
 					itemInfo={getItemInfo(ti.item_id)}
 					{people}
+					{statusDefs}
 					selected={selectedIds.has(ti.id)}
 					{selectable}
 					canSaveAsSlot={!!trip.activity_id}

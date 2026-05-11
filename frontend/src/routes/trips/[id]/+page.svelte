@@ -2,8 +2,8 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api/client';
-	import type { Trip, TripItem, TripItemEnriched, Item, Category, Tip, Person, ResyncPreview, ResyncPreviewItem } from '$lib/types';
-	import { TRIP_STATUS_LABELS } from '$lib/utils/status';
+	import type { Trip, TripItem, TripItemEnriched, Item, Category, Tip, Person, ResyncPreview, ResyncPreviewItem, StatusDefinition } from '$lib/types';
+	import { getItemStatuses, getTripStatuses, getTripStatusLabel } from '$lib/utils/status';
 	import SplitPane from '$lib/components/SplitPane.svelte';
 	import ChecklistPanel from '$lib/components/ChecklistPanel.svelte';
 	import InventoryPanel from '$lib/components/InventoryPanel.svelte';
@@ -14,6 +14,8 @@
 	let categories = $state<Category[]>([]);
 	let tips = $state<Tip[]>([]);
 	let people = $state<Person[]>([]);
+	let itemStatusDefs = $state<StatusDefinition[]>([]);
+	let tripStatusDefs = $state<StatusDefinition[]>([]);
 
 	const tripId = $derived(Number(page.params.id));
 
@@ -21,16 +23,20 @@
 
 	async function load() {
 		const id = tripId;
-		const [t, items, cats, ppl] = await Promise.all([
+		const [t, items, cats, ppl, iDefs, tDefs] = await Promise.all([
 			api.get<Trip>(`/trips/${id}`),
 			api.get<Item[]>('/items'),
 			api.get<Category[]>('/categories'),
-			api.get<Person[]>('/people')
+			api.get<Person[]>('/people'),
+			getItemStatuses(),
+			getTripStatuses()
 		]);
 		trip = t;
 		allItems = items;
 		categories = cats;
 		people = ppl;
+		itemStatusDefs = iDefs;
+		tripStatusDefs = tDefs;
 
 		// Load enriched items
 		enrichedItems = await api.get<TripItemEnriched[]>(`/trips/${id}/items/enriched`);
@@ -117,11 +123,11 @@
 				value={trip.status}
 				onchange={(e) => updateTripStatus(e.currentTarget.value)}
 			>
-				<option value="planning">计划中</option>
-				<option value="packing">打包中</option>
-				<option value="done">已完成</option>
+				{#each tripStatusDefs as sd}
+					<option value={sd.value}>{sd.label}</option>
+				{/each}
 			</select>
-			<span class="badge {trip.status}">{TRIP_STATUS_LABELS[trip.status]}</span>
+			<span class="badge {trip.status}">{getTripStatusLabel(trip.status)}</span>
 			<button class="small no-print" onclick={cloneTrip} title="克隆行程">📋 克隆</button>
 		</div>
 	</div>
@@ -135,6 +141,7 @@
 				{categories}
 				{tips}
 				{people}
+				statusDefs={itemStatusDefs}
 				onPopulate={populate}
 				onResync={resync}
 				onReload={reloadItems}

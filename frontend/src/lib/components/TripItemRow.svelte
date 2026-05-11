@@ -1,10 +1,10 @@
 <script lang="ts">
-	import type { TripItem, Item, Person, ItemStatus } from '$lib/types';
+	import type { TripItem, Item, Person, StatusDefinition } from '$lib/types';
 	import StatusBadge from './StatusBadge.svelte';
 	import PersonBadge from './PersonBadge.svelte';
 	import InlineEdit from './InlineEdit.svelte';
 
-	let { tripItem, itemInfo, people, selected = false, selectable = false,
+	let { tripItem, itemInfo, people, statusDefs = [], selected = false, selectable = false,
 		canSaveAsSlot = false,
 		onToggleCheck, onUpdateStatus, onUpdateQty, onUpdateNotes, onUpdatePerson, onRemove, onToggleSelect,
 		onSaveAsSlot
@@ -12,11 +12,12 @@
 		tripItem: TripItem;
 		itemInfo: Item | null;
 		people: Person[];
+		statusDefs?: StatusDefinition[];
 		selected?: boolean;
 		selectable?: boolean;
 		canSaveAsSlot?: boolean;
 		onToggleCheck: () => void;
-		onUpdateStatus: (s: ItemStatus) => void;
+		onUpdateStatus: (s: string) => void;
 		onUpdateQty: (q: number) => void;
 		onUpdateNotes: (n: string) => void;
 		onUpdatePerson: (id: number | null) => void;
@@ -62,6 +63,7 @@
 		/>
 		<StatusBadge
 			status={tripItem.item_status}
+			{statusDefs}
 			onchange={onUpdateStatus}
 		/>
 		<PersonBadge

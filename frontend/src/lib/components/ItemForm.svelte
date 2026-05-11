@@ -1,10 +1,11 @@
 <script lang="ts">
-	import type { Item, Category, Tag } from '$lib/types';
+	import type { Item, Category, Tag, AttributeDefinition } from '$lib/types';
 
-	let { item = null, categories, tags, onSave, onCancel }: {
+	let { item = null, categories, tags, attrDefs = [], onSave, onCancel }: {
 		item?: Partial<Item> | null;
 		categories: Category[];
 		tags: Tag[];
+		attrDefs?: AttributeDefinition[];
 		onSave: (data: Record<string, unknown>) => void;
 		onCancel: () => void;
 	} = $props();
@@ -17,24 +18,8 @@
 	let default_qty = $state(item?.default_qty ?? 1);
 	let notes = $state(item?.notes ?? '');
 
-	// Physical attributes
-	let warmth_rating = $state(item?.warmth_rating ?? 0);
-	let material = $state(item?.material ?? '');
-	let encumbrance = $state(item?.encumbrance ?? 0);
-	let waterproof = $state(item?.waterproof ?? 0);
-	let weight_grams = $state(item?.weight_grams ?? 0);
-	let season = $state(item?.season ?? '');
-	let body_parts = $state(item?.body_parts ?? '');
-	let env_protection = $state(item?.env_protection ?? 0);
-	let durability = $state(item?.durability ?? 0);
-	let storage_ml = $state(item?.storage_ml ?? 0);
-	let breathable = $state(item?.breathable ?? 0);
-
-	const allSeasons = ['春', '夏', '秋', '冬'];
-	const allBodyParts = ['头', '躯干', '腿', '脚', '手'];
-
-	let selectedSeasons = $state<Set<string>>(new Set(season ? season.split(',').filter(Boolean) : []));
-	let selectedBodyParts = $state<Set<string>>(new Set(body_parts ? body_parts.split(',').filter(Boolean) : []));
+	// Dynamic attrs
+	let attrs = $state<Record<string, unknown>>({ ...(item?.attrs ?? {}) });
 
 	const categoryTags = $derived(tags.filter(t => t.category_id === category_id));
 
@@ -46,25 +31,31 @@
 		}
 	}
 
-	function toggleSeason(s: string) {
-		const next = new Set(selectedSeasons);
-		if (next.has(s)) next.delete(s); else next.add(s);
-		selectedSeasons = next;
+	function getAttrConfig(ad: AttributeDefinition): { max?: number; suffix?: string; options?: string[] } {
+		try { return JSON.parse(ad.config || '{}'); } catch { return {}; }
 	}
 
-	function toggleBodyPart(bp: string) {
-		const next = new Set(selectedBodyParts);
-		if (next.has(bp)) next.delete(bp); else next.add(bp);
-		selectedBodyParts = next;
+	function getAttrValue(key: string, defaultVal: unknown = ''): unknown {
+		return attrs[key] ?? defaultVal;
+	}
+
+	function setAttr(key: string, value: unknown) {
+		attrs = { ...attrs, [key]: value };
+	}
+
+	function togglePillValue(key: string, pill: string) {
+		const current = String(getAttrValue(key, '') ?? '');
+		const parts = current ? current.split(',').filter(Boolean) : [];
+		const idx = parts.indexOf(pill);
+		if (idx >= 0) parts.splice(idx, 1);
+		else parts.push(pill);
+		setAttr(key, parts.join(','));
 	}
 
 	function handleSave() {
 		onSave({
 			name, category_id, tag_id, brand, model, default_qty, notes,
-			warmth_rating, material, encumbrance, waterproof, weight_grams,
-			season: [...selectedSeasons].join(','),
-			body_parts: [...selectedBodyParts].join(','),
-			env_protection, durability, storage_ml, breathable,
+			attrs,
 		});
 	}
 
@@ -125,86 +116,66 @@
 		<input bind:value={notes} placeholder="备注" />
 	</div>
 
-	<hr class="form-divider" />
-	<h4 class="sub-title">物理属性</h4>
+	{#if attrDefs.length > 0}
+		<hr class="form-divider" />
+		<h4 class="sub-title">物理属性</h4>
 
-	<div class="form-row">
-		<div class="form-group" style="flex:1">
-			<label>保暖 (0-50)</label>
-			<input type="number" bind:value={warmth_rating} min="0" max="50" />
-		</div>
-		<div class="form-group" style="flex:1">
-			<label>累赘 (0-10)</label>
-			<input type="number" bind:value={encumbrance} min="0" max="10" />
-		</div>
-		<div class="form-group" style="flex:1">
-			<label>重量 (g)</label>
-			<input type="number" bind:value={weight_grams} min="0" />
-		</div>
-	</div>
-
-	<div class="form-group">
-		<label>材质 (逗号分隔)</label>
-		<input bind:value={material} placeholder="如: 涤纶,氨纶" />
-	</div>
-
-	<div class="form-group">
-		<label>适用季节</label>
-		<div class="checkbox-row">
-			{#each allSeasons as s}
-				<label class="checkbox-label">
-					<input type="checkbox" checked={selectedSeasons.has(s)} onchange={() => toggleSeason(s)} />
-					{s}
-				</label>
-			{/each}
-		</div>
-	</div>
-
-	<div class="form-group">
-		<label>覆盖部位</label>
-		<div class="checkbox-row">
-			{#each allBodyParts as bp}
-				<label class="checkbox-label">
-					<input type="checkbox" checked={selectedBodyParts.has(bp)} onchange={() => toggleBodyPart(bp)} />
-					{bp}
-				</label>
-			{/each}
-		</div>
-	</div>
-
-	<div class="form-row">
-		<div class="form-group" style="flex:1">
-			<label>环境防护 (0-5)</label>
-			<select bind:value={env_protection}>
-				{#each [0,1,2,3,4,5] as v}
-					<option value={v}>{v}</option>
-				{/each}
-			</select>
-		</div>
-		<div class="form-group" style="flex:1">
-			<label>耐久 (0-5)</label>
-			<select bind:value={durability}>
-				{#each [0,1,2,3,4,5] as v}
-					<option value={v}>{v}</option>
-				{/each}
-			</select>
-		</div>
-		<div class="form-group" style="flex:1">
-			<label>容量 (ml)</label>
-			<input type="number" bind:value={storage_ml} min="0" />
-		</div>
-	</div>
-
-	<div class="form-row">
-		<label class="toggle-label">
-			<input type="checkbox" checked={waterproof > 0} onchange={(e) => waterproof = e.currentTarget.checked ? 1 : 0} />
-			防水
-		</label>
-		<label class="toggle-label">
-			<input type="checkbox" checked={breathable > 0} onchange={(e) => breathable = e.currentTarget.checked ? 1 : 0} />
-			透气
-		</label>
-	</div>
+		{#each attrDefs as ad (ad.id)}
+			{@const config = getAttrConfig(ad)}
+			{#if ad.attr_type === 'number' || ad.attr_type === 'weight'}
+				<div class="form-row">
+					<div class="form-group" style="flex:1">
+						<label>{ad.label}{config.suffix ? ` (${config.suffix})` : ''}</label>
+						<input type="number" value={getAttrValue(ad.key, 0)} onchange={(e) => setAttr(ad.key, Number(e.currentTarget.value))} min="0" />
+					</div>
+				</div>
+			{:else if ad.attr_type === 'bar'}
+				<div class="form-row">
+					<div class="form-group" style="flex:1">
+						<label>{ad.label} (0-{config.max ?? 10})</label>
+						<input type="number" value={getAttrValue(ad.key, 0)} onchange={(e) => setAttr(ad.key, Number(e.currentTarget.value))} min="0" max={config.max ?? 10} />
+					</div>
+				</div>
+			{:else if ad.attr_type === 'stars'}
+				<div class="form-row">
+					<div class="form-group" style="flex:1">
+						<label>{ad.label} (0-{config.max ?? 5})</label>
+						<select value={getAttrValue(ad.key, 0)} onchange={(e) => setAttr(ad.key, Number(e.currentTarget.value))}>
+							{#each Array.from({length: (config.max ?? 5) + 1}, (_, i) => i) as v}
+								<option value={v}>{v}</option>
+							{/each}
+						</select>
+					</div>
+				</div>
+			{:else if ad.attr_type === 'bool'}
+				<div class="form-row">
+					<label class="toggle-label">
+						<input type="checkbox" checked={Number(getAttrValue(ad.key, 0)) > 0} onchange={(e) => setAttr(ad.key, e.currentTarget.checked ? 1 : 0)} />
+						{ad.label}
+					</label>
+				</div>
+			{:else if ad.attr_type === 'text' && config.options}
+				<div class="form-group">
+					<label>{ad.label}</label>
+					<div class="checkbox-row">
+						{#each config.options as opt}
+							{@const current = String(getAttrValue(ad.key, ''))}
+							{@const selected = current.split(',').filter(Boolean).includes(opt)}
+							<label class="checkbox-label">
+								<input type="checkbox" checked={selected} onchange={() => togglePillValue(ad.key, opt)} />
+								{opt}
+							</label>
+						{/each}
+					</div>
+				</div>
+			{:else}
+				<div class="form-group">
+					<label>{ad.label}</label>
+					<input value={getAttrValue(ad.key, '')} onchange={(e) => setAttr(ad.key, e.currentTarget.value)} placeholder={ad.label} />
+				</div>
+			{/if}
+		{/each}
+	{/if}
 
 	<div class="form-actions">
 		<button onclick={onCancel}>取消</button>

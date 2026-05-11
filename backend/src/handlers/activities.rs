@@ -66,51 +66,6 @@ pub async fn delete(
     Ok(())
 }
 
-// ── Activity Items (legacy, kept for backward compat) ──
-
-pub async fn list_items(
-    State(pool): State<SqlitePool>,
-    Path(activity_id): Path<i64>,
-) -> Result<Json<Vec<ActivityItem>>, AppError> {
-    let rows = sqlx::query_as::<_, ActivityItem>(
-        "SELECT * FROM activity_items WHERE activity_id = ? ORDER BY id",
-    )
-    .bind(activity_id)
-    .fetch_all(&pool)
-    .await?;
-    Ok(Json(rows))
-}
-
-pub async fn add_item(
-    State(pool): State<SqlitePool>,
-    Path(activity_id): Path<i64>,
-    Json(body): Json<CreateActivityItem>,
-) -> Result<Json<ActivityItem>, AppError> {
-    let row = sqlx::query_as::<_, ActivityItem>(
-        "INSERT INTO activity_items (activity_id, item_id, is_essential, default_qty, notes) VALUES (?, ?, ?, ?, ?) RETURNING *",
-    )
-    .bind(activity_id)
-    .bind(body.item_id)
-    .bind(body.is_essential)
-    .bind(body.default_qty)
-    .bind(&body.notes)
-    .fetch_one(&pool)
-    .await?;
-    Ok(Json(row))
-}
-
-pub async fn remove_item(
-    State(pool): State<SqlitePool>,
-    Path((activity_id, item_id)): Path<(i64, i64)>,
-) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM activity_items WHERE activity_id = ? AND item_id = ?")
-        .bind(activity_id)
-        .bind(item_id)
-        .execute(&pool)
-        .await?;
-    Ok(())
-}
-
 // ── Activity Slots ──
 
 pub async fn list_slots(

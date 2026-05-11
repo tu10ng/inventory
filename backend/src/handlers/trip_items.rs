@@ -85,7 +85,7 @@ pub async fn list_enriched(
     if !all_tag_ids.is_empty() {
         let placeholders = all_tag_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let q = format!(
-            "SELECT * FROM items WHERE tag_id IN ({}) ORDER BY name",
+            "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE tag_id IN ({}) ORDER BY name",
             placeholders
         );
         let mut query = sqlx::query_as::<_, Item>(&q);
@@ -305,7 +305,7 @@ pub async fn save_as_slot(
     })?;
 
     // 2. Fetch the item to get category_id and tag_id
-    let item = sqlx::query_as::<_, Item>("SELECT * FROM items WHERE id = ?")
+    let item = sqlx::query_as::<_, Item>("SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE id = ?")
         .bind(item_id)
         .fetch_one(&pool)
         .await?;

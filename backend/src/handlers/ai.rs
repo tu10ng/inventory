@@ -4,9 +4,9 @@ use sqlx::SqlitePool;
 
 use crate::error::AppError;
 use crate::models::{
-    AiParseRequest, AiParseResponse, AiParsedItem, Category, Item, OrganizeAction,
-    OrganizeApplyRequest, OrganizeApplyResponse, OrganizePreviewResponse, OrganizeUpdateFields,
-    Tag,
+    AiParseRequest, AiParseResponse, AiParsedItem, AttributeDefinition, Category, Item,
+    OrganizeAction, OrganizeApplyRequest, OrganizeApplyResponse, OrganizePreviewResponse,
+    OrganizeUpdateFields, Tag,
 };
 
 #[derive(serde::Serialize)]
@@ -204,7 +204,11 @@ async fn call_llm(system_prompt: &str, user_prompt: &str) -> Result<String, AppE
 
 // ── Parse Items ──
 
-fn build_system_prompt(categories: &[Category], tags: &[Tag]) -> String {
+fn build_system_prompt(
+    categories: &[Category],
+    tags: &[Tag],
+    attr_defs: &[AttributeDefinition],
+) -> String {
     let mut cats_desc = String::new();
     for c in categories {
         cats_desc.push_str(&format!("- {} (icon: {})\n", c.name, c.icon));
@@ -215,6 +219,33 @@ fn build_system_prompt(categories: &[Category], tags: &[Tag]) -> String {
         let cat = categories.iter().find(|c| c.id == t.category_id);
         let cat_name = cat.map(|c| c.name.as_str()).unwrap_or("?");
         tags_desc.push_str(&format!("- {} (分类: {})\n", t.name, cat_name));
+    }
+
+    let mut attrs_desc = String::new();
+    for ad in attr_defs {
+        let type_hint = match ad.attr_type.as_str() {
+            "bar" => {
+                let config: serde_json::Value =
+                    serde_json::from_str(&ad.config).unwrap_or_default();
+                let max = config.get("max").and_then(|v| v.as_i64()).unwrap_or(10);
+                format!("数值 0-{}", max)
+            }
+            "stars" => {
+                let config: serde_json::Value =
+                    serde_json::from_str(&ad.config).unwrap_or_default();
+                let max = config.get("max").and_then(|v| v.as_i64()).unwrap_or(5);
+                format!("星级 0-{}", max)
+            }
+            "bool" => "布尔 0或1".to_string(),
+            "number" => "数值".to_string(),
+            "weight" => "重量（克）".to_string(),
+            "text" => "文本".to_string(),
+            _ => ad.attr_type.clone(),
+        };
+        attrs_desc.push_str(&format!(
+            "- {}: {} ({})\n",
+            ad.key, ad.label, type_hint
+        ));
     }
 
     format!(
@@ -234,21 +265,12 @@ fn build_system_prompt(categories: &[Category], tags: &[Tag]) -> String {
 - category_name: 从上面的分类列表中选择最合适的分类名称
 - tag_name: 从上面的标签列表中选择最合适的标签名称，没有合适的留 null
 - notes: 备注（通常为空字符串）
-- warmth_rating: 保暖等级 0-5（0=不保暖，5=极暖）
-- material: 材质（如"Gore-Tex"、"尼龙"，未知留空字符串）
-- encumbrance: 累赘度 0-5（0=无感，5=极累赘）
-- waterproof: 防水等级 0-5（0=不防水，5=完全防水）
-- weight_grams: 重量（克），尽量给出准确值，未知填 0
-- season: 适用季节（如"四季"、"冬季"、"三季"，留空表示不限）
-- body_parts: 覆盖身体部位（如"上身"、"脚"、"头"，留空表示不适用）
-- env_protection: 环境防护 0-5
-- durability: 耐久度 0-5
-- storage_ml: 容量（毫升），不适用填 0
-- breathable: 透气性 0-5
 - default_qty: 默认数量，通常为 1
+- attrs: 物品属性对象，包含以下属性：
+{attrs_desc}
 
 ## 规则
-1. 尽量根据品牌和型号推断物品属性（重量、材质、防水等级等）
+1. 尽量根据品牌和型号推断物品属性
 2. 如果用户只说了一个概括性的描述，拆分成独立物品
 3. category_name 必须从上面的分类列表中选择
 4. tag_name 从标签列表中选择最合适的；如果没有匹配的，请给出一个合理的简短标签名（2-4字，如"手表"、"头灯"）
@@ -269,8 +291,13 @@ pub async fn parse_items(
     let tags = sqlx::query_as::<_, Tag>("SELECT * FROM tags ORDER BY sort_order")
         .fetch_all(&pool)
         .await?;
+    let attr_defs = sqlx::query_as::<_, AttributeDefinition>(
+        "SELECT * FROM attribute_definitions ORDER BY sort_order",
+    )
+    .fetch_all(&pool)
+    .await?;
 
-    let system_prompt = build_system_prompt(&categories, &tags);
+    let system_prompt = build_system_prompt(&categories, &tags, &attr_defs);
     let content = call_llm(&system_prompt, &body.text).await?;
 
     let parsed: serde_json::Value = serde_json::from_str(&content)
@@ -374,7 +401,7 @@ fn build_organize_prompt(categories: &[Category], tags: &[Tag], items: &[Item]) 
   "item_id": 123,
   "reason": "说明拆分原因",
   "new_items": [
-    {{"name": "物品1", "brand": "", "model": "", "category_name": "分类", "tag_name": "标签或null", "notes": "", "warmth_rating": 0, "material": "", "encumbrance": 0, "waterproof": 0, "weight_grams": 0, "season": "", "body_parts": "", "env_protection": 0, "durability": 0, "storage_ml": 0, "breathable": 0, "default_qty": 1}},
+    {{"name": "物品1", "brand": "", "model": "", "category_name": "分类", "tag_name": "标签或null", "notes": "", "default_qty": 1, "attrs": {{}}}},
     {{"name": "物品2", ...}}
   ]
 }}
@@ -410,7 +437,7 @@ pub async fn organize_preview(
     let tags = sqlx::query_as::<_, Tag>("SELECT * FROM tags ORDER BY sort_order")
         .fetch_all(&pool)
         .await?;
-    let items = sqlx::query_as::<_, Item>("SELECT * FROM items ORDER BY category_id, name")
+    let items = sqlx::query_as::<_, Item>("SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items ORDER BY category_id, name")
         .fetch_all(&pool)
         .await?;
 
@@ -612,10 +639,8 @@ pub async fn organize_apply(
                     let tag_id = new_item.tag_id.filter(|id| valid_tag_ids.contains(id));
 
                     let result = sqlx::query(
-                        "INSERT INTO items (name, brand, model, category_id, tag_id, default_qty, notes, \
-                         warmth_rating, material, encumbrance, waterproof, weight_grams, season, \
-                         body_parts, env_protection, durability, storage_ml, breathable) \
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO items (name, brand, model, category_id, tag_id, default_qty, notes, attrs) \
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     )
                     .bind(&new_item.name)
                     .bind(&new_item.brand)
@@ -624,17 +649,7 @@ pub async fn organize_apply(
                     .bind(tag_id)
                     .bind(new_item.default_qty)
                     .bind(&new_item.notes)
-                    .bind(new_item.warmth_rating)
-                    .bind(&new_item.material)
-                    .bind(new_item.encumbrance)
-                    .bind(new_item.waterproof)
-                    .bind(new_item.weight_grams)
-                    .bind(&new_item.season)
-                    .bind(&new_item.body_parts)
-                    .bind(new_item.env_protection)
-                    .bind(new_item.durability)
-                    .bind(new_item.storage_ml)
-                    .bind(new_item.breathable)
+                    .bind(serde_json::to_string(&new_item.attrs).unwrap_or_else(|_| "{}".to_string()))
                     .execute(&mut *tx)
                     .await?;
 

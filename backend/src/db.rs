@@ -1,4 +1,3 @@
-use serde::Deserialize;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -17,7 +16,7 @@ pub async fn init_pool() -> SqlitePool {
 
     run_migrations(&pool).await;
     rebuild_trip_items_fk(&pool).await;
-    sync_categories(&pool).await;
+    migrate_attrs(&pool).await;
     pool
 }
 
@@ -81,7 +80,7 @@ async fn rebuild_trip_items_fk(pool: &SqlitePool) {
             person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
             qty INTEGER NOT NULL DEFAULT 1,
             checked INTEGER NOT NULL DEFAULT 0,
-            item_status TEXT NOT NULL DEFAULT '' CHECK(item_status IN ('', 'need_buy', 'need_find', 'need_charge', 'need_fetch', 'need_give')),
+            item_status TEXT NOT NULL DEFAULT '',
             notes TEXT NOT NULL DEFAULT '',
             sort_order INTEGER NOT NULL DEFAULT 0,
             is_essential INTEGER NOT NULL DEFAULT 0,
@@ -107,28 +106,57 @@ async fn rebuild_trip_items_fk(pool: &SqlitePool) {
     tracing::info!("trip_items FK rebuild complete");
 }
 
-#[derive(Deserialize)]
-struct CategoryConfig {
-    id: i64,
-    name: String,
-    icon: String,
-    sort_order: i64,
+/// Migrate old hardcoded item columns into the attrs JSON column.
+/// Idempotent: only runs on items where attrs is still '{}' and old columns have data.
+async fn migrate_attrs(pool: &SqlitePool) {
+    // Check if old columns exist (they might not on a fresh DB after a future cleanup)
+    let table_info: Vec<(String,)> = sqlx::query_as(
+        "SELECT name FROM pragma_table_info('items') WHERE name = 'warmth_rating'",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    if table_info.is_empty() {
+        return; // Old columns don't exist, nothing to migrate
+    }
+
+    // Pack old column values into attrs JSON for items that still have attrs = '{}'
+    let migrated = sqlx::query(
+        "UPDATE items SET attrs = json_object(
+            'warmth_rating', warmth_rating,
+            'material', material,
+            'encumbrance', encumbrance,
+            'waterproof', waterproof,
+            'weight_grams', weight_grams,
+            'season', season,
+            'body_parts', body_parts,
+            'env_protection', env_protection,
+            'durability', durability,
+            'storage_ml', storage_ml,
+            'breathable', breathable
+        ) WHERE attrs = '{}' AND (
+            warmth_rating != 0 OR material != '' OR encumbrance != 0 OR
+            waterproof != 0 OR weight_grams != 0 OR season != '' OR
+            body_parts != '' OR env_protection != 0 OR durability != 0 OR
+            storage_ml != 0 OR breathable != 0
+        )",
+    )
+    .execute(pool)
+    .await;
+
+    match migrated {
+        Ok(result) => {
+            if result.rows_affected() > 0 {
+                tracing::info!(
+                    "Migrated {} items from old columns to attrs JSON",
+                    result.rows_affected()
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!("attrs migration failed (may be expected on fresh DB): {}", e);
+        }
+    }
 }
 
-async fn sync_categories(pool: &SqlitePool) {
-    let json = include_str!("../config/categories.json");
-    let configs: Vec<CategoryConfig> = serde_json::from_str(json).expect("invalid categories.json");
-    for c in &configs {
-        sqlx::query(
-            "INSERT INTO categories (id, name, icon, sort_order) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, icon = excluded.icon, sort_order = excluded.sort_order",
-        )
-        .bind(c.id)
-        .bind(&c.name)
-        .bind(&c.icon)
-        .bind(c.sort_order)
-        .execute(pool)
-        .await
-        .expect("failed to sync category");
-    }
-    tracing::info!("Synced {} categories from config", configs.len());
-}

@@ -1,17 +1,26 @@
 <script lang="ts">
-	import { STATUS_OPTIONS } from '$lib/utils/status';
-	import type { ItemStatus } from '$lib/types';
+	import type { StatusDefinition } from '$lib/types';
 
-	let { status, onchange }: { status: ItemStatus; onchange: (s: ItemStatus) => void } = $props();
+	let { status, statusDefs = [], onchange }: {
+		status: string;
+		statusDefs?: StatusDefinition[];
+		onchange: (s: string) => void;
+	} = $props();
+
+	const options = $derived(
+		statusDefs.length > 0
+			? statusDefs.map(s => ({ value: s.value, label: s.label }))
+			: [{ value: '', label: '无' }]
+	);
 </script>
 
 <select
 	class="status-select {status ? 'badge ' + status : ''}"
 	value={status}
-	onchange={(e) => onchange(e.currentTarget.value as ItemStatus)}
+	onchange={(e) => onchange(e.currentTarget.value)}
 	onclick={(e) => e.stopPropagation()}
 >
-	{#each STATUS_OPTIONS as opt}
+	{#each options as opt}
 		<option value={opt.value}>{opt.label}</option>
 	{/each}
 </select>

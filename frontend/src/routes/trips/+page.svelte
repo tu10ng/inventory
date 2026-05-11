@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import type { Trip, Activity } from '$lib/types';
-	import { TRIP_STATUS_LABELS } from '$lib/utils/status';
+	import { getTripStatuses, getTripStatusLabel } from '$lib/utils/status';
 
 	let trips = $state<Trip[]>([]);
 	let activities = $state<Activity[]>([]);
@@ -11,7 +11,8 @@
 	async function load() {
 		[trips, activities] = await Promise.all([
 			api.get<Trip[]>('/trips'),
-			api.get<Activity[]>('/activities')
+			api.get<Activity[]>('/activities'),
+			getTripStatuses()
 		]);
 	}
 
@@ -78,7 +79,7 @@
 			<a href="/trips/{trip.id}" style="text-decoration: none; color: inherit; flex: 1;">
 				<div style="display: flex; align-items: center; gap: 12px;">
 					<strong>{trip.name}</strong>
-					<span class="badge {trip.status}">{TRIP_STATUS_LABELS[trip.status]}</span>
+					<span class="badge {trip.status}">{getTripStatusLabel(trip.status)}</span>
 					{#if trip.activity_id}
 						<span style="color: var(--text-secondary); font-size: 13px;">{activityName(trip.activity_id)}</span>
 					{/if}

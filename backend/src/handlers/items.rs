@@ -6,9 +6,11 @@ use crate::error::AppError;
 use crate::models::{CreateItem, Item, ItemUsageCount, ItemUsageStats, TripRef};
 
 pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Item>>, AppError> {
-    let rows = sqlx::query_as::<_, Item>("SELECT * FROM items ORDER BY category_id, id")
-        .fetch_all(&pool)
-        .await?;
+    let rows = sqlx::query_as::<_, Item>(
+        "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items ORDER BY category_id, id",
+    )
+    .fetch_all(&pool)
+    .await?;
     Ok(Json(rows))
 }
 
@@ -16,10 +18,12 @@ pub async fn get(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<Json<Item>, AppError> {
-    let row = sqlx::query_as::<_, Item>("SELECT * FROM items WHERE id = ?")
-        .bind(id)
-        .fetch_one(&pool)
-        .await?;
+    let row = sqlx::query_as::<_, Item>(
+        "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await?;
     Ok(Json(row))
 }
 
@@ -27,8 +31,9 @@ pub async fn create(
     State(pool): State<SqlitePool>,
     Json(body): Json<CreateItem>,
 ) -> Result<Json<Item>, AppError> {
+    let attrs_str = serde_json::to_string(&body.attrs).unwrap_or_else(|_| "{}".to_string());
     let row = sqlx::query_as::<_, Item>(
-        "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id, warmth_rating, material, encumbrance, waterproof, weight_grams, season, body_parts, env_protection, durability, storage_ml, breathable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id, attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, name, brand, model, category_id, default_qty, notes, tag_id, attrs",
     )
     .bind(&body.name)
     .bind(&body.brand)
@@ -37,17 +42,7 @@ pub async fn create(
     .bind(body.default_qty)
     .bind(&body.notes)
     .bind(body.tag_id)
-    .bind(body.warmth_rating)
-    .bind(&body.material)
-    .bind(body.encumbrance)
-    .bind(body.waterproof)
-    .bind(body.weight_grams)
-    .bind(&body.season)
-    .bind(&body.body_parts)
-    .bind(body.env_protection)
-    .bind(body.durability)
-    .bind(body.storage_ml)
-    .bind(body.breathable)
+    .bind(&attrs_str)
     .fetch_one(&pool)
     .await?;
     Ok(Json(row))
@@ -58,8 +53,9 @@ pub async fn update(
     Path(id): Path<i64>,
     Json(body): Json<CreateItem>,
 ) -> Result<Json<Item>, AppError> {
+    let attrs_str = serde_json::to_string(&body.attrs).unwrap_or_else(|_| "{}".to_string());
     let row = sqlx::query_as::<_, Item>(
-        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ?, warmth_rating = ?, material = ?, encumbrance = ?, waterproof = ?, weight_grams = ?, season = ?, body_parts = ?, env_protection = ?, durability = ?, storage_ml = ?, breathable = ? WHERE id = ? RETURNING *",
+        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ?, attrs = ? WHERE id = ? RETURNING id, name, brand, model, category_id, default_qty, notes, tag_id, attrs",
     )
     .bind(&body.name)
     .bind(&body.brand)
@@ -68,17 +64,7 @@ pub async fn update(
     .bind(body.default_qty)
     .bind(&body.notes)
     .bind(body.tag_id)
-    .bind(body.warmth_rating)
-    .bind(&body.material)
-    .bind(body.encumbrance)
-    .bind(body.waterproof)
-    .bind(body.weight_grams)
-    .bind(&body.season)
-    .bind(&body.body_parts)
-    .bind(body.env_protection)
-    .bind(body.durability)
-    .bind(body.storage_ml)
-    .bind(body.breathable)
+    .bind(&attrs_str)
     .bind(id)
     .fetch_one(&pool)
     .await?;
@@ -117,4 +103,3 @@ pub async fn usage_detail(
     .await?;
     Ok(Json(ItemUsageStats { item_id: id, trips }))
 }
-

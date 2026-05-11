@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Item, Category, Tag, ItemUsageCount, AiParsedItem } from '$lib/types';
+	import type { Item, Category, Tag, ItemUsageCount, AiParsedItem, AttributeDefinition } from '$lib/types';
 	import SearchFilter from '$lib/components/SearchFilter.svelte';
 	import ColumnPicker from '$lib/components/ColumnPicker.svelte';
 	import ItemListTable from '$lib/components/ItemListTable.svelte';
@@ -9,12 +9,15 @@
 	import ItemForm from '$lib/components/ItemForm.svelte';
 	import AiAddModal from '$lib/components/AiAddModal.svelte';
 	import AiOrganizeModal from '$lib/components/AiOrganizeModal.svelte';
-	import { ALL_COLUMNS, loadVisibleColumns } from '$lib/utils/columns';
+	import { loadAllColumns, getAllColumns, loadVisibleColumns } from '$lib/utils/columns';
+	import type { ItemColumnDef } from '$lib/utils/columns';
 
 	let items = $state<Item[]>([]);
 	let categories = $state<Category[]>([]);
 	let tags = $state<Tag[]>([]);
+	let attrDefs = $state<AttributeDefinition[]>([]);
 	let usageStats = $state<Map<number, number>>(new Map());
+	let allColumns = $state<ItemColumnDef[]>([]);
 
 	let selectedItem = $state<Item | null>(null);
 	let panelMode = $state<'detail' | 'create' | null>(null);
@@ -24,7 +27,7 @@
 
 	let collapsedCategories = $state<Set<number>>(new Set());
 	let visibleKeys = $state<string[]>(loadVisibleColumns());
-	const visibleColumns = $derived(ALL_COLUMNS.filter(c => visibleKeys.includes(c.key)));
+	const visibleColumns = $derived(allColumns.filter(c => visibleKeys.includes(c.key)));
 
 	let showAiModal = $state(false);
 	let showOrganizeModal = $state(false);
@@ -34,14 +37,18 @@
 	let columnFilters = $state<Map<string, Set<string>>>(new Map());
 
 	async function load() {
-		const [itemsData, cats, tagsData] = await Promise.all([
+		const [itemsData, cats, tagsData, adefs, cols] = await Promise.all([
 			api.get<Item[]>('/items'),
 			api.get<Category[]>('/categories'),
-			api.get<Tag[]>('/tags')
+			api.get<Tag[]>('/tags'),
+			api.get<AttributeDefinition[]>('/attribute-definitions'),
+			loadAllColumns()
 		]);
 		items = itemsData;
 		categories = cats;
 		tags = tagsData;
+		attrDefs = adefs;
+		allColumns = cols;
 		try {
 			const stats = await api.get<ItemUsageCount[]>('/item-stats');
 			usageStats = new Map(stats.map((s) => [s.item_id, s.trip_count]));
@@ -69,6 +76,10 @@
 			if (currentTag && currentTag.category_id !== value) {
 				data.tag_id = null;
 			}
+		}
+		// Serialize attrs for API
+		if (data.attrs && typeof data.attrs === 'object') {
+			data.attrs = data.attrs;
 		}
 		const updated = await api.put<Item>(`/items/${selectedItem.id}`, data);
 		selectedItem = updated;
@@ -107,17 +118,7 @@
 				default_qty: item.default_qty || 1,
 				notes: item.notes || '',
 				tag_id: item.tag_id ?? null,
-				warmth_rating: item.warmth_rating || 0,
-				material: item.material || '',
-				encumbrance: item.encumbrance || 0,
-				waterproof: item.waterproof || 0,
-				weight_grams: item.weight_grams || 0,
-				season: item.season || '',
-				body_parts: item.body_parts || '',
-				env_protection: item.env_protection || 0,
-				durability: item.durability || 0,
-				storage_ml: item.storage_ml || 0,
-				breathable: item.breathable || 0
+				attrs: item.attrs ?? {},
 			};
 			try {
 				await api.post('/items', payload);
@@ -152,7 +153,7 @@
 		// Apply column filters
 		for (const [key, vals] of columnFilters) {
 			if (vals.size === 0) continue;
-			const col = ALL_COLUMNS.find(c => c.key === key);
+			const col = allColumns.find(c => c.key === key);
 			if (!col) continue;
 			list = list.filter((item) => {
 				if (col.type === 'tag') {
@@ -160,10 +161,10 @@
 					const display = t ? t.name : '-';
 					return vals.has(display);
 				} else if (col.type === 'bool') {
-					const v = (item as unknown as Record<string, unknown>)[col.key] as number;
+					const v = (key === 'brand' ? item.brand : item.attrs?.[key]) as number;
 					return vals.has(v > 0 ? '1' : '0');
 				} else {
-					const v = (item as unknown as Record<string, unknown>)[col.key];
+					const v = key === 'brand' ? item.brand : item.attrs?.[key];
 					return vals.has(v ? String(v) : '-');
 				}
 			});
@@ -202,9 +203,12 @@
 				const tb = b.tag_id ? tags.find(t => t.id === b.tag_id) : null;
 				va = ta?.name ?? '';
 				vb = tb?.name ?? '';
+			} else if (key === 'brand') {
+				va = a.brand;
+				vb = b.brand;
 			} else {
-				va = (a as unknown as Record<string, unknown>)[key];
-				vb = (b as unknown as Record<string, unknown>)[key];
+				va = a.attrs?.[key];
+				vb = b.attrs?.[key];
 			}
 			// Nullish values go last
 			if (va == null && vb == null) return 0;
@@ -244,7 +248,7 @@
 				onSearchChange={(v) => (search = v)}
 				onCategoryChange={(id) => (filterCategoryId = id)}
 			/>
-			<ColumnPicker bind:visibleKeys />
+			<ColumnPicker columns={allColumns} bind:visibleKeys />
 			<button class="primary" onclick={startCreate}>+ 添加物品</button>
 			<button onclick={() => showAiModal = true}>AI 添加</button>
 		<button onclick={() => showOrganizeModal = true}>AI 整理</button>
@@ -273,6 +277,7 @@
 					item={selectedItem}
 					{categories}
 					{tags}
+					{attrDefs}
 					usageCount={usageStats.get(selectedItem.id) ?? 0}
 					onUpdate={handleFieldUpdate}
 					onDelete={handleDelete}
@@ -281,6 +286,7 @@
 				<ItemForm
 					{categories}
 					{tags}
+					{attrDefs}
 					onSave={handleSave}
 					onCancel={handleCancel}
 				/>

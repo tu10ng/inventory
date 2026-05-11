@@ -1,25 +1,42 @@
-import type { ItemStatus } from '$lib/types';
+import { api } from '$lib/api/client';
+import type { StatusDefinition } from '$lib/types';
 
-export const STATUS_LABELS: Record<ItemStatus, string> = {
-	'': '',
-	need_buy: '需购买',
-	need_find: '需寻找',
-	need_charge: '需充电',
-	need_fetch: '需取回',
-	need_give: '需带给'
-};
+let itemStatuses: StatusDefinition[] | null = null;
+let tripStatuses: StatusDefinition[] | null = null;
+let allStatuses: StatusDefinition[] | null = null;
 
-export const STATUS_OPTIONS: { value: ItemStatus; label: string }[] = [
-	{ value: '', label: '无' },
-	{ value: 'need_buy', label: '需购买' },
-	{ value: 'need_find', label: '需寻找' },
-	{ value: 'need_charge', label: '需充电' },
-	{ value: 'need_fetch', label: '需取回' },
-	{ value: 'need_give', label: '需带给' }
-];
+async function ensureLoaded(): Promise<void> {
+	if (allStatuses) return;
+	allStatuses = await api.get<StatusDefinition[]>('/status-definitions');
+	itemStatuses = allStatuses.filter((s) => s.scope === 'item');
+	tripStatuses = allStatuses.filter((s) => s.scope === 'trip');
+}
 
-export const TRIP_STATUS_LABELS: Record<string, string> = {
-	planning: '计划中',
-	packing: '打包中',
-	done: '已完成'
-};
+export async function getItemStatuses(): Promise<StatusDefinition[]> {
+	await ensureLoaded();
+	return itemStatuses!;
+}
+
+export async function getTripStatuses(): Promise<StatusDefinition[]> {
+	await ensureLoaded();
+	return tripStatuses!;
+}
+
+export function invalidateStatusCache(): void {
+	allStatuses = null;
+	itemStatuses = null;
+	tripStatuses = null;
+}
+
+// Synchronous fallbacks for use after initial load
+export function getItemStatusLabel(value: string): string {
+	if (!itemStatuses) return value;
+	const def = itemStatuses.find((s) => s.value === value);
+	return def?.label ?? value;
+}
+
+export function getTripStatusLabel(value: string): string {
+	if (!tripStatuses) return value;
+	const def = tripStatuses.find((s) => s.value === value);
+	return def?.label ?? value;
+}

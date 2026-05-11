@@ -94,6 +94,7 @@
 				actions: selectedActions
 			});
 			applyResult = resp;
+			stage = 'preview';
 			if (resp.new_tags.length > 0) {
 				onNewTags?.(resp.new_tags);
 			}

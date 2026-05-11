@@ -59,17 +59,13 @@ pub struct Item {
     pub default_qty: i64,
     pub notes: String,
     pub tag_id: Option<i64>,
-    pub warmth_rating: i64,
-    pub material: String,
-    pub encumbrance: i64,
-    pub waterproof: i64,
-    pub weight_grams: i64,
-    pub season: String,
-    pub body_parts: String,
-    pub env_protection: i64,
-    pub durability: i64,
-    pub storage_ml: i64,
-    pub breathable: i64,
+    #[sqlx(default)]
+    #[serde(default = "default_attrs")]
+    pub attrs: serde_json::Value,
+}
+
+fn default_attrs() -> serde_json::Value {
+    serde_json::json!({})
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,28 +81,8 @@ pub struct CreateItem {
     #[serde(default)]
     pub notes: String,
     pub tag_id: Option<i64>,
-    #[serde(default)]
-    pub warmth_rating: i64,
-    #[serde(default)]
-    pub material: String,
-    #[serde(default)]
-    pub encumbrance: i64,
-    #[serde(default)]
-    pub waterproof: i64,
-    #[serde(default)]
-    pub weight_grams: i64,
-    #[serde(default)]
-    pub season: String,
-    #[serde(default)]
-    pub body_parts: String,
-    #[serde(default)]
-    pub env_protection: i64,
-    #[serde(default)]
-    pub durability: i64,
-    #[serde(default)]
-    pub storage_ml: i64,
-    #[serde(default)]
-    pub breathable: i64,
+    #[serde(default = "default_attrs")]
+    pub attrs: serde_json::Value,
 }
 
 fn default_qty() -> i64 {
@@ -130,29 +106,6 @@ pub struct CreateActivity {
     pub description: String,
     #[serde(default)]
     pub icon: String,
-}
-
-// ── Activity Items (legacy, kept for backward compat) ──
-
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct ActivityItem {
-    pub id: i64,
-    pub activity_id: i64,
-    pub item_id: i64,
-    pub is_essential: bool,
-    pub default_qty: i64,
-    pub notes: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CreateActivityItem {
-    pub item_id: i64,
-    #[serde(default = "default_true")]
-    pub is_essential: bool,
-    #[serde(default = "default_qty")]
-    pub default_qty: i64,
-    #[serde(default)]
-    pub notes: String,
 }
 
 fn default_true() -> bool {
@@ -377,6 +330,63 @@ pub struct TripItemEnriched {
     pub candidates: Vec<Item>,
 }
 
+// ── Attribute Definitions ──
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct AttributeDefinition {
+    pub id: i64,
+    pub key: String,
+    pub label: String,
+    pub attr_type: String,
+    pub config: String,
+    pub category_scope: String,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateAttributeDefinition {
+    pub key: String,
+    pub label: String,
+    #[serde(default = "default_attr_type")]
+    pub attr_type: String,
+    #[serde(default)]
+    pub config: String,
+    #[serde(default)]
+    pub category_scope: String,
+    #[serde(default)]
+    pub sort_order: i64,
+}
+
+fn default_attr_type() -> String {
+    "number".to_string()
+}
+
+// ── Status Definitions ──
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct StatusDefinition {
+    pub id: i64,
+    pub scope: String,
+    pub value: String,
+    pub label: String,
+    pub color: String,
+    pub icon: String,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateStatusDefinition {
+    pub scope: String,
+    pub value: String,
+    pub label: String,
+    #[serde(default)]
+    pub color: String,
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default)]
+    pub sort_order: i64,
+}
+
 // ── Usage Stats ──
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -451,30 +461,10 @@ pub struct AiParsedItem {
     pub tag_id: Option<i64>,
     #[serde(default)]
     pub notes: String,
-    #[serde(default)]
-    pub warmth_rating: i64,
-    #[serde(default)]
-    pub material: String,
-    #[serde(default)]
-    pub encumbrance: i64,
-    #[serde(default)]
-    pub waterproof: i64,
-    #[serde(default)]
-    pub weight_grams: i64,
-    #[serde(default)]
-    pub season: String,
-    #[serde(default)]
-    pub body_parts: String,
-    #[serde(default)]
-    pub env_protection: i64,
-    #[serde(default)]
-    pub durability: i64,
-    #[serde(default)]
-    pub storage_ml: i64,
-    #[serde(default)]
-    pub breathable: i64,
     #[serde(default = "default_qty")]
     pub default_qty: i64,
+    #[serde(default = "default_attrs")]
+    pub attrs: serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]

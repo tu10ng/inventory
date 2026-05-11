@@ -53,7 +53,11 @@
 	}
 
 	function getCellValue(item: Item, col: ItemColumnDef): unknown {
-		return (item as unknown as Record<string, unknown>)[col.key];
+		// Core fields stay on item directly
+		if (col.key === 'brand') return item.brand;
+		if (col.key === 'default_qty') return item.default_qty;
+		// Everything else lives in attrs
+		return item.attrs?.[col.key] ?? null;
 	}
 
 	function handleSort(key: string) {

@@ -143,8 +143,6 @@
 									<th>型号</th>
 									<th>分类</th>
 									<th>标签</th>
-									<th>重量(g)</th>
-									<th>材质</th>
 									<th></th>
 								</tr>
 							</thead>
@@ -183,12 +181,6 @@
 													<option value={tag.id.toString()}>{tag.name}</option>
 												{/each}
 											</select>
-										</td>
-										<td>
-											<input type="number" bind:value={item.weight_grams} class="cell-input num" />
-										</td>
-										<td>
-											<input type="text" bind:value={item.material} class="cell-input" />
 										</td>
 										<td>
 											<button class="small danger" onclick={() => removeItem(i)}>删除</button>
@@ -362,10 +354,6 @@
 	.cell-input:hover, .cell-input:focus {
 		border-color: var(--border);
 		background: var(--bg);
-	}
-
-	.cell-input.num {
-		width: 70px;
 	}
 
 	.cell-select {

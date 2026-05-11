@@ -1,5 +1,5 @@
 import type { Trip, TripItemEnriched, Item, Category, Person, Tip } from '$lib/types';
-import { STATUS_LABELS, TRIP_STATUS_LABELS } from './status';
+import { getItemStatusLabel, getTripStatusLabel } from './status';
 
 interface GroupedItems {
 	category: Category;
@@ -21,7 +21,7 @@ export function generateTripText(
 	if (trip.start_date || trip.end_date) {
 		lines.push(`日期: ${trip.start_date || '?'} ~ ${trip.end_date || '?'}`);
 	}
-	lines.push(`状态: ${TRIP_STATUS_LABELS[trip.status] || trip.status}`);
+	lines.push(`状态: ${getTripStatusLabel(trip.status) || trip.status}`);
 
 	if (tips.length > 0) {
 		lines.push('');
@@ -86,8 +86,11 @@ export function generateTripText(
 			}
 
 			// Status
-			if (ti.item_status && STATUS_LABELS[ti.item_status]) {
-				parts.push(`[${STATUS_LABELS[ti.item_status]}]`);
+			if (ti.item_status) {
+				const label = getItemStatusLabel(ti.item_status);
+				if (label) {
+					parts.push(`[${label}]`);
+				}
 			}
 
 			// Notes
