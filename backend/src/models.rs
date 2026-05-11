@@ -38,6 +38,13 @@ impl CreateCategory {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateCategory {
+    pub name: Option<String>,
+    pub icon: Option<String>,
+    pub sort_order: Option<i64>,
+}
+
 // ── Tags ──
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -63,6 +70,13 @@ impl CreateTag {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateTag {
+    pub name: Option<String>,
+    pub category_id: Option<i64>,
+    pub sort_order: Option<i64>,
 }
 
 // ── Items ──
@@ -122,6 +136,19 @@ impl CreateItem {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateItem {
+    pub name: Option<String>,
+    pub brand: Option<String>,
+    pub model: Option<String>,
+    pub category_id: Option<i64>,
+    pub default_qty: Option<i64>,
+    pub notes: Option<String>,
+    pub attrs: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub tag_id: Option<Option<i64>>,
+}
+
 // ── Activities ──
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -150,6 +177,13 @@ impl CreateActivity {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateActivity {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+}
+
 fn default_true() -> bool {
     true
 }
@@ -166,6 +200,7 @@ pub struct ActivitySlot {
     pub default_qty: i64,
     pub notes: String,
     pub sort_order: i64,
+    pub default_item_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -178,6 +213,7 @@ pub struct ActivitySlotWithTags {
     pub default_qty: i64,
     pub notes: String,
     pub sort_order: i64,
+    pub default_item_id: Option<i64>,
     pub tags: Vec<Tag>,
 }
 
@@ -195,6 +231,7 @@ pub struct CreateActivitySlot {
     pub sort_order: i64,
     #[serde(default)]
     pub tag_ids: Vec<i64>,
+    pub default_item_id: Option<i64>,
 }
 
 impl CreateActivitySlot {
@@ -218,6 +255,7 @@ pub struct UpdateActivitySlot {
     pub notes: Option<String>,
     pub sort_order: Option<i64>,
     pub tag_ids: Option<Vec<i64>>,
+    pub default_item_id: Option<Option<i64>>,
 }
 
 // ── Tips ──
@@ -263,6 +301,11 @@ impl CreatePerson {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdatePerson {
+    pub name: Option<String>,
 }
 
 // ── Trips ──
@@ -448,6 +491,16 @@ fn default_attr_type() -> String {
     "number".to_string()
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateAttributeDefinition {
+    pub key: Option<String>,
+    pub label: Option<String>,
+    pub attr_type: Option<String>,
+    pub config: Option<String>,
+    pub category_scope: Option<String>,
+    pub sort_order: Option<i64>,
+}
+
 // ── Status Definitions ──
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -472,6 +525,16 @@ pub struct CreateStatusDefinition {
     pub icon: String,
     #[serde(default)]
     pub sort_order: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateStatusDefinition {
+    pub scope: Option<String>,
+    pub value: Option<String>,
+    pub label: Option<String>,
+    pub color: Option<String>,
+    pub icon: Option<String>,
+    pub sort_order: Option<i64>,
 }
 
 // ── Usage Stats ──

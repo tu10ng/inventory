@@ -16,6 +16,7 @@ pub async fn init_pool() -> SqlitePool {
 
     run_migrations(&pool).await;
     rebuild_trip_items_fk(&pool).await;
+    rebuild_trips_table(&pool).await;
     migrate_attrs(&pool).await;
     pool
 }
@@ -168,6 +169,65 @@ async fn rebuild_trip_items_fk(pool: &SqlitePool) {
         .expect("failed to re-enable foreign keys");
 
     tracing::info!("trip_items FK rebuild complete");
+}
+
+/// Rebuild trips table without CHECK(status IN (...)) constraint.
+/// SQLite doesn't support ALTER TABLE DROP CHECK, so we must recreate the table.
+/// Idempotent: checks if the table definition contains a CHECK constraint before rebuilding.
+async fn rebuild_trips_table(pool: &SqlitePool) {
+    let table_info: Vec<(String,)> = sqlx::query_as(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='trips'",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    if table_info.is_empty() {
+        return; // table doesn't exist yet (fresh DB will create it without CHECK)
+    }
+
+    if let Some((ref sql,)) = table_info.first() {
+        if !sql.contains("CHECK") {
+            tracing::info!("trips table already has no CHECK constraint, skipping rebuild");
+            return;
+        }
+    }
+
+    tracing::info!("Rebuilding trips table to remove CHECK constraint...");
+
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(pool)
+        .await
+        .expect("failed to disable foreign keys");
+
+    let stmts = [
+        "CREATE TABLE trips_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            activity_id INTEGER REFERENCES activities(id),
+            start_date TEXT NOT NULL DEFAULT '',
+            end_date TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'planning'
+        )",
+        "INSERT INTO trips_new SELECT * FROM trips",
+        "DROP TABLE trips",
+        "ALTER TABLE trips_new RENAME TO trips",
+    ];
+
+    for stmt in &stmts {
+        sqlx::query(stmt)
+            .execute(pool)
+            .await
+            .unwrap_or_else(|e| panic!("trips rebuild failed: {e}\nStatement: {stmt}"));
+    }
+
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(pool)
+        .await
+        .expect("failed to re-enable foreign keys");
+
+    tracing::info!("trips table rebuild complete");
 }
 
 /// Migrate old hardcoded item columns into the attrs JSON column.

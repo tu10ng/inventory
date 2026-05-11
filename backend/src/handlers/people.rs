@@ -3,7 +3,7 @@ use axum::Json;
 use sqlx::SqlitePool;
 
 use crate::error::AppError;
-use crate::models::{CreatePerson, Person};
+use crate::models::{CreatePerson, Person, UpdatePerson};
 
 pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Person>>, AppError> {
     let rows = sqlx::query_as::<_, Person>("SELECT * FROM people ORDER BY id")
@@ -29,17 +29,27 @@ pub async fn create(
 pub async fn update(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
-    Json(body): Json<CreatePerson>,
+    Json(body): Json<UpdatePerson>,
 ) -> Result<Json<Person>, AppError> {
-    body.validate()?;
+    let existing = sqlx::query_as::<_, Person>("SELECT * FROM people WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("人员", id))?;
+
+    let name = body.name.unwrap_or(existing.name);
+
+    if name.trim().is_empty() {
+        return Err(AppError::validation("人员名称不能为空"));
+    }
+
     let row = sqlx::query_as::<_, Person>(
         "UPDATE people SET name = ? WHERE id = ? RETURNING *",
     )
-    .bind(&body.name)
+    .bind(&name)
     .bind(id)
-    .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| AppError::not_found("人员", id))?;
+    .fetch_one(&pool)
+    .await?;
     Ok(Json(row))
 }
 

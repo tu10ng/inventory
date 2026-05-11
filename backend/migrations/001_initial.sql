@@ -30,15 +30,6 @@ CREATE TABLE IF NOT EXISTS activities (
     icon TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE IF NOT EXISTS activity_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    activity_id INTEGER NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
-    item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-    is_essential INTEGER NOT NULL DEFAULT 1,
-    default_qty INTEGER NOT NULL DEFAULT 1,
-    notes TEXT NOT NULL DEFAULT ''
-);
-
 CREATE TABLE IF NOT EXISTS activity_slots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     activity_id INTEGER NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
@@ -76,7 +67,7 @@ CREATE TABLE IF NOT EXISTS trips (
     start_date TEXT NOT NULL DEFAULT '',
     end_date TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'planning' CHECK(status IN ('planning', 'packing', 'done'))
+    status TEXT NOT NULL DEFAULT 'planning'
 );
 
 CREATE TABLE IF NOT EXISTS trip_items (
@@ -173,4 +164,6 @@ INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort
 INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, sort_order) VALUES ('default_qty', '数量', 'number', '{}', 12);
 
 -- Add attrs JSON column to items
-ALTER TABLE items ADD COLUMN attrs TEXT NOT NULL DEFAULT '{}'
+ALTER TABLE items ADD COLUMN attrs TEXT NOT NULL DEFAULT '{}';
+
+ALTER TABLE activity_slots ADD COLUMN default_item_id INTEGER REFERENCES items(id) ON DELETE SET NULL

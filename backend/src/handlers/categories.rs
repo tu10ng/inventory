@@ -3,7 +3,7 @@ use axum::Json;
 use sqlx::SqlitePool;
 
 use crate::error::AppError;
-use crate::models::{Category, CreateCategory};
+use crate::models::{Category, CreateCategory, UpdateCategory};
 
 pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Category>>, AppError> {
     let rows = sqlx::query_as::<_, Category>("SELECT * FROM categories ORDER BY sort_order, id")
@@ -31,19 +31,31 @@ pub async fn create(
 pub async fn update(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
-    Json(body): Json<CreateCategory>,
+    Json(body): Json<UpdateCategory>,
 ) -> Result<Json<Category>, AppError> {
-    body.validate()?;
+    let existing = sqlx::query_as::<_, Category>("SELECT * FROM categories WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("分类", id))?;
+
+    let name = body.name.unwrap_or(existing.name);
+    let icon = body.icon.unwrap_or(existing.icon);
+    let sort_order = body.sort_order.unwrap_or(existing.sort_order);
+
+    if name.trim().is_empty() {
+        return Err(AppError::validation("分类名称不能为空"));
+    }
+
     let row = sqlx::query_as::<_, Category>(
         "UPDATE categories SET name = ?, icon = ?, sort_order = ? WHERE id = ? RETURNING *",
     )
-    .bind(&body.name)
-    .bind(&body.icon)
-    .bind(body.sort_order)
+    .bind(&name)
+    .bind(&icon)
+    .bind(sort_order)
     .bind(id)
-    .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| AppError::not_found("分类", id))?;
+    .fetch_one(&pool)
+    .await?;
     Ok(Json(row))
 }
 

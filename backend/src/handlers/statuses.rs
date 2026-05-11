@@ -3,7 +3,7 @@ use axum::Json;
 use sqlx::SqlitePool;
 
 use crate::error::AppError;
-use crate::models::{CreateStatusDefinition, StatusDefinition};
+use crate::models::{CreateStatusDefinition, StatusDefinition, UpdateStatusDefinition};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct StatusQuery {
@@ -58,24 +58,40 @@ pub async fn create(
 pub async fn update(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
-    Json(body): Json<CreateStatusDefinition>,
+    Json(body): Json<UpdateStatusDefinition>,
 ) -> Result<Json<StatusDefinition>, AppError> {
-    if body.value.trim().is_empty() {
+    let existing = sqlx::query_as::<_, StatusDefinition>("SELECT * FROM status_definitions WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("状态定义", id))?;
+
+    let scope = body.scope.unwrap_or(existing.scope);
+    let value = body.value.unwrap_or(existing.value);
+    let label = body.label.unwrap_or(existing.label);
+    let color = body.color.unwrap_or(existing.color);
+    let icon = body.icon.unwrap_or(existing.icon);
+    let sort_order = body.sort_order.unwrap_or(existing.sort_order);
+
+    if value.trim().is_empty() {
         return Err(AppError::validation("状态值不能为空"));
     }
+    if label.trim().is_empty() {
+        return Err(AppError::validation("状态标签不能为空"));
+    }
+
     let row = sqlx::query_as::<_, StatusDefinition>(
         "UPDATE status_definitions SET scope = ?, value = ?, label = ?, color = ?, icon = ?, sort_order = ? WHERE id = ? RETURNING *",
     )
-    .bind(&body.scope)
-    .bind(&body.value)
-    .bind(&body.label)
-    .bind(&body.color)
-    .bind(&body.icon)
-    .bind(body.sort_order)
+    .bind(&scope)
+    .bind(&value)
+    .bind(&label)
+    .bind(&color)
+    .bind(&icon)
+    .bind(sort_order)
     .bind(id)
-    .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| AppError::not_found("状态定义", id))?;
+    .fetch_one(&pool)
+    .await?;
     Ok(Json(row))
 }
 

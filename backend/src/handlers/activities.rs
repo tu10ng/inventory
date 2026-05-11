@@ -43,19 +43,31 @@ pub async fn create(
 pub async fn update(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
-    Json(body): Json<CreateActivity>,
+    Json(body): Json<UpdateActivity>,
 ) -> Result<Json<Activity>, AppError> {
-    body.validate()?;
+    let existing = sqlx::query_as::<_, Activity>("SELECT * FROM activities WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("活动", id))?;
+
+    let name = body.name.unwrap_or(existing.name);
+    let description = body.description.unwrap_or(existing.description);
+    let icon = body.icon.unwrap_or(existing.icon);
+
+    if name.trim().is_empty() {
+        return Err(AppError::validation("活动名称不能为空"));
+    }
+
     let row = sqlx::query_as::<_, Activity>(
         "UPDATE activities SET name = ?, description = ?, icon = ? WHERE id = ? RETURNING *",
     )
-    .bind(&body.name)
-    .bind(&body.description)
-    .bind(&body.icon)
+    .bind(&name)
+    .bind(&description)
+    .bind(&icon)
     .bind(id)
-    .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| AppError::not_found("活动", id))?;
+    .fetch_one(&pool)
+    .await?;
     Ok(Json(row))
 }
 
@@ -127,6 +139,7 @@ pub async fn list_slots(
             default_qty: slot.default_qty,
             notes: slot.notes,
             sort_order: slot.sort_order,
+            default_item_id: slot.default_item_id,
             tags,
         });
     }
@@ -153,7 +166,7 @@ pub async fn create_slot(
     let mut tx = pool.begin().await?;
 
     let slot = sqlx::query_as::<_, ActivitySlot>(
-        "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order, default_item_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
     )
     .bind(activity_id)
     .bind(&body.slot_name)
@@ -162,6 +175,7 @@ pub async fn create_slot(
     .bind(body.default_qty)
     .bind(&body.notes)
     .bind(body.sort_order)
+    .bind(body.default_item_id)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -191,6 +205,7 @@ pub async fn create_slot(
         default_qty: slot.default_qty,
         notes: slot.notes,
         sort_order: slot.sort_order,
+        default_item_id: slot.default_item_id,
         tags,
     }))
 }
@@ -212,11 +227,15 @@ pub async fn update_slot(
     let default_qty = body.default_qty.unwrap_or(existing.default_qty);
     let notes = body.notes.unwrap_or(existing.notes);
     let sort_order = body.sort_order.unwrap_or(existing.sort_order);
+    let default_item_id = match body.default_item_id {
+        Some(v) => v,
+        None => existing.default_item_id,
+    };
 
     let mut tx = pool.begin().await?;
 
     let slot = sqlx::query_as::<_, ActivitySlot>(
-        "UPDATE activity_slots SET slot_name = ?, category_id = ?, is_essential = ?, default_qty = ?, notes = ?, sort_order = ? WHERE id = ? RETURNING *",
+        "UPDATE activity_slots SET slot_name = ?, category_id = ?, is_essential = ?, default_qty = ?, notes = ?, sort_order = ?, default_item_id = ? WHERE id = ? RETURNING *",
     )
     .bind(&slot_name)
     .bind(category_id)
@@ -224,6 +243,7 @@ pub async fn update_slot(
     .bind(default_qty)
     .bind(&notes)
     .bind(sort_order)
+    .bind(default_item_id)
     .bind(id)
     .fetch_one(&mut *tx)
     .await?;
@@ -262,6 +282,7 @@ pub async fn update_slot(
         default_qty: slot.default_qty,
         notes: slot.notes,
         sort_order: slot.sort_order,
+        default_item_id: slot.default_item_id,
         tags,
     }))
 }

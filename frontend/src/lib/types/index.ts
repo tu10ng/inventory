@@ -50,6 +50,7 @@ export interface ActivitySlot {
 	default_qty: number;
 	notes: string;
 	sort_order: number;
+	default_item_id: number | null;
 }
 
 export interface ActivitySlotWithTags extends ActivitySlot {

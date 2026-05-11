@@ -343,7 +343,7 @@ pub async fn save_as_slot(
     let mut tx = pool.begin().await?;
 
     let slot = sqlx::query_as::<_, ActivitySlot>(
-        "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *"
+        "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order, default_item_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *"
     )
     .bind(activity_id)
     .bind(&item.name)
@@ -352,6 +352,7 @@ pub async fn save_as_slot(
     .bind(ti.qty)
     .bind(&ti.notes)
     .bind(0i64)
+    .bind(item_id)
     .fetch_one(&mut *tx)
     .await?;
 

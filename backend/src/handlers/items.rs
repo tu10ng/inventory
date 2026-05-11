@@ -13,7 +13,7 @@ use crate::error::AppError;
 use crate::models::{
     AttributeDefinition, Category, CreateItem, ExportData, ImportItemPreview,
     ImportPreviewResult, ImportRequest, ImportResult, ImportStrategy, Item,
-    ItemUsageCount, ItemUsageStats, Tag, TripRef,
+    ItemUsageCount, ItemUsageStats, Tag, TripRef, UpdateItem,
 };
 
 pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Item>>, AppError> {
@@ -64,25 +64,53 @@ pub async fn create(
 pub async fn update(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
-    Json(body): Json<CreateItem>,
+    Json(body): Json<UpdateItem>,
 ) -> Result<Json<Item>, AppError> {
-    body.validate()?;
-    let attrs_str = serde_json::to_string(&body.attrs).unwrap_or_else(|_| "{}".to_string());
-    let row = sqlx::query_as::<_, Item>(
-        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ?, attrs = ? WHERE id = ? RETURNING id, name, brand, model, category_id, default_qty, notes, tag_id, attrs",
+    let existing = sqlx::query_as::<_, Item>(
+        "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE id = ?",
     )
-    .bind(&body.name)
-    .bind(&body.brand)
-    .bind(&body.model)
-    .bind(body.category_id)
-    .bind(body.default_qty)
-    .bind(&body.notes)
-    .bind(body.tag_id)
-    .bind(&attrs_str)
     .bind(id)
     .fetch_optional(&pool)
     .await?
     .ok_or_else(|| AppError::not_found("物品", id))?;
+
+    let name = body.name.unwrap_or(existing.name);
+    let brand = body.brand.unwrap_or(existing.brand);
+    let model = body.model.unwrap_or(existing.model);
+    let category_id = body.category_id.unwrap_or(existing.category_id);
+    let default_qty = body.default_qty.unwrap_or(existing.default_qty);
+    let notes = body.notes.unwrap_or(existing.notes);
+    let tag_id = match body.tag_id {
+        Some(v) => v,
+        None => existing.tag_id,
+    };
+    let attrs = body.attrs.unwrap_or(existing.attrs);
+
+    if name.trim().is_empty() {
+        return Err(AppError::validation("物品名称不能为空"));
+    }
+    if name.len() > 200 {
+        return Err(AppError::validation("物品名称不能超过200字符"));
+    }
+    if default_qty < 1 {
+        return Err(AppError::validation("默认数量必须大于0"));
+    }
+
+    let attrs_str = serde_json::to_string(&attrs).unwrap_or_else(|_| "{}".to_string());
+    let row = sqlx::query_as::<_, Item>(
+        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ?, attrs = ? WHERE id = ? RETURNING id, name, brand, model, category_id, default_qty, notes, tag_id, attrs",
+    )
+    .bind(&name)
+    .bind(&brand)
+    .bind(&model)
+    .bind(category_id)
+    .bind(default_qty)
+    .bind(&notes)
+    .bind(tag_id)
+    .bind(&attrs_str)
+    .bind(id)
+    .fetch_one(&pool)
+    .await?;
     Ok(Json(row))
 }
 
