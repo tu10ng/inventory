@@ -1,9 +1,20 @@
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use axum::body::Body;
 use axum::extract::{Path, State};
+use axum::http::header;
+use axum::response::Response;
 use axum::Json;
+use sqlx::Row;
 use sqlx::SqlitePool;
 
 use crate::error::AppError;
-use crate::models::{CreateItem, Item, ItemUsageCount, ItemUsageStats, TripRef};
+use crate::models::{
+    AttributeDefinition, Category, CreateItem, ExportData, ImportItemPreview,
+    ImportPreviewResult, ImportRequest, ImportResult, ImportStrategy, Item,
+    ItemUsageCount, ItemUsageStats, Tag, TripRef,
+};
 
 pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Item>>, AppError> {
     let rows = sqlx::query_as::<_, Item>(
@@ -109,4 +120,302 @@ pub async fn usage_detail(
     .fetch_all(&pool)
     .await?;
     Ok(Json(ItemUsageStats { item_id: id, trips }))
+}
+
+// ── Import / Export ──
+
+pub async fn export_items(State(pool): State<SqlitePool>) -> Result<Response<Body>, AppError> {
+    let categories = sqlx::query_as::<_, Category>(
+        "SELECT id, name, icon, sort_order FROM categories ORDER BY sort_order, id",
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let tags = sqlx::query_as::<_, Tag>(
+        "SELECT id, name, category_id, sort_order FROM tags ORDER BY category_id, sort_order, id",
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let attribute_definitions = sqlx::query_as::<_, AttributeDefinition>(
+        "SELECT id, key, label, attr_type, config, category_scope, sort_order FROM attribute_definitions ORDER BY sort_order, id",
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let items = sqlx::query_as::<_, Item>(
+        "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items ORDER BY category_id, id",
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let export_data = ExportData {
+        version: 1,
+        exported_at: now.to_string(),
+        categories,
+        tags,
+        attribute_definitions,
+        items,
+    };
+
+    let json = serde_json::to_string_pretty(&export_data).map_err(|e| {
+        AppError::Internal(anyhow::anyhow!("序列化导出数据失败: {}", e))
+    })?;
+
+    let resp = Response::builder()
+        .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"inventory-export.json\"",
+        )
+        .body(Body::from(json))
+        .unwrap();
+
+    Ok(resp)
+}
+
+pub async fn import_preview(
+    State(pool): State<SqlitePool>,
+    Json(body): Json<ImportRequest>,
+) -> Result<Json<ImportPreviewResult>, AppError> {
+    if body.version != 1 {
+        return Err(AppError::bad_request("不支持的导出文件版本"));
+    }
+
+    // Build lowercase name -> id map of existing items
+    let existing_rows = sqlx::query("SELECT id, name FROM items")
+        .fetch_all(&pool)
+        .await?;
+
+    let mut name_to_id: HashMap<String, i64> = HashMap::new();
+    for row in &existing_rows {
+        let id: i64 = row.get(0);
+        let name: String = row.get(1);
+        name_to_id.insert(name.to_lowercase(), id);
+    }
+
+    let total_items = body.items.len();
+    let mut new_items = 0usize;
+    let mut skip_or_update_items = 0usize;
+    let mut preview_items: Vec<ImportItemPreview> = Vec::with_capacity(total_items.min(50));
+
+    let action_label = match body.strategy {
+        ImportStrategy::Skip => "skip",
+        ImportStrategy::Update => "update",
+    };
+
+    for item in &body.items {
+        let key = item.name.to_lowercase();
+        if let Some(existing_id) = name_to_id.get(&key) {
+            skip_or_update_items += 1;
+            if preview_items.len() < 50 {
+                preview_items.push(ImportItemPreview {
+                    name: item.name.clone(),
+                    brand: item.brand.clone(),
+                    model: item.model.clone(),
+                    action: action_label.to_string(),
+                    existing_id: Some(*existing_id),
+                });
+            }
+        } else {
+            new_items += 1;
+            if preview_items.len() < 50 {
+                preview_items.push(ImportItemPreview {
+                    name: item.name.clone(),
+                    brand: item.brand.clone(),
+                    model: item.model.clone(),
+                    action: "new".to_string(),
+                    existing_id: None,
+                });
+            }
+        }
+    }
+
+    Ok(Json(ImportPreviewResult {
+        total_items,
+        new_items,
+        skip_or_update_items,
+        preview_items,
+    }))
+}
+
+pub async fn import_items(
+    State(pool): State<SqlitePool>,
+    Json(body): Json<ImportRequest>,
+) -> Result<Json<ImportResult>, AppError> {
+    if body.version != 1 {
+        return Err(AppError::bad_request("不支持的导出文件版本"));
+    }
+
+    let mut tx = pool.begin().await?;
+
+    // 1. Categories: upsert by name, build old_id -> new_id mapping
+    let mut cat_remap: HashMap<i64, i64> = HashMap::new();
+    let mut categories_created: u64 = 0;
+    for cat in &body.categories {
+        let existing = sqlx::query("SELECT id FROM categories WHERE name = ?")
+            .bind(&cat.name)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if let Some(row) = existing {
+            let existing_id: i64 = row.get(0);
+            cat_remap.insert(cat.id, existing_id);
+        } else {
+            let new_id = sqlx::query(
+                "INSERT INTO categories (name, icon, sort_order) VALUES (?, ?, ?)",
+            )
+            .bind(&cat.name)
+            .bind(&cat.icon)
+            .bind(cat.sort_order)
+            .execute(&mut *tx)
+            .await?
+            .last_insert_rowid();
+            cat_remap.insert(cat.id, new_id);
+            categories_created += 1;
+        }
+    }
+
+    // 2. Tags: upsert by name, remap category_id
+    let mut tag_remap: HashMap<i64, i64> = HashMap::new();
+    let mut tags_created: u64 = 0;
+    for tag in &body.tags {
+        let new_category_id = cat_remap.get(&tag.category_id).copied().unwrap_or(tag.category_id);
+        let existing = sqlx::query("SELECT id FROM tags WHERE name = ?")
+            .bind(&tag.name)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if let Some(row) = existing {
+            let existing_id: i64 = row.get(0);
+            tag_remap.insert(tag.id, existing_id);
+            // Update category_id in case it changed
+            sqlx::query("UPDATE tags SET category_id = ? WHERE id = ?")
+                .bind(new_category_id)
+                .bind(existing_id)
+                .execute(&mut *tx)
+                .await?;
+        } else {
+            let new_id = sqlx::query(
+                "INSERT INTO tags (name, category_id, sort_order) VALUES (?, ?, ?)",
+            )
+            .bind(&tag.name)
+            .bind(new_category_id)
+            .bind(tag.sort_order)
+            .execute(&mut *tx)
+            .await?
+            .last_insert_rowid();
+            tag_remap.insert(tag.id, new_id);
+            tags_created += 1;
+        }
+    }
+
+    // 3. Attribute definitions: upsert by key
+    let mut attribute_definitions_created: u64 = 0;
+    for adef in &body.attribute_definitions {
+        let existing = sqlx::query("SELECT id FROM attribute_definitions WHERE key = ?")
+            .bind(&adef.key)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if existing.is_none() {
+            sqlx::query(
+                "INSERT INTO attribute_definitions (key, label, attr_type, config, category_scope, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&adef.key)
+            .bind(&adef.label)
+            .bind(&adef.attr_type)
+            .bind(&adef.config)
+            .bind(&adef.category_scope)
+            .bind(adef.sort_order)
+            .execute(&mut *tx)
+            .await?;
+            attribute_definitions_created += 1;
+        }
+    }
+
+    // 4. Items: match by name (case-insensitive)
+    let existing_rows = sqlx::query("SELECT id, LOWER(name) as name_lower FROM items")
+        .fetch_all(&mut *tx)
+        .await?;
+    let mut name_to_id: HashMap<String, i64> = HashMap::new();
+    for row in &existing_rows {
+        let id: i64 = row.get(0);
+        let name_lower: String = row.get(1);
+        name_to_id.insert(name_lower, id);
+    }
+
+    let mut items_created: u64 = 0;
+    let mut items_updated: u64 = 0;
+    let mut items_skipped: u64 = 0;
+
+    for item in &body.items {
+        let key = item.name.to_lowercase();
+        if let Some(existing_id) = name_to_id.get(&key) {
+            match body.strategy {
+                ImportStrategy::Skip => {
+                    items_skipped += 1;
+                }
+                ImportStrategy::Update => {
+                    let new_category_id = cat_remap
+                        .get(&item.category_id)
+                        .copied()
+                        .unwrap_or(item.category_id);
+                    let new_tag_id = item.tag_id.and_then(|tid| tag_remap.get(&tid).copied());
+                    let attrs_str =
+                        serde_json::to_string(&item.attrs).unwrap_or_else(|_| "{}".to_string());
+                    sqlx::query(
+                        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ?, attrs = ? WHERE id = ?",
+                    )
+                    .bind(&item.name)
+                    .bind(&item.brand)
+                    .bind(&item.model)
+                    .bind(new_category_id)
+                    .bind(item.default_qty)
+                    .bind(&item.notes)
+                    .bind(new_tag_id)
+                    .bind(&attrs_str)
+                    .bind(existing_id)
+                    .execute(&mut *tx)
+                    .await?;
+                    items_updated += 1;
+                }
+            }
+        } else {
+            let new_category_id = cat_remap
+                .get(&item.category_id)
+                .copied()
+                .unwrap_or(item.category_id);
+            let new_tag_id = item.tag_id.and_then(|tid| tag_remap.get(&tid).copied());
+            let attrs_str =
+                serde_json::to_string(&item.attrs).unwrap_or_else(|_| "{}".to_string());
+            sqlx::query(
+                "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id, attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&item.name)
+            .bind(&item.brand)
+            .bind(&item.model)
+            .bind(new_category_id)
+            .bind(item.default_qty)
+            .bind(&item.notes)
+            .bind(new_tag_id)
+            .bind(&attrs_str)
+            .execute(&mut *tx)
+            .await?;
+            items_created += 1;
+        }
+    }
+
+    tx.commit().await?;
+
+    Ok(Json(ImportResult {
+        categories_created,
+        tags_created,
+        attribute_definitions_created,
+        items_created,
+        items_updated,
+        items_skipped,
+    }))
 }

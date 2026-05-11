@@ -149,6 +149,9 @@ pub async fn create_slot(
     Json(body): Json<CreateActivitySlot>,
 ) -> Result<Json<ActivitySlotWithTags>, AppError> {
     body.validate()?;
+
+    let mut tx = pool.begin().await?;
+
     let slot = sqlx::query_as::<_, ActivitySlot>(
         "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *",
     )
@@ -159,7 +162,7 @@ pub async fn create_slot(
     .bind(body.default_qty)
     .bind(&body.notes)
     .bind(body.sort_order)
-    .fetch_one(&pool)
+    .fetch_one(&mut *tx)
     .await?;
 
     let mut tags = Vec::new();
@@ -167,15 +170,17 @@ pub async fn create_slot(
         sqlx::query("INSERT INTO activity_slot_tags (slot_id, tag_id) VALUES (?, ?)")
             .bind(slot.id)
             .bind(tag_id)
-            .execute(&pool)
+            .execute(&mut *tx)
             .await?;
         let tag = sqlx::query_as::<_, Tag>("SELECT * FROM tags WHERE id = ?")
             .bind(tag_id)
-            .fetch_optional(&pool)
+            .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| AppError::not_found("标签", *tag_id))?;
         tags.push(tag);
     }
+
+    tx.commit().await?;
 
     Ok(Json(ActivitySlotWithTags {
         id: slot.id,
@@ -208,6 +213,8 @@ pub async fn update_slot(
     let notes = body.notes.unwrap_or(existing.notes);
     let sort_order = body.sort_order.unwrap_or(existing.sort_order);
 
+    let mut tx = pool.begin().await?;
+
     let slot = sqlx::query_as::<_, ActivitySlot>(
         "UPDATE activity_slots SET slot_name = ?, category_id = ?, is_essential = ?, default_qty = ?, notes = ?, sort_order = ? WHERE id = ? RETURNING *",
     )
@@ -218,20 +225,20 @@ pub async fn update_slot(
     .bind(&notes)
     .bind(sort_order)
     .bind(id)
-    .fetch_one(&pool)
+    .fetch_one(&mut *tx)
     .await?;
 
     // Rebuild tag associations if provided
     if let Some(tag_ids) = &body.tag_ids {
         sqlx::query("DELETE FROM activity_slot_tags WHERE slot_id = ?")
             .bind(id)
-            .execute(&pool)
+            .execute(&mut *tx)
             .await?;
         for tag_id in tag_ids {
             sqlx::query("INSERT INTO activity_slot_tags (slot_id, tag_id) VALUES (?, ?)")
                 .bind(id)
                 .bind(tag_id)
-                .execute(&pool)
+                .execute(&mut *tx)
                 .await?;
         }
     }
@@ -241,8 +248,10 @@ pub async fn update_slot(
         "SELECT t.* FROM tags t JOIN activity_slot_tags ast ON ast.tag_id = t.id WHERE ast.slot_id = ? ORDER BY t.sort_order, t.id",
     )
     .bind(id)
-    .fetch_all(&pool)
+    .fetch_all(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(Json(ActivitySlotWithTags {
         id: slot.id,

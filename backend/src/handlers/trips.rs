@@ -115,6 +115,8 @@ pub async fn populate(
     .fetch_all(&pool)
     .await?;
 
+    let mut tx = pool.begin().await?;
+
     for (i, slot) in slots.iter().enumerate() {
         sqlx::query(
             "INSERT OR IGNORE INTO trip_items (trip_id, item_id, qty, notes, sort_order, is_essential, slot_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -126,7 +128,7 @@ pub async fn populate(
         .bind(i as i64)
         .bind(slot.is_essential)
         .bind(slot.id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await?;
     }
 
@@ -134,8 +136,10 @@ pub async fn populate(
         "SELECT * FROM trip_items WHERE trip_id = ? ORDER BY sort_order, id",
     )
     .bind(trip_id)
-    .fetch_all(&pool)
+    .fetch_all(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(Json(items))
 }
@@ -304,6 +308,8 @@ pub async fn resync(
 ) -> Result<Json<Vec<TripItem>>, AppError> {
     let diff = compute_resync_diff(&pool, trip_id).await?;
 
+    let mut tx = pool.begin().await?;
+
     // Delete all items marked for removal in a single query
     if !diff.ids_to_remove.is_empty() {
         let placeholders = diff.ids_to_remove.iter().map(|_| "?").collect::<Vec<_>>().join(",");
@@ -312,7 +318,7 @@ pub async fn resync(
         for id in &diff.ids_to_remove {
             query = query.bind(id);
         }
-        query.execute(&pool).await?;
+        query.execute(&mut *tx).await?;
     }
 
     // Insert new slots
@@ -320,7 +326,7 @@ pub async fn resync(
         "SELECT COALESCE(MAX(sort_order), 0) FROM trip_items WHERE trip_id = ?",
     )
     .bind(trip_id)
-    .fetch_one(&pool)
+    .fetch_one(&mut *tx)
     .await?;
 
     let mut sort = max_sort + 1;
@@ -335,7 +341,7 @@ pub async fn resync(
         .bind(sort)
         .bind(slot.is_essential)
         .bind(slot.id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await?;
         sort += 1;
     }
@@ -344,8 +350,10 @@ pub async fn resync(
         "SELECT * FROM trip_items WHERE trip_id = ? ORDER BY sort_order, id",
     )
     .bind(trip_id)
-    .fetch_all(&pool)
+    .fetch_all(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(Json(items))
 }
@@ -361,6 +369,9 @@ pub async fn clone(
         .ok_or_else(|| AppError::not_found("行程", trip_id))?;
 
     let new_name = format!("{} (副本)", original.name);
+
+    let mut tx = pool.begin().await?;
+
     let new_trip = sqlx::query_as::<_, Trip>(
         "INSERT INTO trips (name, activity_id, start_date, end_date, notes, status) VALUES (?, ?, ?, ?, ?, 'planning') RETURNING *",
     )
@@ -369,14 +380,14 @@ pub async fn clone(
     .bind(&original.start_date)
     .bind(&original.end_date)
     .bind(&original.notes)
-    .fetch_one(&pool)
+    .fetch_one(&mut *tx)
     .await?;
 
     let original_items = sqlx::query_as::<_, TripItem>(
         "SELECT * FROM trip_items WHERE trip_id = ? ORDER BY sort_order, id",
     )
     .bind(trip_id)
-    .fetch_all(&pool)
+    .fetch_all(&mut *tx)
     .await?;
 
     for ti in &original_items {
@@ -393,9 +404,11 @@ pub async fn clone(
         .bind(ti.sort_order)
         .bind(ti.is_essential)
         .bind(ti.slot_id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await?;
     }
+
+    tx.commit().await?;
 
     Ok(Json(new_trip))
 }

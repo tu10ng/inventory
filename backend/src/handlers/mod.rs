@@ -21,7 +21,10 @@ pub fn router() -> Router<SqlitePool> {
         // Tags
         .route("/api/tags", get(tags::list).post(tags::create))
         .route("/api/tags/{id}", put(tags::update).delete(tags::delete))
-        // Items
+        // Items — literal paths BEFORE {id}
+        .route("/api/items/export", get(items::export_items))
+        .route("/api/items/import-preview", post(items::import_preview))
+        .route("/api/items/import", post(items::import_items))
         .route("/api/items", get(items::list).post(items::create))
         .route("/api/items/{id}", get(items::get).put(items::update).delete(items::delete))
         .route("/api/item-stats", get(items::usage_stats))

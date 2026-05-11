@@ -250,11 +250,14 @@ pub async fn bulk_update(
     if body.ids.is_empty() {
         return Err(AppError::bad_request("未选择任何物品"));
     }
+
+    let mut tx = pool.begin().await?;
+
     for id in &body.ids {
         let existing = sqlx::query_as::<_, TripItem>("SELECT * FROM trip_items WHERE id = ? AND trip_id = ?")
             .bind(id)
             .bind(trip_id)
-            .fetch_optional(&pool)
+            .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| AppError::not_found("行程物品", *id))?;
 
@@ -270,7 +273,7 @@ pub async fn bulk_update(
             .bind(person_id)
             .bind(&item_status)
             .bind(id)
-            .execute(&pool)
+            .execute(&mut *tx)
             .await?;
     }
 
@@ -278,8 +281,11 @@ pub async fn bulk_update(
         "SELECT * FROM trip_items WHERE trip_id = ? ORDER BY sort_order, id",
     )
     .bind(trip_id)
-    .fetch_all(&pool)
+    .fetch_all(&mut *tx)
     .await?;
+
+    tx.commit().await?;
+
     Ok(Json(rows))
 }
 
@@ -333,7 +339,9 @@ pub async fn save_as_slot(
         AppError::bad_request("行程未关联活动模板，无法保存为槽位")
     })?;
 
-    // 4. Create the activity_slot
+    // 4-6. Create slot + tag + update trip_item in a transaction
+    let mut tx = pool.begin().await?;
+
     let slot = sqlx::query_as::<_, ActivitySlot>(
         "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *"
     )
@@ -344,26 +352,26 @@ pub async fn save_as_slot(
     .bind(ti.qty)
     .bind(&ti.notes)
     .bind(0i64)
-    .fetch_one(&pool)
+    .fetch_one(&mut *tx)
     .await?;
 
-    // 5. Create slot_tag association if item has a tag
     if let Some(tag_id) = item.tag_id {
         sqlx::query("INSERT OR IGNORE INTO activity_slot_tags (slot_id, tag_id) VALUES (?, ?)")
             .bind(slot.id)
             .bind(tag_id)
-            .execute(&pool)
+            .execute(&mut *tx)
             .await?;
     }
 
-    // 6. Update trip_item to point to the new slot
     let row = sqlx::query_as::<_, TripItem>(
         "UPDATE trip_items SET slot_id = ? WHERE id = ? RETURNING *",
     )
     .bind(slot.id)
     .bind(id)
-    .fetch_one(&pool)
+    .fetch_one(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(Json(row))
 }

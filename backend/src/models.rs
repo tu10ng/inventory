@@ -614,3 +614,59 @@ pub struct OrganizeApplyResponse {
     pub deleted: i64,
     pub new_tags: Vec<Tag>,
 }
+
+// ── Import / Export ──
+
+#[derive(Debug, Serialize)]
+pub struct ExportData {
+    pub version: i32,
+    pub exported_at: String,
+    pub categories: Vec<Category>,
+    pub tags: Vec<Tag>,
+    pub attribute_definitions: Vec<AttributeDefinition>,
+    pub items: Vec<Item>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImportStrategy {
+    Skip,
+    Update,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportRequest {
+    pub version: i32,
+    pub categories: Vec<Category>,
+    pub tags: Vec<Tag>,
+    pub attribute_definitions: Vec<AttributeDefinition>,
+    pub items: Vec<Item>,
+    pub strategy: ImportStrategy,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportPreviewResult {
+    pub total_items: usize,
+    pub new_items: usize,
+    pub skip_or_update_items: usize,
+    pub preview_items: Vec<ImportItemPreview>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportItemPreview {
+    pub name: String,
+    pub brand: String,
+    pub model: String,
+    pub action: String,
+    pub existing_id: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportResult {
+    pub categories_created: u64,
+    pub tags_created: u64,
+    pub attribute_definitions_created: u64,
+    pub items_created: u64,
+    pub items_updated: u64,
+    pub items_skipped: u64,
+}

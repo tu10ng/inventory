@@ -217,3 +217,38 @@ export interface OrganizeApplyResponse {
 	deleted: number;
 	new_tags: Tag[];
 }
+
+// ── Import / Export ──
+
+export interface ExportData {
+	version: number;
+	exported_at: string;
+	categories: Category[];
+	tags: Tag[];
+	attribute_definitions: AttributeDefinition[];
+	items: Item[];
+}
+
+export interface ImportPreviewResult {
+	total_items: number;
+	new_items: number;
+	skip_or_update_items: number;
+	preview_items: ImportItemPreview[];
+}
+
+export interface ImportItemPreview {
+	name: string;
+	brand: string;
+	model: string;
+	action: 'new' | 'skip' | 'update';
+	existing_id: number | null;
+}
+
+export interface ImportResult {
+	categories_created: number;
+	tags_created: number;
+	attribute_definitions_created: number;
+	items_created: number;
+	items_updated: number;
+	items_skipped: number;
+}

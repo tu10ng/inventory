@@ -30,5 +30,31 @@ export const api = {
 		request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
 	patch: <T>(path: string, body: unknown) =>
 		request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
-	del: <T>(path: string) => request<T>(path, { method: 'DELETE' })
+	del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+
+	async downloadExport(path: string): Promise<void> {
+		const res = await fetch(`${BASE}${path}`);
+		if (!res.ok) {
+			let message: string;
+			try {
+				const body = await res.json();
+				message = body.error || `${res.status}: ${JSON.stringify(body)}`;
+			} catch {
+				const text = await res.text();
+				message = text || `请求失败 (${res.status})`;
+			}
+			throw new Error(message);
+		}
+		const blob = await res.blob();
+		const url = URL.createObjectURL(blob);
+		const now = new Date();
+		const dateStr = now.toISOString().slice(0, 10);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `inventory-backup-${dateStr}.json`;
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+	}
 };

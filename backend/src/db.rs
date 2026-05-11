@@ -21,7 +21,72 @@ pub async fn init_pool() -> SqlitePool {
 }
 
 async fn run_migrations(pool: &SqlitePool) {
-    let sql = include_str!("../migrations/001_initial.sql");
+    // Create migration tracking table
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS _migrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL UNIQUE,
+            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("failed to create _migrations table");
+
+    // Scan migration files
+    let migrations_dir = std::path::Path::new("migrations");
+    if !migrations_dir.exists() {
+        tracing::warn!("migrations/ directory not found, skipping");
+        return;
+    }
+
+    let mut files: Vec<String> = std::fs::read_dir(migrations_dir)
+        .expect("failed to read migrations/ directory")
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".sql") {
+                Some(name)
+            } else {
+                None
+            }
+        })
+        .collect();
+    files.sort();
+
+    // Get already-applied migrations
+    let applied: Vec<(String,)> =
+        sqlx::query_as("SELECT filename FROM _migrations ORDER BY filename")
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
+    let applied_set: std::collections::HashSet<&str> =
+        applied.iter().map(|(f,)| f.as_str()).collect();
+
+    for filename in &files {
+        if applied_set.contains(filename.as_str()) {
+            tracing::debug!("Skipping already-applied migration: {}", filename);
+            continue;
+        }
+
+        let path = migrations_dir.join(filename);
+        let sql = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+
+        tracing::info!("Applying migration: {}", filename);
+        execute_sql_file(pool, &sql).await;
+
+        sqlx::query("INSERT INTO _migrations (filename) VALUES (?)")
+            .bind(filename)
+            .execute(pool)
+            .await
+            .unwrap_or_else(|e| panic!("failed to record migration {}: {e}", filename));
+    }
+
+    tracing::info!("Database migrations complete");
+}
+
+async fn execute_sql_file(pool: &SqlitePool, sql: &str) {
     for statement in sql.split(';') {
         let trimmed = statement.trim();
         if !trimmed.is_empty() {
@@ -39,7 +104,6 @@ async fn run_migrations(pool: &SqlitePool) {
             }
         }
     }
-    tracing::info!("Database migrations complete");
 }
 
 /// Rebuild trip_items table to add ON DELETE SET NULL on item_id and person_id.

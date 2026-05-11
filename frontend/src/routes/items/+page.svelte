@@ -9,6 +9,7 @@
 	import ItemForm from '$lib/components/ItemForm.svelte';
 	import AiAddModal from '$lib/components/AiAddModal.svelte';
 	import AiOrganizeModal from '$lib/components/AiOrganizeModal.svelte';
+	import ImportModal from '$lib/components/ImportModal.svelte';
 	import { loadAllColumns, getAllColumns, loadVisibleColumns } from '$lib/utils/columns';
 	import type { ItemColumnDef } from '$lib/utils/columns';
 	import { filterItems, sortItems } from '$lib/utils/itemFilters';
@@ -32,6 +33,7 @@
 
 	let showAiModal = $state(false);
 	let showOrganizeModal = $state(false);
+	let showImportModal = $state(false);
 
 	let sortKey = $state<string | null>(null);
 	let sortDir = $state<'asc' | 'desc'>('asc');
@@ -207,17 +209,23 @@
 <div class="split-layout">
 	<div class="left-panel">
 		<div class="toolbar">
-			<SearchFilter
-				{search}
-				categoryId={filterCategoryId}
-				{categories}
-				onSearchChange={(v) => (search = v)}
-				onCategoryChange={(id) => (filterCategoryId = id)}
-			/>
-			<ColumnPicker columns={allColumns} bind:visibleKeys />
-			<button class="primary" onclick={startCreate}>+ 添加物品</button>
-			<button onclick={() => showAiModal = true}>AI 添加</button>
-		<button onclick={() => showOrganizeModal = true}>AI 整理</button>
+			<div class="toolbar-row">
+				<SearchFilter
+					{search}
+					categoryId={filterCategoryId}
+					{categories}
+					onSearchChange={(v) => (search = v)}
+					onCategoryChange={(id) => (filterCategoryId = id)}
+				/>
+				<ColumnPicker columns={allColumns} bind:visibleKeys />
+			</div>
+			<div class="toolbar-row toolbar-actions">
+				<button onclick={() => api.downloadExport('/items/export').catch(e => alert(e.message))}>导出</button>
+				<button onclick={() => showImportModal = true}>导入</button>
+				<button class="primary" onclick={startCreate}>+ 添加物品</button>
+				<button onclick={() => showAiModal = true}>AI 添加</button>
+				<button onclick={() => showOrganizeModal = true}>AI 整理</button>
+			</div>
 		</div>
 		<ItemListTable
 			items={sortedItems}
@@ -294,6 +302,13 @@
 		}}
 	/>
 {/if}
+
+{#if showImportModal}
+	<ImportModal
+		onClose={() => showImportModal = false}
+		onDone={() => load()}
+	/>
+{/if}
 {/if}
 
 <style>
@@ -307,15 +322,22 @@
 	}
 	.toolbar {
 		display: flex;
+		flex-direction: column;
 		gap: 8px;
-		align-items: flex-start;
 		margin-bottom: 12px;
 		flex-shrink: 0;
-		padding-bottom: 4px;
 	}
-	.toolbar :global(.search-filter) {
+	.toolbar-row {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+	}
+	.toolbar-row :global(.search-filter) {
 		flex: 1;
 		margin-bottom: 0;
+	}
+	.toolbar-actions {
+		justify-content: flex-end;
 	}
 	.split-layout {
 		display: flex;
