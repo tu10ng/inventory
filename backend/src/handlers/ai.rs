@@ -150,7 +150,7 @@ async fn auto_create_tags_for_items(
 async fn call_llm(system_prompt: &str, user_prompt: &str) -> Result<String, AppError> {
     let api_key = std::env::var("OPENAI_API_KEY")
         .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY environment variable not set"))?;
-    let api_base = std::env::var("OPENAI_API_BASE")
+    let api_base = std::env::var("OPENAI_BASE_URL")
         .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
     let model =
         std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());

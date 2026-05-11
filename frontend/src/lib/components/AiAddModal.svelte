@@ -7,13 +7,15 @@
 		tags,
 		onConfirm,
 		onClose,
-		onNewTags
+		onNewTags,
+		prefillAiText = ''
 	}: {
 		categories: Category[];
 		tags: Tag[];
 		onConfirm: (items: AiParsedItem[]) => void;
 		onClose: () => void;
 		onNewTags?: (tags: Tag[]) => void;
+		prefillAiText?: string;
 	} = $props();
 
 	type Stage = 'input' | 'loading' | 'preview';
@@ -21,6 +23,12 @@
 	let inputText = $state('');
 	let errorMsg = $state('');
 	let parsedItems = $state<AiParsedItem[]>([]);
+
+	$effect(() => {
+		if (prefillAiText) {
+			inputText = prefillAiText;
+		}
+	});
 
 	async function handleParse() {
 		if (!inputText.trim()) return;

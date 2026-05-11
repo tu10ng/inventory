@@ -470,6 +470,7 @@ pub struct AttributeDefinition {
     pub attr_type: String,
     pub config: String,
     pub category_scope: String,
+    pub tag_scope: String,
     pub sort_order: i64,
 }
 
@@ -483,6 +484,8 @@ pub struct CreateAttributeDefinition {
     pub config: String,
     #[serde(default)]
     pub category_scope: String,
+    #[serde(default)]
+    pub tag_scope: String,
     #[serde(default)]
     pub sort_order: i64,
 }
@@ -498,6 +501,7 @@ pub struct UpdateAttributeDefinition {
     pub attr_type: Option<String>,
     pub config: Option<String>,
     pub category_scope: Option<String>,
+    pub tag_scope: Option<String>,
     pub sort_order: Option<i64>,
 }
 

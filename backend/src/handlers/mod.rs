@@ -3,6 +3,7 @@ pub mod ai;
 pub mod attributes;
 pub mod categories;
 pub mod items;
+pub mod ocr;
 pub mod people;
 pub mod statuses;
 pub mod tags;
@@ -29,6 +30,7 @@ pub fn router() -> Router<SqlitePool> {
         .route("/api/items/{id}", get(items::get).put(items::update).delete(items::delete))
         .route("/api/item-stats", get(items::usage_stats))
         .route("/api/item-stats/{id}", get(items::usage_detail))
+        .route("/api/ai/ocr", post(ocr::ocr_images))
         .route("/api/ai/parse-items", post(ai::parse_items))
         .route("/api/ai/organize-preview", post(ai::organize_preview))
         .route("/api/ai/organize-apply", post(ai::organize_apply))

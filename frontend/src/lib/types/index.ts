@@ -31,6 +31,7 @@ export interface AttributeDefinition {
 	attr_type: string;
 	config: string;
 	category_scope: string;
+	tag_scope: string;
 	sort_order: number;
 }
 

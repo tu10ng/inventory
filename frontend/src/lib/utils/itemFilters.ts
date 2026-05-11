@@ -1,6 +1,12 @@
 import type { Item, Tag } from '$lib/types';
 import type { ItemColumnDef } from '$lib/utils/columns';
 
+export interface ItemGroup {
+	label: string;
+	value: string;
+	items: Item[];
+}
+
 export function filterItems(
 	items: Item[],
 	search: string,
@@ -82,4 +88,48 @@ export function sortItems(
 		}
 		return dir === 'asc' ? cmp : -cmp;
 	});
+}
+
+export function groupItems(
+	items: Item[],
+	groupByKey: string,
+	columns: ItemColumnDef[]
+): { groups: ItemGroup[]; ungrouped: Item[] } {
+	const col = columns.find(c => c.key === groupByKey);
+	const label = col?.label ?? groupByKey;
+
+	const groupsMap = new Map<string, Item[]>();
+	const ungrouped: Item[] = [];
+
+	for (const item of items) {
+		let value: unknown;
+		if (groupByKey === 'brand') {
+			value = item.brand;
+		} else {
+			value = item.attrs?.[groupByKey];
+		}
+		if (value != null && String(value).trim() !== '') {
+			const key = String(value).trim();
+			if (!groupsMap.has(key)) {
+				groupsMap.set(key, []);
+			}
+			groupsMap.get(key)!.push(item);
+		} else {
+			ungrouped.push(item);
+		}
+	}
+
+	const groups: ItemGroup[] = [];
+	for (const [value, groupItems] of groupsMap) {
+		groups.push({
+			label: `${label}: ${value}`,
+			value,
+			items: groupItems
+		});
+	}
+
+	// Sort groups by label
+	groups.sort((a, b) => a.label.localeCompare(b.label, 'zh'));
+
+	return { groups, ungrouped };
 }

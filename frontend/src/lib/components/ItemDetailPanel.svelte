@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Item, Category, Tag, AttributeDefinition } from '$lib/types';
 	import { getAttrConfig } from '$lib/utils/attrs';
+	import { attrMatchesScope } from '$lib/utils/columns';
 	import InlineEdit from './InlineEdit.svelte';
 	import InlineEditSelect from './InlineEditSelect.svelte';
 	import InlineEditToggle from './InlineEditToggle.svelte';
@@ -30,12 +31,53 @@
 		];
 	});
 
+	// Scoped attribute definitions
+	const scopedAttrDefs = $derived(
+		attrDefs.filter(ad => attrMatchesScope(ad, item.category_id, item.tag_id))
+	);
+
+	// Ad-hoc keys: keys in attrs that are NOT in any attrDef
+	const allDefKeys = $derived(new Set(attrDefs.map(ad => ad.key)));
+	const adHocKeys = $derived(
+		Object.keys(item.attrs ?? {}).filter(k => !allDefKeys.has(k))
+	);
+
 	function getAttrValue(key: string): unknown {
 		return item.attrs?.[key] ?? 0;
 	}
 
 	function updateAttr(key: string, value: unknown) {
 		const newAttrs = { ...item.attrs, [key]: value };
+		onUpdate('attrs', newAttrs);
+	}
+
+	function updateAdHocKey(oldKey: string, newKey: string) {
+		if (!newKey.trim() || oldKey === newKey) return;
+		const newAttrs: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(item.attrs ?? {})) {
+			if (k === oldKey) {
+				newAttrs[newKey.trim()] = v;
+			} else {
+				newAttrs[k] = v;
+			}
+		}
+		onUpdate('attrs', newAttrs);
+	}
+
+	function removeAdHocKey(key: string) {
+		const newAttrs = { ...item.attrs };
+		delete newAttrs[key];
+		onUpdate('attrs', newAttrs);
+	}
+
+	function addAdHocKey() {
+		let candidate = 'new_key';
+		let idx = 1;
+		while (candidate in (item.attrs ?? {})) {
+			candidate = `new_key_${idx}`;
+			idx++;
+		}
+		const newAttrs = { ...item.attrs, [candidate]: '' };
 		onUpdate('attrs', newAttrs);
 	}
 </script>
@@ -98,12 +140,11 @@
 		</div>
 	</div>
 
-	<!-- 动态属性 -->
-	{#if attrDefs.length > 0}
+	<!-- Known attributes (scoped) -->
+	{#if scopedAttrDefs.length > 0}
 		<div class="detail-section">
-			<h3 class="section-title">物理属性</h3>
-
-			{#each attrDefs as ad (ad.id)}
+			<h3 class="section-title">已知属性</h3>
+			{#each scopedAttrDefs as ad (ad.id)}
 				{@const config = getAttrConfig(ad)}
 				{@const val = getAttrValue(ad.key)}
 				<div class="field-row">
@@ -127,6 +168,28 @@
 			{/each}
 		</div>
 	{/if}
+
+	<!-- Ad-hoc attributes (not registered) -->
+	{#if adHocKeys.length > 0}
+		<div class="detail-section">
+			<h3 class="section-title">其他属性</h3>
+			{#each adHocKeys as key (key)}
+				<div class="field-row">
+					<span class="field-label adhoc-key">
+						<InlineEdit value={key} oncommit={(v) => updateAdHocKey(key, String(v))} placeholder="键" />
+					</span>
+					<span class="field-value">
+						<InlineEdit value={String(item.attrs?.[key] ?? '')} oncommit={(v) => updateAttr(key, v)} placeholder="值" />
+					</span>
+					<button class="remove-attr-btn" onclick={() => removeAdHocKey(key)} title="删除">&times;</button>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
+	<div class="adhoc-add">
+		<button class="small" onclick={addAdHocKey}>+ 添加属性</button>
+	</div>
 
 	{#if usageCount > 0}
 		<div class="detail-section usage-section">
@@ -207,6 +270,11 @@
 		flex-shrink: 0;
 		color: var(--text-secondary);
 	}
+	.field-label.adhoc-key {
+		width: auto;
+		min-width: 60px;
+		max-width: 100px;
+	}
 	.field-value {
 		flex: 1;
 		min-width: 0;
@@ -215,6 +283,29 @@
 		font-size: 13px;
 		color: var(--text-secondary);
 		text-align: center;
+		padding: 6px 12px;
+	}
+	.remove-attr-btn {
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background: transparent;
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		cursor: pointer;
+		font-size: 12px;
+		line-height: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+	.remove-attr-btn:hover {
+		background: var(--danger);
+		color: white;
+		border-color: var(--danger);
+	}
+	.adhoc-add {
 		padding: 6px 12px;
 	}
 </style>

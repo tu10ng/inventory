@@ -10,9 +10,11 @@
 	import AiAddModal from '$lib/components/AiAddModal.svelte';
 	import AiOrganizeModal from '$lib/components/AiOrganizeModal.svelte';
 	import ImportModal from '$lib/components/ImportModal.svelte';
+	import OrderImportModal from '$lib/components/OrderImportModal.svelte';
 	import { loadAllColumns, getAllColumns, loadVisibleColumns } from '$lib/utils/columns';
 	import type { ItemColumnDef } from '$lib/utils/columns';
-	import { filterItems, sortItems } from '$lib/utils/itemFilters';
+	import { filterItems, sortItems, groupItems } from '$lib/utils/itemFilters';
+	import type { ItemGroup } from '$lib/utils/itemFilters';
 
 	let items = $state<Item[]>([]);
 	let categories = $state<Category[]>([]);
@@ -34,10 +36,13 @@
 	let showAiModal = $state(false);
 	let showOrganizeModal = $state(false);
 	let showImportModal = $state(false);
+	let showOcrModal = $state(false);
+	let prefillAiText = $state('');
 
 	let sortKey = $state<string | null>(null);
 	let sortDir = $state<'asc' | 'desc'>('asc');
 	let columnFilters = $state<Map<string, Set<string>>>(new Map());
+	let groupByKey = $state<string | null>(null);
 
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -137,6 +142,7 @@
 
 	async function handleAiConfirm(aiItems: AiParsedItem[]) {
 		showAiModal = false;
+		prefillAiText = '';
 		for (const item of aiItems) {
 			const payload = {
 				name: item.name,
@@ -184,6 +190,31 @@
 
 	const sortedItems = $derived(sortItems(filteredItems, sortKey, sortDir, tags));
 
+	// Group-by options: registered text-type attributes (for grouping by attribute values)
+	const groupByOptions = $derived(
+		allColumns.filter(c => c.key !== 'tag' && c.key !== 'brand' && c.type === 'text')
+	);
+
+	// Group-by data: pre-computed per-category groups when groupByKey is set
+	const groupedData = $derived.by(() => {
+		if (!groupByKey) return null;
+		const map = new Map<number, { groups: ItemGroup[]; ungrouped: Item[] }>();
+		// Group within each category
+		for (const cat of categories) {
+			const catItems = sortedItems.filter(i => i.category_id === cat.id);
+			if (catItems.length > 0) {
+				map.set(cat.id, groupItems(catItems, groupByKey, allColumns));
+			}
+		}
+		return map;
+	});
+
+	const groupBy = $derived(
+		groupByKey
+			? { key: groupByKey, label: allColumns.find(c => c.key === groupByKey)?.label ?? groupByKey }
+			: null
+	);
+
 	// Keep selectedItem in sync after reload
 	$effect(() => {
 		if (selectedItem) {
@@ -217,6 +248,15 @@
 					onSearchChange={(v) => (search = v)}
 					onCategoryChange={(id) => (filterCategoryId = id)}
 				/>
+				<div class="group-by-select">
+					<label>分组</label>
+					<select value={groupByKey ?? ''} onchange={(e) => (groupByKey = e.currentTarget.value || null)}>
+						<option value="">无</option>
+						{#each groupByOptions as col (col.key)}
+							<option value={col.key}>{col.label}</option>
+						{/each}
+					</select>
+				</div>
 				<ColumnPicker columns={allColumns} bind:visibleKeys />
 			</div>
 			<div class="toolbar-row toolbar-actions">
@@ -224,6 +264,7 @@
 				<button onclick={() => showImportModal = true}>导入</button>
 				<button class="primary" onclick={startCreate}>+ 添加物品</button>
 				<button onclick={() => showAiModal = true}>AI 添加</button>
+				<button onclick={() => showOcrModal = true}>OCR 导入</button>
 				<button onclick={() => showOrganizeModal = true}>AI 整理</button>
 			</div>
 		</div>
@@ -237,6 +278,8 @@
 			{sortKey}
 			{sortDir}
 			{columnFilters}
+			{groupBy}
+			{groupedData}
 			onSelect={selectItem}
 			onToggleCategory={toggleCategory}
 			onSort={handleSort}
@@ -280,12 +323,20 @@
 	<AiAddModal
 		{categories}
 		{tags}
+		{prefillAiText}
 		onConfirm={handleAiConfirm}
-		onClose={() => showAiModal = false}
+		onClose={() => { showAiModal = false; prefillAiText = ''; }}
 		onNewTags={(newTags) => {
 			const existingIds = new Set(tags.map(t => t.id));
 			tags = [...tags, ...newTags.filter(t => !existingIds.has(t.id))];
 		}}
+	/>
+{/if}
+
+{#if showOcrModal}
+	<OrderImportModal
+		onClose={() => showOcrModal = false}
+		onOpenAiModal={(text) => { prefillAiText = text; showAiModal = true; }}
 	/>
 {/if}
 
@@ -335,6 +386,22 @@
 	.toolbar-row :global(.search-filter) {
 		flex: 1;
 		margin-bottom: 0;
+	}
+	.group-by-select {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 12px;
+		color: var(--text-secondary);
+		flex-shrink: 0;
+	}
+	.group-by-select select {
+		font-size: 12px;
+		padding: 2px 6px;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		background: var(--surface);
+		color: var(--text);
 	}
 	.toolbar-actions {
 		justify-content: flex-end;

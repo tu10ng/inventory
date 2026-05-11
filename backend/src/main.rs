@@ -11,6 +11,19 @@ use tower_http::services::ServeDir;
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    // Check tesseract availability (non-fatal: OCR endpoint will also check and return error)
+    match std::process::Command::new("which")
+        .arg("tesseract")
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            tracing::info!("Tesseract OCR found");
+        }
+        _ => {
+            tracing::warn!("Tesseract OCR not installed — /api/ai/ocr will be unavailable. Install: pacman -S tesseract tesseract-data-chi_sim tesseract-data-eng");
+        }
+    }
+
     let pool = db::init_pool().await;
 
     let app = handlers::router()

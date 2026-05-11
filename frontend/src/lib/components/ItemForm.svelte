@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Item, Category, Tag, AttributeDefinition } from '$lib/types';
 	import { getAttrConfig } from '$lib/utils/attrs';
+	import { attrMatchesScope } from '$lib/utils/columns';
 
 	let { item = null, categories, tags, attrDefs = [], onSave, onCancel }: {
 		item?: Partial<Item> | null;
@@ -23,6 +24,17 @@
 	let attrs = $state<Record<string, unknown>>({ ...(item?.attrs ?? {}) });
 
 	const categoryTags = $derived(tags.filter(t => t.category_id === category_id));
+
+	// Scoped attribute definitions (registered + matching scope)
+	const scopedAttrDefs = $derived(
+		attrDefs.filter(ad => attrMatchesScope(ad, category_id, tag_id))
+	);
+
+	// Ad-hoc keys: keys in attrs that are NOT in any attrDef
+	const allDefKeys = $derived(new Set(attrDefs.map(ad => ad.key)));
+	const adHocKeys = $derived(
+		Object.keys(attrs).filter(k => !allDefKeys.has(k))
+	);
 
 	function onTagChange(newTagId: number | null) {
 		tag_id = newTagId;
@@ -47,6 +59,37 @@
 		if (idx >= 0) parts.splice(idx, 1);
 		else parts.push(pill);
 		setAttr(key, parts.join(','));
+	}
+
+	// Ad-hoc key management
+	function setAdHocKey(oldKey: string, newKey: string) {
+		if (!newKey.trim() || oldKey === newKey) return;
+		const value = attrs[oldKey];
+		const newAttrs: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(attrs)) {
+			if (k === oldKey) {
+				newAttrs[newKey.trim()] = value;
+			} else {
+				newAttrs[k] = v;
+			}
+		}
+		attrs = newAttrs;
+	}
+
+	function removeAdHocKey(key: string) {
+		const newAttrs = { ...attrs };
+		delete newAttrs[key];
+		attrs = newAttrs;
+	}
+
+	function addAdHocKey() {
+		let candidate = 'new_key';
+		let idx = 1;
+		while (candidate in attrs) {
+			candidate = `new_key_${idx}`;
+			idx++;
+		}
+		attrs = { ...attrs, [candidate]: '' };
 	}
 
 	function handleSave() {
@@ -113,11 +156,12 @@
 		<input bind:value={notes} placeholder="备注" />
 	</div>
 
-	{#if attrDefs.length > 0}
+	<!-- Known attributes (scoped) -->
+	{#if scopedAttrDefs.length > 0}
 		<hr class="form-divider" />
-		<h4 class="sub-title">物理属性</h4>
+		<h4 class="sub-title">已知属性</h4>
 
-		{#each attrDefs as ad (ad.id)}
+		{#each scopedAttrDefs as ad (ad.id)}
 			{@const config = getAttrConfig(ad)}
 			{#if ad.attr_type === 'number' || ad.attr_type === 'weight'}
 				<div class="form-row">
@@ -174,6 +218,37 @@
 		{/each}
 	{/if}
 
+	<!-- Ad-hoc attributes (not registered) -->
+	{#if adHocKeys.length > 0}
+		<hr class="form-divider" />
+		<h4 class="sub-title">其他属性</h4>
+		{#each adHocKeys as key (key)}
+			<div class="form-row adhoc-row">
+				<div class="form-group" style="flex:1">
+					<label>键</label>
+					<input
+						value={key}
+						onchange={(e) => setAdHocKey(key, e.currentTarget.value)}
+						placeholder="属性名"
+					/>
+				</div>
+				<div class="form-group" style="flex:2">
+					<label>值</label>
+					<input
+						value={String(getAttrValue(key, ''))}
+						onchange={(e) => setAttr(key, e.currentTarget.value)}
+						placeholder="属性值"
+					/>
+				</div>
+				<button class="remove-btn" onclick={() => removeAdHocKey(key)} title="删除">&times;</button>
+			</div>
+		{/each}
+	{/if}
+
+	<div class="adhoc-add">
+		<button class="small" onclick={addAdHocKey}>+ 添加属性</button>
+	</div>
+
 	<div class="form-actions">
 		<button onclick={onCancel}>取消</button>
 		<button class="primary" onclick={handleSave} disabled={!name}>{isEdit ? '更新' : '添加'}</button>
@@ -207,6 +282,33 @@
 	.form-row {
 		display: flex;
 		gap: 10px;
+		margin-bottom: 10px;
+	}
+	.adhoc-row {
+		align-items: flex-end;
+	}
+	.adhoc-row .remove-btn {
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		background: transparent;
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		cursor: pointer;
+		font-size: 14px;
+		line-height: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		margin-bottom: 10px;
+	}
+	.adhoc-row .remove-btn:hover {
+		background: var(--danger);
+		color: white;
+		border-color: var(--danger);
+	}
+	.adhoc-add {
 		margin-bottom: 10px;
 	}
 	.form-divider {

@@ -26,6 +26,32 @@ function attrDefToColumn(ad: AttributeDefinition): ItemColumnDef {
 	return col;
 }
 
+/** Check if an attribute definition matches the given category/tag scope. */
+export function attrMatchesScope(
+	ad: AttributeDefinition,
+	categoryId: number | null,
+	tagId: number | null
+): boolean {
+	const catScope = ad.category_scope
+		? ad.category_scope.split(',').filter(Boolean).map(Number)
+		: [];
+	const tagScope = ad.tag_scope
+		? ad.tag_scope.split(',').filter(Boolean).map(Number)
+		: [];
+
+	// Global: both scopes empty
+	if (catScope.length === 0 && tagScope.length === 0) return true;
+
+	let ok = false;
+	if (catScope.length > 0 && categoryId != null) {
+		ok = ok || catScope.includes(categoryId);
+	}
+	if (tagScope.length > 0 && tagId != null) {
+		ok = ok || tagScope.includes(tagId);
+	}
+	return ok;
+}
+
 export async function loadAllColumns(): Promise<ItemColumnDef[]> {
 	if (cachedColumns) return cachedColumns;
 	const defs = await api.get<AttributeDefinition[]>('/attribute-definitions');

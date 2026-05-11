@@ -1,7 +1,9 @@
 <script lang="ts">
 	import type { Item, Category, Tag } from '$lib/types';
 	import type { ItemColumnDef } from '$lib/utils/columns';
+	import type { ItemGroup } from '$lib/utils/itemFilters';
 	import { getCellValue } from '$lib/utils/cellValue';
+	import ItemGroupBlock from './ItemGroupBlock.svelte';
 
 	let {
 		items,
@@ -13,6 +15,8 @@
 		sortKey = null,
 		sortDir = 'asc',
 		columnFilters = new Map(),
+		groupBy = null,
+		groupedData = null,
 		onSelect,
 		onToggleCategory,
 		onSort,
@@ -27,6 +31,8 @@
 		sortKey?: string | null;
 		sortDir?: 'asc' | 'desc';
 		columnFilters?: Map<string, Set<string>>;
+		groupBy?: { key: string; label: string } | null;
+		groupedData?: Map<number, { groups: ItemGroup[]; ungrouped: Item[] }> | null;
 		onSelect: (item: Item) => void;
 		onToggleCategory: (catId: number) => void;
 		onSort?: (key: string) => void;
@@ -76,7 +82,6 @@
 		openFilter = null;
 	}
 
-	// Compute unique values for a filterable column across all items passed in
 	function getUniqueValues(col: ItemColumnDef): string[] {
 		const vals = new Set<string>();
 		for (const item of items) {
@@ -175,84 +180,143 @@
 		</button>
 
 		{#if !collapsedCategories.has(group.category.id)}
-			{#each group.items as item (item.id)}
-				{@const itemTag = getTag(item)}
-				<button
-					class="item-row"
-					class:selected={item.id === selectedItemId}
-					onclick={() => onSelect(item)}
-				>
-					<span class="item-name">
-						{item.name}
-						{#if visibleColumns.length === 0 && itemTag}
-							<span class="inline-tag">{itemTag.name}</span>
-						{/if}
-						{#if visibleColumns.length === 0 && (item.brand || item.model)}
-							<span class="inline-brand">{item.brand}{item.brand && item.model ? ' ' : ''}{item.model}</span>
-						{/if}
-					</span>
-					{#each visibleColumns as col (col.key)}
-						<span class="cell cell-{col.type}">
-							{#if col.type === 'tag'}
-								{@const t = getTag(item)}
-								{#if t}
-									<span class="cell-pill">{t.name}</span>
-								{:else}
-									<span class="cell-empty">-</span>
-								{/if}
-							{:else if col.type === 'text'}
-								{@const v = getCellValue(item, col)}
-								{#if v}
-									<span class="cell-text">{v}</span>
-								{:else}
-									<span class="cell-empty">-</span>
-								{/if}
-							{:else if col.type === 'number'}
-								{@const v = getCellValue(item, col) as number}
-								{#if v}
-									<span class="cell-num">{v}{col.suffix ? col.suffix : ''}</span>
-								{:else}
-									<span class="cell-empty">-</span>
-								{/if}
-							{:else if col.type === 'weight'}
-								{@const v = getCellValue(item, col) as number}
-								{#if v}
-									<span class="cell-num">{v}g</span>
-								{:else}
-									<span class="cell-empty">-</span>
-								{/if}
-							{:else if col.type === 'bool'}
-								{@const v = getCellValue(item, col) as number}
-								{#if v > 0}
-									<span class="cell-bool yes">✓</span>
-								{:else}
-									<span class="cell-bool no">✗</span>
-								{/if}
-							{:else if col.type === 'bar'}
-								{@const v = getCellValue(item, col) as number}
-								{@const max = col.max ?? 10}
-								{#if v > 0}
-									<span class="cell-bar">
-										<span class="bar-track">
-											<span class="bar-fill" style="width: {Math.min(v / max * 100, 100)}%"></span>
-										</span>
-										<span class="bar-val">{v}</span>
+			{#if groupBy && groupedData}
+				{@const catData = groupedData.get(group.category.id)}
+				{#if catData}
+					{#each catData.groups as grp (grp.value)}
+						<ItemGroupBlock
+							label={grp.label}
+							value={grp.value}
+							items={grp.items}
+							{visibleColumns}
+							{selectedItemId}
+							{tags}
+							{onSelect}
+						/>
+					{/each}
+					{#if catData.ungrouped.length > 0}
+						<div class="ungrouped-header">··· 未分组 ···</div>
+						{#each catData.ungrouped as item (item.id)}
+							<button
+								class="item-row"
+								class:selected={item.id === selectedItemId}
+								onclick={() => onSelect(item)}
+							>
+								<span class="item-name">{item.name}</span>
+								{#each visibleColumns as col (col.key)}
+									{@const v = getCellValue(item, col)}
+									<span class="cell cell-{col.type}">
+										{#if v != null && String(v) !== ''}
+											<span class="cell-text">{v}{col.suffix ?? ''}</span>
+										{:else}
+											<span class="cell-empty">-</span>
+										{/if}
 									</span>
-								{:else}
-									<span class="cell-empty">-</span>
-								{/if}
-							{:else if col.type === 'stars'}
-								{@const v = getCellValue(item, col) as number}
-								{#if v > 0}
-									<span class="cell-stars">{'★'.repeat(Math.min(v, 5))}{'☆'.repeat(Math.max(5 - v, 0))}</span>
-								{:else}
-									<span class="cell-empty">-</span>
-								{/if}
+								{/each}
+							</button>
+						{/each}
+					{/if}
+				{:else}
+					{#each group.items as item (item.id)}
+						<button
+							class="item-row"
+							class:selected={item.id === selectedItemId}
+							onclick={() => onSelect(item)}
+						>
+							<span class="item-name">{item.name}</span>
+							{#each visibleColumns as col (col.key)}
+								{@const v = getCellValue(item, col)}
+								<span class="cell cell-{col.type}">
+									{#if v != null && String(v) !== ''}
+										<span class="cell-text">{v}{col.suffix ?? ''}</span>
+									{:else}
+										<span class="cell-empty">-</span>
+									{/if}
+								</span>
+							{/each}
+						</button>
+					{/each}
+				{/if}
+			{:else}
+				{#each group.items as item (item.id)}
+					{@const itemTag = getTag(item)}
+					<button
+						class="item-row"
+						class:selected={item.id === selectedItemId}
+						onclick={() => onSelect(item)}
+					>
+						<span class="item-name">
+							{item.name}
+							{#if visibleColumns.length === 0 && itemTag}
+								<span class="inline-tag">{itemTag.name}</span>
+							{/if}
+							{#if visibleColumns.length === 0 && (item.brand || item.model)}
+								<span class="inline-brand">{item.brand}{item.brand && item.model ? ' ' : ''}{item.model}</span>
 							{/if}
 						</span>
-					{/each}
-				</button>
-			{/each}
+						{#each visibleColumns as col (col.key)}
+							<span class="cell cell-{col.type}">
+								{#if col.type === 'tag'}
+									{@const t = getTag(item)}
+									{#if t}
+										<span class="cell-pill">{t.name}</span>
+									{:else}
+										<span class="cell-empty">-</span>
+									{/if}
+								{:else if col.type === 'text'}
+									{@const v = getCellValue(item, col)}
+									{#if v}
+										<span class="cell-text">{v}</span>
+									{:else}
+										<span class="cell-empty">-</span>
+									{/if}
+								{:else if col.type === 'number'}
+									{@const v = getCellValue(item, col) as number}
+									{#if v}
+										<span class="cell-num">{v}{col.suffix ? col.suffix : ''}</span>
+									{:else}
+										<span class="cell-empty">-</span>
+									{/if}
+								{:else if col.type === 'weight'}
+									{@const v = getCellValue(item, col) as number}
+									{#if v}
+										<span class="cell-num">{v}g</span>
+									{:else}
+										<span class="cell-empty">-</span>
+									{/if}
+								{:else if col.type === 'bool'}
+									{@const v = getCellValue(item, col) as number}
+									{#if v > 0}
+										<span class="cell-bool yes">✓</span>
+									{:else}
+										<span class="cell-bool no">✗</span>
+									{/if}
+								{:else if col.type === 'bar'}
+									{@const v = getCellValue(item, col) as number}
+									{@const max = col.max ?? 10}
+									{#if v > 0}
+										<span class="cell-bar">
+											<span class="bar-track">
+												<span class="bar-fill" style="width: {Math.min(v / max * 100, 100)}%"></span>
+											</span>
+											<span class="bar-val">{v}</span>
+										</span>
+									{:else}
+										<span class="cell-empty">-</span>
+									{/if}
+								{:else if col.type === 'stars'}
+									{@const v = getCellValue(item, col) as number}
+									{#if v > 0}
+										<span class="cell-stars">{'★'.repeat(Math.min(v, 5))}{'☆'.repeat(Math.max(5 - v, 0))}</span>
+									{:else}
+										<span class="cell-empty">-</span>
+									{/if}
+								{/if}
+							</span>
+						{/each}
+					</button>
+				{/each}
+			{/if}
 		{/if}
 	{/each}
 
@@ -566,6 +630,14 @@
 		color: #f59e0b;
 		letter-spacing: -1px;
 		white-space: nowrap;
+	}
+
+	.ungrouped-header {
+		padding: 6px 12px 6px 36px;
+		font-size: 11px;
+		color: var(--text-secondary);
+		border-bottom: 1px dotted var(--border);
+		opacity: 0.7;
 	}
 
 	.empty-state {
