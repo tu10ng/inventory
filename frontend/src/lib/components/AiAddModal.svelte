@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { Category, Tag, AiParsedItem, AiParseResponse } from '$lib/types';
-	import { api } from '$lib/api/client';
+	import type { Category, Tag, AiParsedItem } from '$lib/types';
+	import { aiPostStream } from '$lib/api/client';
 
 	let {
 		categories,
@@ -23,6 +23,9 @@
 	let inputText = $state('');
 	let errorMsg = $state('');
 	let parsedItems = $state<AiParsedItem[]>([]);
+	let thinkingText = $state('');
+	let progressMsg = $state('');
+	let streamController = $state<AbortController | null>(null);
 
 	$effect(() => {
 		if (prefillAiText) {
@@ -30,21 +33,51 @@
 		}
 	});
 
-	async function handleParse() {
+	function handleParse() {
 		if (!inputText.trim()) return;
 		stage = 'loading';
 		errorMsg = '';
-		try {
-			const resp = await api.post<AiParseResponse>('/ai/parse-items', { text: inputText });
-			parsedItems = resp.items;
-			if (resp.new_tags.length > 0) {
-				onNewTags?.(resp.new_tags);
+		thinkingText = '';
+		progressMsg = '';
+
+		streamController = aiPostStream(
+			'/ai/parse-items-stream',
+			{ text: inputText },
+			{
+				onThinking(text: string) {
+					thinkingText += text;
+				},
+				onProgress(msg: string) {
+					progressMsg = msg;
+				},
+				onResult(data: any) {
+					parsedItems = data.items;
+					if (data.new_tags && data.new_tags.length > 0) {
+						onNewTags?.(data.new_tags);
+					}
+					stage = 'preview';
+				},
+				onError(msg: string) {
+					errorMsg = msg;
+					stage = 'input';
+				}
 			}
-			stage = 'preview';
-		} catch (e: any) {
-			errorMsg = e.message || 'AI 解析失败';
-			stage = 'input';
-		}
+		);
+	}
+
+	function cancelStream() {
+		streamController?.abort();
+		streamController = null;
+	}
+
+	function handleClose() {
+		cancelStream();
+		onClose();
+	}
+
+	function handleCancel() {
+		cancelStream();
+		goBack();
 	}
 
 	function removeItem(index: number) {
@@ -90,7 +123,10 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') onClose();
+		if (e.key === 'Escape') {
+			cancelStream();
+			onClose();
+		}
 	}
 </script>
 
@@ -98,12 +134,12 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay" onclick={onClose}>
+<div class="overlay" onclick={handleClose}>
 	<div class="modal" onclick={(e) => e.stopPropagation()}>
 		{#if stage === 'input'}
 			<div class="modal-header">
 				<h2>AI 智能添加</h2>
-				<button class="close-btn" onclick={onClose}>&times;</button>
+				<button class="close-btn" onclick={handleClose}>&times;</button>
 			</div>
 			<div class="modal-body">
 				<p class="hint">用自然语言描述你要添加的物品，AI 会自动解析出结构化信息。</p>
@@ -117,7 +153,7 @@
 				{/if}
 			</div>
 			<div class="modal-footer">
-				<button onclick={onClose}>取消</button>
+				<button onclick={handleClose}>取消</button>
 				<button class="primary" onclick={handleParse} disabled={!inputText.trim()}>
 					解析
 				</button>
@@ -126,17 +162,23 @@
 		{:else if stage === 'loading'}
 			<div class="modal-header">
 				<h2>AI 智能添加</h2>
+				<button class="close-btn" onclick={handleClose}>&times;</button>
 			</div>
 			<div class="modal-body loading-body">
-				<div class="spinner"></div>
-				<p>AI 正在解析物品信息...</p>
-				<p class="hint">这可能需要几秒钟</p>
+				<div class="thinking-indicator">
+					<span class="pulse-dot"></span>
+					{progressMsg || 'AI 思考中...'}
+				</div>
+				<pre class="thinking-text">{thinkingText}<span class="cursor-blink">|</span></pre>
+			</div>
+			<div class="modal-footer">
+				<button onclick={handleCancel}>取消</button>
 			</div>
 
 		{:else if stage === 'preview'}
 			<div class="modal-header">
 				<h2>解析结果预览</h2>
-				<button class="close-btn" onclick={onClose}>&times;</button>
+				<button class="close-btn" onclick={handleClose}>&times;</button>
 			</div>
 			<div class="modal-body preview-body">
 				{#if parsedItems.length === 0}
@@ -202,7 +244,7 @@
 			</div>
 			<div class="modal-footer">
 				<button onclick={goBack}>返回修改</button>
-				<button onclick={onClose}>取消</button>
+				<button onclick={handleClose}>取消</button>
 				<button class="primary" onclick={handleConfirm} disabled={parsedItems.length === 0}>
 					确认添加 ({parsedItems.length} 件)
 				</button>
@@ -301,23 +343,56 @@
 	.loading-body {
 		display: flex;
 		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		padding: 60px 20px;
+		padding: 16px 20px;
 		gap: 12px;
 	}
 
-	.spinner {
-		width: 36px;
-		height: 36px;
-		border: 3px solid var(--border);
-		border-top-color: var(--primary);
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
+	.thinking-indicator {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 14px;
+		color: var(--text-secondary);
 	}
 
-	@keyframes spin {
-		to { transform: rotate(360deg); }
+	.pulse-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--primary);
+		animation: pulse 1.2s ease-in-out infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { opacity: 0.3; transform: scale(0.8); }
+		50% { opacity: 1; transform: scale(1.2); }
+	}
+
+	.thinking-text {
+		background: var(--inventory-bg, #1a1a2e);
+		color: var(--inventory-text, #e0e0e0);
+		border: 1px solid var(--inventory-border, #0f3460);
+		border-radius: 8px;
+		padding: 16px;
+		font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+		font-size: 13px;
+		line-height: 1.7;
+		white-space: pre-wrap;
+		word-wrap: break-word;
+		overflow-y: auto;
+		max-height: 300px;
+		min-height: 120px;
+		margin: 0;
+	}
+
+	.cursor-blink {
+		color: var(--primary);
+		animation: blink 0.8s step-end infinite;
+	}
+
+	@keyframes blink {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0; }
 	}
 
 	.preview-body {

@@ -11,7 +11,11 @@
 | `people.rs` | 人员 | `GET/POST /api/people`, `PUT/DELETE /api/people/{id}` |
 | `activities.rs` | 活动模板 | CRUD + 子资源 items/tips |
 | `trips.rs` | 行程 | CRUD + `populate` / `resync` / `clone` |
-| `trip_items.rs` | 行程物品 | CRUD + `check` + `bulk_update` |
+| `trip_items.rs` | 行程物品 | CRUD + `check` + `bulk_update` + `save_as_slot` |
+| `ai.rs` | AI 功能 | `parse_items`, `parse_items_stream`, `organize_preview`, `organize_apply` |
+| `ocr.rs` | OCR 图片识别 | `ocr_images` |
+| `attributes.rs` | 属性定义 | CRUD |
+| `statuses.rs` | 状态定义 | CRUD |
 | `mod.rs` | 路由注册 | `pub fn router() -> Router<SqlitePool>` |
 
 ## 各 handler 函数
@@ -45,6 +49,19 @@
 - `update(id)` / `delete(id)` — 更新/删除（update 支持部分字段）
 - `check(id)` — PATCH 切换勾选状态
 - `bulk_update(trip_id)` — PATCH 批量更新（checked / person_id / item_status）
+- `save_as_slot(id)` — POST 将行程物品保存为活动模板槽位
+
+### ai.rs
+- `parse_items(text)` — POST `/api/ai/parse-items`，阻塞式 AI 解析（返回 JSON）
+- `parse_items_stream(text)` — POST `/api/ai/parse-items-stream`，SSE 流式解析，实时返回思考过程 + 结果
+- `organize_preview()` — POST `/api/ai/organize-preview`，AI 整理预览
+- `organize_apply(actions)` — POST `/api/ai/organize-apply`，执行 AI 整理操作
+- `call_llm()` — 非流式 LLM 调用（`response_format: json_object`）
+- `call_llm_stream()` — 流式 LLM 调用，通过 channel 发送 `SseEvent::Thinking`
+- `build_system_prompt()` / `build_streaming_system_prompt()` — 构建 prompt
+- `extract_items_from_text()` — 从 LLM 输出中提取 JSON（`---JSON---` 分隔）
+- `resolve_parsed_item()` / `resolve_category_id()` / `resolve_tag_id()` — 将 AI 输出的名称映射到数据库 ID
+- `auto_create_tags_for_items()` — 自动为 AI 返回的新标签创建记录
 
 ## 添加新端点步骤
 

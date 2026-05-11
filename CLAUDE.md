@@ -1,5 +1,7 @@
 # Inventory — 出行物品清单管理系统
 
+## *** 必须使用中文思考 ***
+
 ## *** 项目的关键技术决策要提供选项, 让用户选择 ***
 
 ## *** 每次修改问题后, 都要增加一个"反思"的步骤, 反思为什么之前会做错, 并且将原因写入CLAUDE.md, 避免下次重犯 ***
@@ -77,6 +79,11 @@ RESTful，前缀 `/api`。
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET/POST | `/api/trips` | 行程列表/创建 |
+| POST | `/api/ai/parse-items` | AI 物品解析（阻塞式） |
+| POST | `/api/ai/parse-items-stream` | AI 物品解析（SSE 流式，实时显示思考过程） |
+| POST | `/api/ai/organize-preview` | AI 整理预览 |
+| POST | `/api/ai/organize-apply` | AI 整理执行 |
+| POST | `/api/ai/ocr` | OCR 图片识别 |
 | GET/PUT/DELETE | `/api/trips/{id}` | 行程 CRUD |
 | GET/POST | `/api/trips/{id}/items` | 行程物品 |
 | PUT/DELETE | `/api/trip-items/{id}` | 更新/删除行程物品（注意连字符） |
@@ -107,3 +114,19 @@ RESTful，前缀 `/api`。
 3. **同步无预览**：开发者知道 resync 会做什么所以觉得一键执行合理，但用户不知道——可能丢失手动添加的物品却毫无察觉。教训：**任何批量删除/修改操作，必须先展示将发生的变化让用户确认（preview → confirm 模式）**。
 
 总结：实现功能时不能只想"API 入参出参对不对"，要**模拟用户的完整操作路径**，在每个有副作用的步骤问自己：用户知道会发生什么吗？操作可逆吗？有没有防误触？
+
+## 流式 AI 解析实现笔记
+
+### SSE 流式传输架构
+- `SseEvent` enum（`#[serde(tag = "type")]`）区分 thinking/progress/result/error
+- 后端通过 `tokio::sync::mpsc::unbounded_channel` 在 spawned task 和 SSE stream 之间传递事件
+- `UnboundedReceiverStream`（tokio-stream）将 receiver 转为 futures Stream 供 Axum Sse 使用
+- 前端通过 `fetch()` + `ReadableStream.getReader()` 消费 SSE
+
+### 注意事项
+- OpenAI streaming 模式（`stream: true`）与 `response_format: json_object` 不兼容
+- 流式模式下，prompt 需要引导 LLM 先输出思考文字再输出 JSON（`---JSON---` 分隔符）
+- `reqwest::Response::bytes_stream()` 实现 `futures_core::Stream`，可直接用于流式读取
+- `response.json()` 失败后不能再用 `response.text()`，body stream 已被消费。应先用 `response.text()` 读文本，再 `JSON.parse()` 尝试解析
+- Svelte 5 模板中 `{...}` 内不能使用 `{ ...; ... }` body 语法（大括号冲突），应抽取为 `<script>` 中的函数
+- `AppError` 不实现 `Display`，format 时需用 `{:?}` / `{:#?}`（需 `#[derive(Debug)]`）

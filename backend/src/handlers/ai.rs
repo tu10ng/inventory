@@ -1,12 +1,16 @@
 use axum::extract::State;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::Json;
 use sqlx::SqlitePool;
+use std::convert::Infallible;
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::StreamExt as _;
 
 use crate::error::AppError;
 use crate::models::{
     AiParseRequest, AiParseResponse, AiParsedItem, AttributeDefinition, Category, Item,
     OrganizeAction, OrganizeApplyRequest, OrganizeApplyResponse, OrganizePreviewResponse,
-    OrganizeUpdateFields, Tag,
+    OrganizeUpdateFields, SseEvent, Tag,
 };
 
 #[derive(serde::Serialize)]
@@ -23,6 +27,8 @@ struct ChatRequest {
     response_format: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 #[derive(serde::Deserialize)]
@@ -169,6 +175,7 @@ async fn call_llm(system_prompt: &str, user_prompt: &str) -> Result<String, AppE
         ],
         response_format: Some(serde_json::json!({"type": "json_object"})),
         tools: None,
+        stream: None,
     };
 
     let client = reqwest::Client::new();
@@ -773,4 +780,275 @@ async fn apply_update_fields(
     }
 
     Ok(())
+}
+
+// ── Streaming LLM call ──
+
+#[derive(serde::Deserialize)]
+struct ChatStreamChunk {
+    choices: Vec<ChatStreamChoice>,
+}
+
+#[derive(serde::Deserialize)]
+struct ChatStreamChoice {
+    delta: ChatStreamDelta,
+}
+
+#[derive(serde::Deserialize)]
+struct ChatStreamDelta {
+    content: Option<String>,
+}
+
+fn build_streaming_system_prompt(
+    categories: &[Category],
+    tags: &[Tag],
+    attr_defs: &[AttributeDefinition],
+) -> String {
+    let mut base = build_system_prompt(categories, tags, attr_defs);
+    base.push_str("\n\n请先简要说明你的解析思路和判断依据（2-5句话），然后单独一行输出 `---JSON---`，之后输出纯 JSON 对象（不要用 markdown 代码块包裹）。");
+    base
+}
+
+/// Call LLM with streaming enabled. Sends `Thinking` events via `tx` as tokens arrive.
+/// Returns the full accumulated response text.
+async fn call_llm_stream(
+    system_prompt: &str,
+    user_prompt: &str,
+    tx: &tokio::sync::mpsc::UnboundedSender<SseEvent>,
+) -> Result<String, AppError> {
+    let api_key = std::env::var("OPENAI_API_KEY")
+        .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY environment variable not set"))?;
+    let api_base = std::env::var("OPENAI_BASE_URL")
+        .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+    let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
+
+    let chat_req = ChatRequest {
+        model,
+        messages: vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: system_prompt.to_string(),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: user_prompt.to_string(),
+            },
+        ],
+        response_format: None,
+        tools: None,
+        stream: Some(true),
+    };
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
+
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&chat_req)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to call AI API: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        let msg = format!("AI API returned {}: {}", status, text);
+        let _ = tx.send(SseEvent::Error { message: msg.clone() });
+        return Err(AppError::Internal(anyhow::anyhow!("{}", msg)));
+    }
+
+    let mut full_text = String::new();
+    let mut buffer = String::new();
+    let mut combined_stream = resp.bytes_stream();
+
+    while let Some(chunk_result) = combined_stream.next().await {
+        match chunk_result {
+            Ok(chunk) => {
+                let text = String::from_utf8_lossy(&chunk);
+                buffer.push_str(&text);
+
+                while let Some(line_end) = buffer.find('\n') {
+                    let line = buffer[..line_end].trim().to_string();
+                    buffer = buffer[line_end + 1..].to_string();
+
+                    if line.is_empty() || line.starts_with(':') {
+                        continue;
+                    }
+
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        if data == "[DONE]" {
+                            break;
+                        }
+                        if let Ok(chunk) = serde_json::from_str::<ChatStreamChunk>(data) {
+                            if let Some(content) = chunk
+                                .choices
+                                .first()
+                                .and_then(|c| c.delta.content.as_ref())
+                            {
+                                full_text.push_str(content);
+                                let _ = tx.send(SseEvent::Thinking {
+                                    content: content.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                let msg = format!("Stream error: {}", e);
+                let _ = tx.send(SseEvent::Error { message: msg.clone() });
+                return Err(AppError::Internal(anyhow::anyhow!("{}", msg)));
+            }
+        }
+    }
+
+    Ok(full_text)
+}
+
+/// Extract items JSON from the LLM response text.
+fn extract_items_from_text(full_text: &str) -> Result<Vec<AiParsedItem>, String> {
+    // Try to find JSON after ---JSON--- marker
+    let json_str = if let Some(pos) = full_text.find("---JSON---") {
+        let after = &full_text[pos + "---JSON---".len()..];
+        after.trim().to_string()
+    } else if let Some(pos) = full_text.find("{\"items\"") {
+        full_text[pos..].to_string()
+    } else if let Some(pos) = full_text.find('{') {
+        full_text[pos..].to_string()
+    } else {
+        return Err("AI 返回内容中未找到 JSON 结果".to_string());
+    };
+
+    // Strip markdown code fences if present
+    let json_str = json_str.trim();
+    let json_str = json_str
+        .strip_prefix("```json")
+        .or_else(|| json_str.strip_prefix("```"))
+        .map(|s| s.trim())
+        .unwrap_or(json_str);
+    let json_str = json_str
+        .strip_suffix("```")
+        .map(|s| s.trim())
+        .unwrap_or(json_str);
+
+    let parsed: serde_json::Value = serde_json::from_str(json_str)
+        .map_err(|e| format!("解析 AI JSON 失败: {}. Raw: {}", e, json_str))?;
+
+    let items_val = parsed
+        .get("items")
+        .ok_or_else(|| "AI 输出缺少 'items' 字段".to_string())?;
+
+    let items: Vec<AiParsedItem> = serde_json::from_value(items_val.clone())
+        .map_err(|e| format!("解析物品列表失败: {}. Raw: {}", e, items_val))?;
+
+    Ok(items)
+}
+
+// ── Streaming Parse Items Handler ──
+
+pub async fn parse_items_stream(
+    State(pool): State<SqlitePool>,
+    Json(body): Json<AiParseRequest>,
+) -> Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>> {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<SseEvent>();
+
+    // Spawn background task to do the AI call + DB work
+    tokio::spawn(async move {
+        // Load categories, tags, attr_defs
+        let categories = match sqlx::query_as::<_, Category>(
+            "SELECT * FROM categories ORDER BY sort_order",
+        )
+        .fetch_all(&pool)
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = tx.send(SseEvent::Error {
+                    message: format!("加载分类失败: {:#}", e),
+                });
+                return;
+            }
+        };
+
+        let tags = match sqlx::query_as::<_, Tag>("SELECT * FROM tags ORDER BY sort_order")
+            .fetch_all(&pool)
+            .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                let _ = tx.send(SseEvent::Error {
+                    message: format!("加载标签失败: {:#}", e),
+                });
+                return;
+            }
+        };
+
+        let attr_defs = match sqlx::query_as::<_, AttributeDefinition>(
+            "SELECT * FROM attribute_definitions ORDER BY sort_order",
+        )
+        .fetch_all(&pool)
+        .await
+        {
+            Ok(a) => a,
+            Err(e) => {
+                let _ = tx.send(SseEvent::Error {
+                    message: format!("加载属性定义失败: {:#}", e),
+                });
+                return;
+            }
+        };
+
+        let _ = tx.send(SseEvent::Progress {
+            message: "AI 正在分析...".to_string(),
+        });
+
+        let system_prompt = build_streaming_system_prompt(&categories, &tags, &attr_defs);
+
+        let full_text = match call_llm_stream(&system_prompt, &body.text, &tx).await {
+            Ok(text) => text,
+            Err(_) => {
+                // Error already sent via tx in call_llm_stream
+                drop(tx);
+                return;
+            }
+        };
+
+        // Parse items from the full text
+        let mut items = match extract_items_from_text(&full_text) {
+            Ok(items) => items,
+            Err(msg) => {
+                let _ = tx.send(SseEvent::Error { message: msg });
+                drop(tx);
+                return;
+            }
+        };
+
+        // Resolve categories and tags
+        for item in &mut items {
+            resolve_parsed_item(item, &categories, &tags);
+        }
+
+        // Auto-create tags
+        let new_tags = match auto_create_tags_for_items(&mut items, &pool).await {
+            Ok(t) => t,
+            Err(e) => {
+                let _ = tx.send(SseEvent::Error {
+                    message: format!("创建标签失败: {:#?}", e),
+                });
+                drop(tx);
+                return;
+            }
+        };
+
+        let _ = tx.send(SseEvent::Result { items, new_tags });
+        drop(tx);
+    });
+
+    let stream = UnboundedReceiverStream::new(rx).map(|event| {
+        let data = serde_json::to_string(&event).unwrap_or_default();
+        Ok(Event::default().data(data))
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }

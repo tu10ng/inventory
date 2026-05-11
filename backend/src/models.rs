@@ -47,7 +47,7 @@ pub struct UpdateCategory {
 
 // ── Tags ──
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Tag {
     pub id: i64,
     pub name: String,
@@ -736,4 +736,22 @@ pub struct ImportResult {
     pub items_created: u64,
     pub items_updated: u64,
     pub items_skipped: u64,
+}
+
+// ── SSE Events (for streaming AI parse) ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum SseEvent {
+    #[serde(rename = "thinking")]
+    Thinking { content: String },
+    #[serde(rename = "progress")]
+    Progress { message: String },
+    #[serde(rename = "result")]
+    Result {
+        items: Vec<AiParsedItem>,
+        new_tags: Vec<Tag>,
+    },
+    #[serde(rename = "error")]
+    Error { message: String },
 }
