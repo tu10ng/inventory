@@ -16,37 +16,47 @@
 	let people = $state<Person[]>([]);
 	let itemStatusDefs = $state<StatusDefinition[]>([]);
 	let tripStatusDefs = $state<StatusDefinition[]>([]);
+	let loading = $state(true);
+	let error = $state<string | null>(null);
 
 	const tripId = $derived(Number(page.params.id));
 
 	const tripItemIds = $derived(new Set(enrichedItems.filter((ti) => ti.item_id).map((ti) => ti.item_id!)));
 
 	async function load() {
-		const id = tripId;
-		const [t, items, cats, ppl, iDefs, tDefs] = await Promise.all([
-			api.get<Trip>(`/trips/${id}`),
-			api.get<Item[]>('/items'),
-			api.get<Category[]>('/categories'),
-			api.get<Person[]>('/people'),
-			getItemStatuses(),
-			getTripStatuses()
-		]);
-		trip = t;
-		allItems = items;
-		categories = cats;
-		people = ppl;
-		itemStatusDefs = iDefs;
-		tripStatusDefs = tDefs;
+		try {
+			loading = true;
+			error = null;
+			const id = tripId;
+			const [t, items, cats, ppl, iDefs, tDefs] = await Promise.all([
+				api.get<Trip>(`/trips/${id}`),
+				api.get<Item[]>('/items'),
+				api.get<Category[]>('/categories'),
+				api.get<Person[]>('/people'),
+				getItemStatuses(),
+				getTripStatuses()
+			]);
+			trip = t;
+			allItems = items;
+			categories = cats;
+			people = ppl;
+			itemStatusDefs = iDefs;
+			tripStatusDefs = tDefs;
 
-		// Load enriched items
-		enrichedItems = await api.get<TripItemEnriched[]>(`/trips/${id}/items/enriched`);
+			// Load enriched items
+			enrichedItems = await api.get<TripItemEnriched[]>(`/trips/${id}/items/enriched`);
 
-		if (t.activity_id) {
-			try {
-				tips = await api.get<Tip[]>(`/activities/${t.activity_id}/tips`);
-			} catch {
-				// tips not critical
+			if (t.activity_id) {
+				try {
+					tips = await api.get<Tip[]>(`/activities/${t.activity_id}/tips`);
+				} catch {
+					// tips not critical
+				}
 			}
+		} catch (e) {
+			error = (e as Error).message;
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -55,8 +65,12 @@
 	}
 
 	async function populate() {
-		await api.post<TripItem[]>(`/trips/${tripId}/populate`);
-		await reloadItems();
+		try {
+			await api.post<TripItem[]>(`/trips/${tripId}/populate`);
+			await reloadItems();
+		} catch (e) {
+			alert((e as Error).message);
+		}
 	}
 
 	function previewItemLabel(item: ResyncPreviewItem): string {
@@ -65,42 +79,54 @@
 	}
 
 	async function resync() {
-		const preview = await api.post<ResyncPreview>(`/trips/${tripId}/resync-preview`);
-		if (preview.items_to_remove.length === 0 && preview.items_to_add.length === 0) {
-			alert('模板没有变化，无需同步。');
-			return;
-		}
-
-		const lines: string[] = ['同步模板将执行以下操作：\n'];
-		if (preview.items_to_remove.length > 0) {
-			lines.push(`移除 ${preview.items_to_remove.length} 项：`);
-			for (const item of preview.items_to_remove) {
-				lines.push(previewItemLabel(item));
+		try {
+			const preview = await api.post<ResyncPreview>(`/trips/${tripId}/resync-preview`);
+			if (preview.items_to_remove.length === 0 && preview.items_to_add.length === 0) {
+				alert('模板没有变化，无需同步。');
+				return;
 			}
-		}
-		if (preview.items_to_add.length > 0) {
-			if (preview.items_to_remove.length > 0) lines.push('');
-			lines.push(`新增 ${preview.items_to_add.length} 项：`);
-			for (const item of preview.items_to_add) {
-				lines.push(previewItemLabel(item));
+
+			const lines: string[] = ['同步模板将执行以下操作：\n'];
+			if (preview.items_to_remove.length > 0) {
+				lines.push(`移除 ${preview.items_to_remove.length} 项：`);
+				for (const item of preview.items_to_remove) {
+					lines.push(previewItemLabel(item));
+				}
 			}
+			if (preview.items_to_add.length > 0) {
+				if (preview.items_to_remove.length > 0) lines.push('');
+				lines.push(`新增 ${preview.items_to_add.length} 项：`);
+				for (const item of preview.items_to_add) {
+					lines.push(previewItemLabel(item));
+				}
+			}
+			lines.push('\n确定执行吗？');
+
+			if (!window.confirm(lines.join('\n'))) return;
+
+			await api.post<TripItem[]>(`/trips/${tripId}/resync`);
+			await reloadItems();
+		} catch (e) {
+			alert((e as Error).message);
 		}
-		lines.push('\n确定执行吗？');
-
-		if (!window.confirm(lines.join('\n'))) return;
-
-		await api.post<TripItem[]>(`/trips/${tripId}/resync`);
-		await reloadItems();
 	}
 
 	async function updateTripStatus(status: string) {
 		if (!trip) return;
-		trip = await api.put<Trip>(`/trips/${tripId}`, { ...trip, status });
+		try {
+			trip = await api.put<Trip>(`/trips/${tripId}`, { ...trip, status });
+		} catch (e) {
+			alert((e as Error).message);
+		}
 	}
 
 	async function cloneTrip() {
-		const newTrip = await api.post<Trip>(`/trips/${tripId}/clone`);
-		goto(`/trips/${newTrip.id}`);
+		try {
+			const newTrip = await api.post<Trip>(`/trips/${tripId}/clone`);
+			goto(`/trips/${newTrip.id}`);
+		} catch (e) {
+			alert((e as Error).message);
+		}
 	}
 
 	$effect(() => {
@@ -108,7 +134,14 @@
 	});
 </script>
 
-{#if trip}
+{#if loading}
+	<div class="loading-state">加载中...</div>
+{:else if error}
+	<div class="error-state">
+		<p>{error}</p>
+		<button onclick={load}>重试</button>
+	</div>
+{:else if trip}
 	<div class="trip-header">
 		<div>
 			<h1>{trip.name}</h1>
@@ -156,8 +189,6 @@
 			/>
 		{/snippet}
 	</SplitPane>
-{:else}
-	<p>加载中...</p>
 {/if}
 
 <style>
@@ -175,5 +206,18 @@
 		display: flex;
 		gap: 8px;
 		align-items: center;
+	}
+	.loading-state {
+		text-align: center;
+		padding: 40px;
+		color: var(--text-secondary);
+	}
+	.error-state {
+		text-align: center;
+		padding: 40px;
+		color: var(--danger);
+	}
+	.error-state button {
+		margin-top: 12px;
 	}
 </style>

@@ -29,6 +29,15 @@ pub struct CreateCategory {
     pub sort_order: i64,
 }
 
+impl CreateCategory {
+    pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.name.trim().is_empty() {
+            return Err(crate::error::AppError::validation("分类名称不能为空"));
+        }
+        Ok(())
+    }
+}
+
 // ── Tags ──
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -45,6 +54,15 @@ pub struct CreateTag {
     pub category_id: i64,
     #[serde(default)]
     pub sort_order: i64,
+}
+
+impl CreateTag {
+    pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.name.trim().is_empty() {
+            return Err(crate::error::AppError::validation("标签名称不能为空"));
+        }
+        Ok(())
+    }
 }
 
 // ── Items ──
@@ -89,6 +107,21 @@ fn default_qty() -> i64 {
     1
 }
 
+impl CreateItem {
+    pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.name.trim().is_empty() {
+            return Err(crate::error::AppError::validation("物品名称不能为空"));
+        }
+        if self.name.len() > 200 {
+            return Err(crate::error::AppError::validation("物品名称不能超过200字符"));
+        }
+        if self.default_qty < 1 {
+            return Err(crate::error::AppError::validation("默认数量必须大于0"));
+        }
+        Ok(())
+    }
+}
+
 // ── Activities ──
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -106,6 +139,15 @@ pub struct CreateActivity {
     pub description: String,
     #[serde(default)]
     pub icon: String,
+}
+
+impl CreateActivity {
+    pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.name.trim().is_empty() {
+            return Err(crate::error::AppError::validation("活动名称不能为空"));
+        }
+        Ok(())
+    }
 }
 
 fn default_true() -> bool {
@@ -155,6 +197,18 @@ pub struct CreateActivitySlot {
     pub tag_ids: Vec<i64>,
 }
 
+impl CreateActivitySlot {
+    pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.slot_name.trim().is_empty() {
+            return Err(crate::error::AppError::validation("槽位名称不能为空"));
+        }
+        if self.default_qty < 1 {
+            return Err(crate::error::AppError::validation("默认数量必须大于0"));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UpdateActivitySlot {
     pub slot_name: Option<String>,
@@ -202,6 +256,15 @@ pub struct CreatePerson {
     pub name: String,
 }
 
+impl CreatePerson {
+    pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.name.trim().is_empty() {
+            return Err(crate::error::AppError::validation("人员名称不能为空"));
+        }
+        Ok(())
+    }
+}
+
 // ── Trips ──
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -231,6 +294,18 @@ pub struct CreateTrip {
 
 fn default_status() -> String {
     "planning".to_string()
+}
+
+impl CreateTrip {
+    pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.name.trim().is_empty() {
+            return Err(crate::error::AppError::validation("行程名称不能为空"));
+        }
+        if self.name.len() > 200 {
+            return Err(crate::error::AppError::validation("行程名称不能超过200字符"));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -280,6 +355,18 @@ pub struct CreateTripItem {
     #[serde(default)]
     pub is_essential: bool,
     pub slot_id: Option<i64>,
+}
+
+impl CreateTripItem {
+    pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.item_id.is_none() && self.custom_name.trim().is_empty() {
+            return Err(crate::error::AppError::validation("必须选择物品或填写自定义名称"));
+        }
+        if self.qty < 1 {
+            return Err(crate::error::AppError::validation("数量必须大于0"));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]

@@ -18,8 +18,9 @@ pub async fn get(
 ) -> Result<Json<Activity>, AppError> {
     let row = sqlx::query_as::<_, Activity>("SELECT * FROM activities WHERE id = ?")
         .bind(id)
-        .fetch_one(&pool)
-        .await?;
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("活动", id))?;
     Ok(Json(row))
 }
 
@@ -27,6 +28,7 @@ pub async fn create(
     State(pool): State<SqlitePool>,
     Json(body): Json<CreateActivity>,
 ) -> Result<Json<Activity>, AppError> {
+    body.validate()?;
     let row = sqlx::query_as::<_, Activity>(
         "INSERT INTO activities (name, description, icon) VALUES (?, ?, ?) RETURNING *",
     )
@@ -43,6 +45,7 @@ pub async fn update(
     Path(id): Path<i64>,
     Json(body): Json<CreateActivity>,
 ) -> Result<Json<Activity>, AppError> {
+    body.validate()?;
     let row = sqlx::query_as::<_, Activity>(
         "UPDATE activities SET name = ?, description = ?, icon = ? WHERE id = ? RETURNING *",
     )
@@ -50,8 +53,9 @@ pub async fn update(
     .bind(&body.description)
     .bind(&body.icon)
     .bind(id)
-    .fetch_one(&pool)
-    .await?;
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("活动", id))?;
     Ok(Json(row))
 }
 
@@ -59,10 +63,13 @@ pub async fn delete(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM activities WHERE id = ?")
+    let result = sqlx::query("DELETE FROM activities WHERE id = ?")
         .bind(id)
         .execute(&pool)
         .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::not_found("活动", id));
+    }
     Ok(())
 }
 
@@ -141,6 +148,7 @@ pub async fn create_slot(
     Path(activity_id): Path<i64>,
     Json(body): Json<CreateActivitySlot>,
 ) -> Result<Json<ActivitySlotWithTags>, AppError> {
+    body.validate()?;
     let slot = sqlx::query_as::<_, ActivitySlot>(
         "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *",
     )
@@ -163,8 +171,9 @@ pub async fn create_slot(
             .await?;
         let tag = sqlx::query_as::<_, Tag>("SELECT * FROM tags WHERE id = ?")
             .bind(tag_id)
-            .fetch_one(&pool)
-            .await?;
+            .fetch_optional(&pool)
+            .await?
+            .ok_or_else(|| AppError::not_found("标签", *tag_id))?;
         tags.push(tag);
     }
 
@@ -188,8 +197,9 @@ pub async fn update_slot(
 ) -> Result<Json<ActivitySlotWithTags>, AppError> {
     let existing = sqlx::query_as::<_, ActivitySlot>("SELECT * FROM activity_slots WHERE id = ?")
         .bind(id)
-        .fetch_one(&pool)
-        .await?;
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("槽位", id))?;
 
     let slot_name = body.slot_name.unwrap_or(existing.slot_name);
     let category_id = body.category_id.unwrap_or(existing.category_id);
@@ -251,10 +261,13 @@ pub async fn delete_slot(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM activity_slots WHERE id = ?")
+    let result = sqlx::query("DELETE FROM activity_slots WHERE id = ?")
         .bind(id)
         .execute(&pool)
         .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::not_found("槽位", id));
+    }
     Ok(())
 }
 
@@ -278,6 +291,9 @@ pub async fn create_tip(
     Path(activity_id): Path<i64>,
     Json(body): Json<CreateTip>,
 ) -> Result<Json<Tip>, AppError> {
+    if body.content.trim().is_empty() {
+        return Err(AppError::validation("提示内容不能为空"));
+    }
     let row = sqlx::query_as::<_, Tip>(
         "INSERT INTO tips (activity_id, content, sort_order) VALUES (?, ?, ?) RETURNING *",
     )
@@ -296,8 +312,9 @@ pub async fn update_tip(
 ) -> Result<Json<Tip>, AppError> {
     let existing = sqlx::query_as::<_, Tip>("SELECT * FROM tips WHERE id = ?")
         .bind(id)
-        .fetch_one(&pool)
-        .await?;
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("提示", id))?;
 
     let content = body.content.unwrap_or(existing.content);
     let sort_order = body.sort_order.unwrap_or(existing.sort_order);
@@ -317,9 +334,12 @@ pub async fn delete_tip(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM tips WHERE id = ?")
+    let result = sqlx::query("DELETE FROM tips WHERE id = ?")
         .bind(id)
         .execute(&pool)
         .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::not_found("提示", id));
+    }
     Ok(())
 }

@@ -16,6 +16,7 @@ pub async fn create(
     State(pool): State<SqlitePool>,
     Json(body): Json<CreateTag>,
 ) -> Result<Json<Tag>, AppError> {
+    body.validate()?;
     let row = sqlx::query_as::<_, Tag>(
         "INSERT INTO tags (name, category_id, sort_order) VALUES (?, ?, ?) RETURNING *",
     )
@@ -32,6 +33,7 @@ pub async fn update(
     Path(id): Path<i64>,
     Json(body): Json<CreateTag>,
 ) -> Result<Json<Tag>, AppError> {
+    body.validate()?;
     let row = sqlx::query_as::<_, Tag>(
         "UPDATE tags SET name = ?, category_id = ?, sort_order = ? WHERE id = ? RETURNING *",
     )
@@ -39,8 +41,9 @@ pub async fn update(
     .bind(body.category_id)
     .bind(body.sort_order)
     .bind(id)
-    .fetch_one(&pool)
-    .await?;
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("标签", id))?;
     Ok(Json(row))
 }
 
@@ -48,9 +51,12 @@ pub async fn delete(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM tags WHERE id = ?")
+    let result = sqlx::query("DELETE FROM tags WHERE id = ?")
         .bind(id)
         .execute(&pool)
         .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::not_found("标签", id));
+    }
     Ok(())
 }

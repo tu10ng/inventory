@@ -22,8 +22,9 @@ pub async fn get(
         "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE id = ?",
     )
     .bind(id)
-    .fetch_one(&pool)
-    .await?;
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("物品", id))?;
     Ok(Json(row))
 }
 
@@ -31,6 +32,7 @@ pub async fn create(
     State(pool): State<SqlitePool>,
     Json(body): Json<CreateItem>,
 ) -> Result<Json<Item>, AppError> {
+    body.validate()?;
     let attrs_str = serde_json::to_string(&body.attrs).unwrap_or_else(|_| "{}".to_string());
     let row = sqlx::query_as::<_, Item>(
         "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id, attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, name, brand, model, category_id, default_qty, notes, tag_id, attrs",
@@ -53,6 +55,7 @@ pub async fn update(
     Path(id): Path<i64>,
     Json(body): Json<CreateItem>,
 ) -> Result<Json<Item>, AppError> {
+    body.validate()?;
     let attrs_str = serde_json::to_string(&body.attrs).unwrap_or_else(|_| "{}".to_string());
     let row = sqlx::query_as::<_, Item>(
         "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ?, attrs = ? WHERE id = ? RETURNING id, name, brand, model, category_id, default_qty, notes, tag_id, attrs",
@@ -66,8 +69,9 @@ pub async fn update(
     .bind(body.tag_id)
     .bind(&attrs_str)
     .bind(id)
-    .fetch_one(&pool)
-    .await?;
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("物品", id))?;
     Ok(Json(row))
 }
 
@@ -75,10 +79,13 @@ pub async fn delete(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM items WHERE id = ?")
+    let result = sqlx::query("DELETE FROM items WHERE id = ?")
         .bind(id)
         .execute(&pool)
         .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::not_found("物品", id));
+    }
     Ok(())
 }
 

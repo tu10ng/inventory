@@ -6,6 +6,8 @@
 	import CategoryGroup from './CategoryGroup.svelte';
 	import TripItemRow from './TripItemRow.svelte';
 	import SlotRow from './SlotRow.svelte';
+	import ChecklistAddForm from './ChecklistAddForm.svelte';
+	import BulkActionBar from './BulkActionBar.svelte';
 	import { generateTripText } from '$lib/utils/export';
 
 	const dragState = getDragState();
@@ -87,9 +89,6 @@
 
 	let collapsed = $state<Record<number, boolean>>({});
 	let showAddForm = $state(false);
-	let addItemId = $state<number | null>(null);
-	let addCustomName = $state('');
-	let addQty = $state(1);
 
 	// Bulk selection
 	let selectable = $state(false);
@@ -147,25 +146,29 @@
 	const totalItems = $derived(enrichedItems.length);
 
 	async function toggleCheck(ti: TripItemEnriched) {
+		const prev = ti.checked;
+		const idx = enrichedItems.findIndex(i => i.id === ti.id);
+		if (idx >= 0) enrichedItems[idx] = { ...enrichedItems[idx], checked: !prev };
 		try {
-			await api.patch<unknown>(`/trip-items/${ti.id}/check`, {
-				checked: !ti.checked
-			});
+			await api.patch<unknown>(`/trip-items/${ti.id}/check`, { checked: !prev });
 		} catch (e) {
+			// Revert on failure
+			if (idx >= 0) enrichedItems[idx] = { ...enrichedItems[idx], checked: prev };
 			console.error('切换勾选失败', e);
 		}
-		onReload();
 	}
 
 	async function updateField(ti: TripItemEnriched, field: string, value: unknown) {
+		const idx = enrichedItems.findIndex(i => i.id === ti.id);
+		const prev = idx >= 0 ? (enrichedItems[idx] as unknown as Record<string, unknown>)[field] : undefined;
+		if (idx >= 0) enrichedItems[idx] = { ...enrichedItems[idx], [field]: value };
 		try {
-			await api.put<unknown>(`/trip-items/${ti.id}`, {
-				[field]: value
-			});
+			await api.put<unknown>(`/trip-items/${ti.id}`, { [field]: value });
 		} catch (e) {
+			// Revert on failure
+			if (idx >= 0 && prev !== undefined) enrichedItems[idx] = { ...enrichedItems[idx], [field]: prev };
 			console.error('更新字段失败', e);
 		}
-		onReload();
 	}
 
 	async function assignSlotItem(ti: TripItemEnriched, newItemId: number) {
@@ -196,7 +199,7 @@
 		onReload();
 	}
 
-	async function addTripItem() {
+	async function handleAddItem(addItemId: number | null, addCustomName: string, addQty: number) {
 		if (addItemId) {
 			const existing = enrichedItems.find(ti => ti.item_id === addItemId);
 			if (existing) {
@@ -210,12 +213,9 @@
 		if (addCustomName) body.custom_name = addCustomName;
 		try {
 			await api.post(`/trips/${trip.id}/items`, body);
-			addItemId = null;
-			addCustomName = '';
-			addQty = 1;
 			showAddForm = false;
 		} catch (e) {
-			console.error('添加物品失败', e);
+			alert((e as Error).message);
 		}
 		onReload();
 	}
@@ -306,48 +306,20 @@
 </div>
 
 {#if selectable && selectedIds.size > 0}
-	<div class="bulk-bar card">
-		<span>已选 {selectedIds.size} 项</span>
-		<button class="small" onclick={() => bulkAction('check')}>全部勾选</button>
-		<button class="small" onclick={() => bulkAction('uncheck')}>取消勾选</button>
-		{#if people.length > 0}
-			<select class="small-select" onchange={(e) => {
-				const val = e.currentTarget.value;
-				if (val) bulkAction('person', val === 'null' ? null : Number(val));
-			}}>
-				<option value="">分配给...</option>
-				<option value="null">未分配</option>
-				{#each people as p}
-					<option value={p.id}>{p.name}</option>
-				{/each}
-			</select>
-		{/if}
-	</div>
+	<BulkActionBar
+		selectedCount={selectedIds.size}
+		{people}
+		onCheck={() => bulkAction('check')}
+		onUncheck={() => bulkAction('uncheck')}
+		onAssignPerson={(id) => bulkAction('person', id)}
+	/>
 {/if}
 
 {#if showAddForm}
-	<div class="card add-form">
-		<div class="add-row">
-			<div class="add-field" style="flex: 1;">
-				<div class="field-label">从物品库选择</div>
-				<select bind:value={addItemId} style="width: 100%;">
-					<option value={null}>选择物品...</option>
-					{#each allItems as it}
-						<option value={it.id}>{it.name} {it.brand} {it.model}</option>
-					{/each}
-				</select>
-			</div>
-			<div class="add-field">
-				<div class="field-label">或自定义名称</div>
-				<input bind:value={addCustomName} placeholder="自定义物品" />
-			</div>
-			<div class="add-field">
-				<div class="field-label">数量</div>
-				<input type="number" bind:value={addQty} min="1" style="width: 60px;" />
-			</div>
-			<button class="primary" onclick={addTripItem} disabled={!addItemId && !addCustomName} style="align-self: flex-end;">添加</button>
-		</div>
-	</div>
+	<ChecklistAddForm
+		{allItems}
+		onAdd={handleAddItem}
+	/>
 {/if}
 
 {#each groupedItems as group}
@@ -427,37 +399,6 @@
 		gap: 8px;
 		margin-bottom: 16px;
 		flex-wrap: wrap;
-	}
-	.bulk-bar {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 8px 12px;
-		background: #e8f0fe;
-		margin-bottom: 12px;
-	}
-	.small-select {
-		padding: 2px 6px;
-		font-size: 12px;
-		border: 1px solid var(--border);
-		border-radius: 4px;
-	}
-	.add-form {
-		margin-bottom: 16px;
-	}
-	.add-row {
-		display: flex;
-		gap: 10px;
-		align-items: end;
-	}
-	.add-field {
-		display: flex;
-		flex-direction: column;
-	}
-	.field-label {
-		font-size: 13px;
-		color: var(--text-secondary);
-		margin-bottom: 4px;
 	}
 	.empty-state {
 		text-align: center;

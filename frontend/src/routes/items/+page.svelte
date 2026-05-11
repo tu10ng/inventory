@@ -11,6 +11,7 @@
 	import AiOrganizeModal from '$lib/components/AiOrganizeModal.svelte';
 	import { loadAllColumns, getAllColumns, loadVisibleColumns } from '$lib/utils/columns';
 	import type { ItemColumnDef } from '$lib/utils/columns';
+	import { filterItems, sortItems } from '$lib/utils/itemFilters';
 
 	let items = $state<Item[]>([]);
 	let categories = $state<Category[]>([]);
@@ -36,24 +37,35 @@
 	let sortDir = $state<'asc' | 'desc'>('asc');
 	let columnFilters = $state<Map<string, Set<string>>>(new Map());
 
+	let loading = $state(true);
+	let error = $state<string | null>(null);
+
 	async function load() {
-		const [itemsData, cats, tagsData, adefs, cols] = await Promise.all([
-			api.get<Item[]>('/items'),
-			api.get<Category[]>('/categories'),
-			api.get<Tag[]>('/tags'),
-			api.get<AttributeDefinition[]>('/attribute-definitions'),
-			loadAllColumns()
-		]);
-		items = itemsData;
-		categories = cats;
-		tags = tagsData;
-		attrDefs = adefs;
-		allColumns = cols;
 		try {
-			const stats = await api.get<ItemUsageCount[]>('/item-stats');
-			usageStats = new Map(stats.map((s) => [s.item_id, s.trip_count]));
-		} catch {
-			// stats not critical
+			loading = true;
+			error = null;
+			const [itemsData, cats, tagsData, adefs, cols] = await Promise.all([
+				api.get<Item[]>('/items'),
+				api.get<Category[]>('/categories'),
+				api.get<Tag[]>('/tags'),
+				api.get<AttributeDefinition[]>('/attribute-definitions'),
+				loadAllColumns()
+			]);
+			items = itemsData;
+			categories = cats;
+			tags = tagsData;
+			attrDefs = adefs;
+			allColumns = cols;
+			try {
+				const stats = await api.get<ItemUsageCount[]>('/item-stats');
+				usageStats = new Map(stats.map((s) => [s.item_id, s.trip_count]));
+			} catch {
+				// stats not critical
+			}
+		} catch (e) {
+			error = (e as Error).message;
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -77,29 +89,43 @@
 				data.tag_id = null;
 			}
 		}
-		// Serialize attrs for API
-		if (data.attrs && typeof data.attrs === 'object') {
-			data.attrs = data.attrs;
+		try {
+			const updated = await api.put<Item>(`/items/${selectedItem.id}`, data);
+			selectedItem = updated;
+			// In-place update items array instead of full reload
+			const needsFullReload = field === 'category_id';
+			if (needsFullReload) {
+				await load();
+			} else {
+				items = items.map(i => i.id === updated.id ? updated : i);
+			}
+		} catch (e) {
+			alert((e as Error).message);
 		}
-		const updated = await api.put<Item>(`/items/${selectedItem.id}`, data);
-		selectedItem = updated;
-		await load();
 	}
 
 	async function handleSave(data: Record<string, unknown>) {
-		const created = await api.post<Item>('/items', data);
-		selectedItem = created;
-		panelMode = 'detail';
-		await load();
+		try {
+			const created = await api.post<Item>('/items', data);
+			selectedItem = created;
+			panelMode = 'detail';
+			await load();
+		} catch (e) {
+			alert((e as Error).message);
+		}
 	}
 
 	async function handleDelete() {
 		if (!selectedItem) return;
 		if (!confirm(`确定删除「${selectedItem.name}」？`)) return;
-		await api.del(`/items/${selectedItem.id}`);
-		selectedItem = null;
-		panelMode = null;
-		await load();
+		try {
+			await api.del(`/items/${selectedItem.id}`);
+			selectedItem = null;
+			panelMode = null;
+			await load();
+		} catch (e) {
+			alert((e as Error).message);
+		}
 	}
 
 	function handleCancel() {
@@ -136,41 +162,7 @@
 		collapsedCategories = next;
 	}
 
-	const filteredItems = $derived.by(() => {
-		let list = items;
-		if (search) {
-			const q = search.toLowerCase();
-			list = list.filter(
-				(i) =>
-					i.name.toLowerCase().includes(q) ||
-					i.brand.toLowerCase().includes(q) ||
-					i.model.toLowerCase().includes(q)
-			);
-		}
-		if (filterCategoryId !== null) {
-			list = list.filter((i) => i.category_id === filterCategoryId);
-		}
-		// Apply column filters
-		for (const [key, vals] of columnFilters) {
-			if (vals.size === 0) continue;
-			const col = allColumns.find(c => c.key === key);
-			if (!col) continue;
-			list = list.filter((item) => {
-				if (col.type === 'tag') {
-					const t = item.tag_id ? tags.find(tg => tg.id === item.tag_id) : null;
-					const display = t ? t.name : '-';
-					return vals.has(display);
-				} else if (col.type === 'bool') {
-					const v = (key === 'brand' ? item.brand : item.attrs?.[key]) as number;
-					return vals.has(v > 0 ? '1' : '0');
-				} else {
-					const v = key === 'brand' ? item.brand : item.attrs?.[key];
-					return vals.has(v ? String(v) : '-');
-				}
-			});
-		}
-		return list;
-	});
+	const filteredItems = $derived(filterItems(items, search, filterCategoryId, columnFilters, allColumns, tags));
 
 	function handleSort(key: string) {
 		if (sortKey === key) {
@@ -188,41 +180,7 @@
 		columnFilters = next;
 	}
 
-	// Sort items within each category group
-	const sortedItems = $derived.by(() => {
-		if (!sortKey) return filteredItems;
-		const key = sortKey;
-		const dir = sortDir;
-		return [...filteredItems].sort((a, b) => {
-			let va: unknown, vb: unknown;
-			if (key === 'name') {
-				va = a.name;
-				vb = b.name;
-			} else if (key === 'tag') {
-				const ta = a.tag_id ? tags.find(t => t.id === a.tag_id) : null;
-				const tb = b.tag_id ? tags.find(t => t.id === b.tag_id) : null;
-				va = ta?.name ?? '';
-				vb = tb?.name ?? '';
-			} else if (key === 'brand') {
-				va = a.brand;
-				vb = b.brand;
-			} else {
-				va = a.attrs?.[key];
-				vb = b.attrs?.[key];
-			}
-			// Nullish values go last
-			if (va == null && vb == null) return 0;
-			if (va == null) return 1;
-			if (vb == null) return -1;
-			let cmp: number;
-			if (typeof va === 'string' && typeof vb === 'string') {
-				cmp = va.localeCompare(vb, 'zh');
-			} else {
-				cmp = Number(va) - Number(vb);
-			}
-			return dir === 'asc' ? cmp : -cmp;
-		});
-	});
+	const sortedItems = $derived(sortItems(filteredItems, sortKey, sortDir, tags));
 
 	// Keep selectedItem in sync after reload
 	$effect(() => {
@@ -235,6 +193,14 @@
 	$effect(() => { load(); });
 </script>
 
+{#if loading}
+	<div class="loading-state">加载中...</div>
+{:else if error}
+	<div class="error-state">
+		<p>{error}</p>
+		<button onclick={load}>重试</button>
+	</div>
+{:else}
 <div class="page-container">
 <h1>物品库</h1>
 
@@ -328,6 +294,7 @@
 		}}
 	/>
 {/if}
+{/if}
 
 <style>
 	.page-container {
@@ -386,6 +353,19 @@
 		font-size: 13px;
 		margin-top: 4px;
 		opacity: 0.7;
+	}
+	.loading-state {
+		text-align: center;
+		padding: 40px;
+		color: var(--text-secondary);
+	}
+	.error-state {
+		text-align: center;
+		padding: 40px;
+		color: var(--danger);
+	}
+	.error-state button {
+		margin-top: 12px;
 	}
 
 	@media (max-width: 768px) {

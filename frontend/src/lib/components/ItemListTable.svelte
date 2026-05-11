@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Item, Category, Tag } from '$lib/types';
 	import type { ItemColumnDef } from '$lib/utils/columns';
+	import { getCellValue } from '$lib/utils/cellValue';
 
 	let {
 		items,
@@ -50,14 +51,6 @@
 	function getTag(item: Item): Tag | undefined {
 		if (!item.tag_id) return undefined;
 		return tagMap.get(item.tag_id);
-	}
-
-	function getCellValue(item: Item, col: ItemColumnDef): unknown {
-		// Core fields stay on item directly
-		if (col.key === 'brand') return item.brand;
-		if (col.key === 'default_qty') return item.default_qty;
-		// Everything else lives in attrs
-		return item.attrs?.[col.key] ?? null;
 	}
 
 	function handleSort(key: string) {

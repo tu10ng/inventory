@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Item, Category, Tag, AttributeDefinition } from '$lib/types';
+	import { getAttrConfig } from '$lib/utils/attrs';
 
 	let { item = null, categories, tags, attrDefs = [], onSave, onCancel }: {
 		item?: Partial<Item> | null;
@@ -29,10 +30,6 @@
 			const t = tags.find(t => t.id === newTagId);
 			if (t) category_id = t.category_id;
 		}
-	}
-
-	function getAttrConfig(ad: AttributeDefinition): { max?: number; suffix?: string; options?: string[] } {
-		try { return JSON.parse(ad.config || '{}'); } catch { return {}; }
 	}
 
 	function getAttrValue(key: string, defaultVal: unknown = ''): unknown {

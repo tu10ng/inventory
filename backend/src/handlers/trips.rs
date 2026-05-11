@@ -18,8 +18,9 @@ pub async fn get(
 ) -> Result<Json<Trip>, AppError> {
     let row = sqlx::query_as::<_, Trip>("SELECT * FROM trips WHERE id = ?")
         .bind(id)
-        .fetch_one(&pool)
-        .await?;
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("行程", id))?;
     Ok(Json(row))
 }
 
@@ -27,6 +28,7 @@ pub async fn create(
     State(pool): State<SqlitePool>,
     Json(body): Json<CreateTrip>,
 ) -> Result<Json<Trip>, AppError> {
+    body.validate()?;
     let row = sqlx::query_as::<_, Trip>(
         "INSERT INTO trips (name, activity_id, start_date, end_date, notes, status) VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
     )
@@ -48,10 +50,14 @@ pub async fn update(
 ) -> Result<Json<Trip>, AppError> {
     let existing = sqlx::query_as::<_, Trip>("SELECT * FROM trips WHERE id = ?")
         .bind(id)
-        .fetch_one(&pool)
-        .await?;
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("行程", id))?;
 
     let name = body.name.unwrap_or(existing.name);
+    if name.trim().is_empty() {
+        return Err(AppError::validation("行程名称不能为空"));
+    }
     let activity_id = body.activity_id.or(existing.activity_id);
     let start_date = body.start_date.unwrap_or(existing.start_date);
     let end_date = body.end_date.unwrap_or(existing.end_date);
@@ -77,10 +83,13 @@ pub async fn delete(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM trips WHERE id = ?")
+    let result = sqlx::query("DELETE FROM trips WHERE id = ?")
         .bind(id)
         .execute(&pool)
         .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::not_found("行程", id));
+    }
     Ok(())
 }
 
@@ -90,12 +99,13 @@ pub async fn populate(
 ) -> Result<Json<Vec<TripItem>>, AppError> {
     let trip = sqlx::query_as::<_, Trip>("SELECT * FROM trips WHERE id = ?")
         .bind(trip_id)
-        .fetch_one(&pool)
-        .await?;
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("行程", trip_id))?;
 
     let activity_id = trip
         .activity_id
-        .ok_or_else(|| anyhow::anyhow!("Trip has no activity"))?;
+        .ok_or_else(|| AppError::bad_request("行程未关联活动模板"))?;
 
     // Use activity_slots instead of activity_items
     let slots = sqlx::query_as::<_, ActivitySlot>(
@@ -143,12 +153,13 @@ struct ResyncDiff {
 async fn compute_resync_diff(pool: &SqlitePool, trip_id: i64) -> Result<ResyncDiff, AppError> {
     let trip = sqlx::query_as::<_, Trip>("SELECT * FROM trips WHERE id = ?")
         .bind(trip_id)
-        .fetch_one(pool)
-        .await?;
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("行程", trip_id))?;
 
     let activity_id = trip
         .activity_id
-        .ok_or_else(|| anyhow::anyhow!("Trip has no activity"))?;
+        .ok_or_else(|| AppError::bad_request("行程未关联活动模板"))?;
 
     let slots = sqlx::query_as::<_, ActivitySlot>(
         "SELECT * FROM activity_slots WHERE activity_id = ? ORDER BY sort_order, id",
@@ -345,8 +356,9 @@ pub async fn clone(
 ) -> Result<Json<Trip>, AppError> {
     let original = sqlx::query_as::<_, Trip>("SELECT * FROM trips WHERE id = ?")
         .bind(trip_id)
-        .fetch_one(&pool)
-        .await?;
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("行程", trip_id))?;
 
     let new_name = format!("{} (副本)", original.name);
     let new_trip = sqlx::query_as::<_, Trip>(

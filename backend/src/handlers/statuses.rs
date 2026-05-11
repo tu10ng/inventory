@@ -35,6 +35,12 @@ pub async fn create(
     State(pool): State<SqlitePool>,
     Json(body): Json<CreateStatusDefinition>,
 ) -> Result<Json<StatusDefinition>, AppError> {
+    if body.value.trim().is_empty() {
+        return Err(AppError::validation("状态值不能为空"));
+    }
+    if body.label.trim().is_empty() {
+        return Err(AppError::validation("状态标签不能为空"));
+    }
     let row = sqlx::query_as::<_, StatusDefinition>(
         "INSERT INTO status_definitions (scope, value, label, color, icon, sort_order) VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
     )
@@ -54,6 +60,9 @@ pub async fn update(
     Path(id): Path<i64>,
     Json(body): Json<CreateStatusDefinition>,
 ) -> Result<Json<StatusDefinition>, AppError> {
+    if body.value.trim().is_empty() {
+        return Err(AppError::validation("状态值不能为空"));
+    }
     let row = sqlx::query_as::<_, StatusDefinition>(
         "UPDATE status_definitions SET scope = ?, value = ?, label = ?, color = ?, icon = ?, sort_order = ? WHERE id = ? RETURNING *",
     )
@@ -64,8 +73,9 @@ pub async fn update(
     .bind(&body.icon)
     .bind(body.sort_order)
     .bind(id)
-    .fetch_one(&pool)
-    .await?;
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("状态定义", id))?;
     Ok(Json(row))
 }
 
@@ -73,9 +83,12 @@ pub async fn delete(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM status_definitions WHERE id = ?")
+    let result = sqlx::query("DELETE FROM status_definitions WHERE id = ?")
         .bind(id)
         .execute(&pool)
         .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::not_found("状态定义", id));
+    }
     Ok(())
 }

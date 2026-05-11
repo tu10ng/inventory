@@ -18,6 +18,12 @@ pub async fn create(
     State(pool): State<SqlitePool>,
     Json(body): Json<CreateAttributeDefinition>,
 ) -> Result<Json<AttributeDefinition>, AppError> {
+    if body.key.trim().is_empty() {
+        return Err(AppError::validation("属性键不能为空"));
+    }
+    if body.label.trim().is_empty() {
+        return Err(AppError::validation("属性标签不能为空"));
+    }
     let row = sqlx::query_as::<_, AttributeDefinition>(
         "INSERT INTO attribute_definitions (key, label, attr_type, config, category_scope, sort_order) VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
     )
@@ -37,6 +43,9 @@ pub async fn update(
     Path(id): Path<i64>,
     Json(body): Json<CreateAttributeDefinition>,
 ) -> Result<Json<AttributeDefinition>, AppError> {
+    if body.key.trim().is_empty() {
+        return Err(AppError::validation("属性键不能为空"));
+    }
     let row = sqlx::query_as::<_, AttributeDefinition>(
         "UPDATE attribute_definitions SET key = ?, label = ?, attr_type = ?, config = ?, category_scope = ?, sort_order = ? WHERE id = ? RETURNING *",
     )
@@ -47,8 +56,9 @@ pub async fn update(
     .bind(&body.category_scope)
     .bind(body.sort_order)
     .bind(id)
-    .fetch_one(&pool)
-    .await?;
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("属性定义", id))?;
     Ok(Json(row))
 }
 
@@ -56,9 +66,12 @@ pub async fn delete(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM attribute_definitions WHERE id = ?")
+    let result = sqlx::query("DELETE FROM attribute_definitions WHERE id = ?")
         .bind(id)
         .execute(&pool)
         .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::not_found("属性定义", id));
+    }
     Ok(())
 }

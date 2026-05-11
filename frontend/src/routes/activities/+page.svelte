@@ -9,6 +9,8 @@
 	let showForm = $state(false);
 	let editingId = $state<number | null>(null);
 	let form = $state({ name: '', description: '', icon: '' });
+	let loading = $state(true);
+	let error = $state<string | null>(null);
 
 	// Detail view
 	let selectedId = $state<number | null>(null);
@@ -30,11 +32,19 @@
 	});
 
 	async function load() {
-		[activities, tags, categories] = await Promise.all([
-			api.get<Activity[]>('/activities'),
-			api.get<Tag[]>('/tags'),
-			api.get<Category[]>('/categories')
-		]);
+		try {
+			loading = true;
+			error = null;
+			[activities, tags, categories] = await Promise.all([
+				api.get<Activity[]>('/activities'),
+				api.get<Tag[]>('/tags'),
+				api.get<Category[]>('/categories')
+			]);
+		} catch (e) {
+			error = (e as Error).message;
+		} finally {
+			loading = false;
+		}
 	}
 
 	function resetForm() {
@@ -50,27 +60,39 @@
 	}
 
 	async function save() {
-		if (editingId) {
-			await api.put(`/activities/${editingId}`, form);
-		} else {
-			await api.post('/activities', form);
+		try {
+			if (editingId) {
+				await api.put(`/activities/${editingId}`, form);
+			} else {
+				await api.post('/activities', form);
+			}
+			resetForm();
+			await load();
+		} catch (e) {
+			alert((e as Error).message);
 		}
-		resetForm();
-		await load();
 	}
 
 	async function remove(id: number) {
-		await api.del(`/activities/${id}`);
-		if (selectedId === id) selectedId = null;
-		await load();
+		try {
+			await api.del(`/activities/${id}`);
+			if (selectedId === id) selectedId = null;
+			await load();
+		} catch (e) {
+			alert((e as Error).message);
+		}
 	}
 
 	async function selectActivity(id: number) {
-		selectedId = id;
-		[slots, tips] = await Promise.all([
-			api.get<ActivitySlotWithTags[]>(`/activities/${id}/slots`),
-			api.get<Tip[]>(`/activities/${id}/tips`)
-		]);
+		try {
+			selectedId = id;
+			[slots, tips] = await Promise.all([
+				api.get<ActivitySlotWithTags[]>(`/activities/${id}/slots`),
+				api.get<Tip[]>(`/activities/${id}/tips`)
+			]);
+		} catch (e) {
+			alert((e as Error).message);
+		}
 	}
 
 	// ── Slot management ──
@@ -105,26 +127,38 @@
 
 	async function saveSlot() {
 		if (!selectedId) return;
-		if (editingSlotId) {
-			await api.put(`/activity-slots/${editingSlotId}`, slotForm);
-		} else {
-			await api.post(`/activities/${selectedId}/slots`, slotForm);
+		try {
+			if (editingSlotId) {
+				await api.put(`/activity-slots/${editingSlotId}`, slotForm);
+			} else {
+				await api.post(`/activities/${selectedId}/slots`, slotForm);
+			}
+			resetSlotForm();
+			slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
+		} catch (e) {
+			alert((e as Error).message);
 		}
-		resetSlotForm();
-		slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
 	}
 
 	async function removeSlot(id: number) {
-		await api.del(`/activity-slots/${id}`);
-		if (selectedId) {
-			slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
+		try {
+			await api.del(`/activity-slots/${id}`);
+			if (selectedId) {
+				slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
+			}
+		} catch (e) {
+			alert((e as Error).message);
 		}
 	}
 
 	async function toggleSlotEssential(slot: ActivitySlotWithTags) {
-		await api.put(`/activity-slots/${slot.id}`, { is_essential: !slot.is_essential });
-		if (selectedId) {
-			slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
+		try {
+			await api.put(`/activity-slots/${slot.id}`, { is_essential: !slot.is_essential });
+			if (selectedId) {
+				slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
+			}
+		} catch (e) {
+			alert((e as Error).message);
 		}
 	}
 
@@ -140,14 +174,22 @@
 
 	async function addTip() {
 		if (!newTip || !selectedId) return;
-		await api.post(`/activities/${selectedId}/tips`, { content: newTip });
-		newTip = '';
-		tips = await api.get<Tip[]>(`/activities/${selectedId}/tips`);
+		try {
+			await api.post(`/activities/${selectedId}/tips`, { content: newTip });
+			newTip = '';
+			tips = await api.get<Tip[]>(`/activities/${selectedId}/tips`);
+		} catch (e) {
+			alert((e as Error).message);
+		}
 	}
 
 	async function removeTip(id: number) {
-		await api.del(`/tips/${id}`);
-		if (selectedId) tips = await api.get<Tip[]>(`/activities/${selectedId}/tips`);
+		try {
+			await api.del(`/tips/${id}`);
+			if (selectedId) tips = await api.get<Tip[]>(`/activities/${selectedId}/tips`);
+		} catch (e) {
+			alert((e as Error).message);
+		}
 	}
 
 	// ── Helpers ──
@@ -177,6 +219,14 @@
 	$effect(() => { load(); });
 </script>
 
+{#if loading}
+	<div class="loading-state">加载中...</div>
+{:else if error}
+	<div class="error-state">
+		<p>{error}</p>
+		<button onclick={load}>重试</button>
+	</div>
+{:else}
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
 	<h1>活动模板</h1>
 	<button class="primary" onclick={() => { if (showForm) resetForm(); else showForm = true; }}>
@@ -347,6 +397,7 @@
 		{/if}
 	{/if}
 </div>
+{/if}
 
 <style>
 	.activities-layout {
@@ -453,6 +504,19 @@
 		display: flex;
 		gap: 6px;
 		flex-shrink: 0;
+	}
+	.loading-state {
+		text-align: center;
+		padding: 40px;
+		color: var(--text-secondary);
+	}
+	.error-state {
+		text-align: center;
+		padding: 40px;
+		color: var(--danger);
+	}
+	.error-state button {
+		margin-top: 12px;
 	}
 	@media (max-width: 768px) {
 		.activities-layout {

@@ -6,8 +6,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 		...options
 	});
 	if (!res.ok) {
-		const text = await res.text();
-		throw new Error(`${res.status}: ${text}`);
+		let message: string;
+		try {
+			const body = await res.json();
+			message = body.error || `${res.status}: ${JSON.stringify(body)}`;
+		} catch {
+			const text = await res.text();
+			message = text || `请求失败 (${res.status})`;
+		}
+		throw new Error(message);
 	}
 	if (res.status === 204 || res.headers.get('content-length') === '0') {
 		return undefined as T;

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Item, Category, Tag, AttributeDefinition } from '$lib/types';
+	import { getAttrConfig } from '$lib/utils/attrs';
 	import InlineEdit from './InlineEdit.svelte';
 	import InlineEditSelect from './InlineEditSelect.svelte';
 	import InlineEditToggle from './InlineEditToggle.svelte';
@@ -28,10 +29,6 @@
 			...filtered.map(t => ({ value: t.id as number | null, label: t.name }))
 		];
 	});
-
-	function getAttrConfig(ad: AttributeDefinition): { max?: number; suffix?: string; options?: string[] } {
-		try { return JSON.parse(ad.config || '{}'); } catch { return {}; }
-	}
 
 	function getAttrValue(key: string): unknown {
 		return item.attrs?.[key] ?? 0;

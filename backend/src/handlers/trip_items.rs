@@ -163,6 +163,7 @@ pub async fn create(
     Path(trip_id): Path<i64>,
     Json(body): Json<CreateTripItem>,
 ) -> Result<Json<TripItem>, AppError> {
+    body.validate()?;
     let row = sqlx::query_as::<_, TripItem>(
         "INSERT INTO trip_items (trip_id, item_id, custom_name, person_id, qty, checked, item_status, notes, sort_order, is_essential, slot_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
     )
@@ -189,8 +190,9 @@ pub async fn update(
 ) -> Result<Json<TripItem>, AppError> {
     let existing = sqlx::query_as::<_, TripItem>("SELECT * FROM trip_items WHERE id = ?")
         .bind(id)
-        .fetch_one(&pool)
-        .await?;
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("行程物品", id))?;
 
     let item_id = match body.item_id {
         Some(v) => v,
@@ -230,10 +232,13 @@ pub async fn delete(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<(), AppError> {
-    sqlx::query("DELETE FROM trip_items WHERE id = ?")
+    let result = sqlx::query("DELETE FROM trip_items WHERE id = ?")
         .bind(id)
         .execute(&pool)
         .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::not_found("行程物品", id));
+    }
     Ok(())
 }
 
@@ -242,12 +247,16 @@ pub async fn bulk_update(
     Path(trip_id): Path<i64>,
     Json(body): Json<BulkUpdateTripItems>,
 ) -> Result<Json<Vec<TripItem>>, AppError> {
+    if body.ids.is_empty() {
+        return Err(AppError::bad_request("未选择任何物品"));
+    }
     for id in &body.ids {
         let existing = sqlx::query_as::<_, TripItem>("SELECT * FROM trip_items WHERE id = ? AND trip_id = ?")
             .bind(id)
             .bind(trip_id)
-            .fetch_one(&pool)
-            .await?;
+            .fetch_optional(&pool)
+            .await?
+            .ok_or_else(|| AppError::not_found("行程物品", *id))?;
 
         let checked = body.checked.unwrap_or(existing.checked);
         let person_id = match &body.person_id {
@@ -284,8 +293,9 @@ pub async fn check(
     )
     .bind(body.checked)
     .bind(id)
-    .fetch_one(&pool)
-    .await?;
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("行程物品", id))?;
     Ok(Json(row))
 }
 
@@ -296,28 +306,31 @@ pub async fn save_as_slot(
     // 1. Fetch the trip_item
     let ti = sqlx::query_as::<_, TripItem>("SELECT * FROM trip_items WHERE id = ?")
         .bind(id)
-        .fetch_one(&pool)
-        .await?;
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("行程物品", id))?;
 
     // Must have an item_id to create a slot from
     let item_id = ti.item_id.ok_or_else(|| {
-        anyhow::anyhow!("Trip item has no item_id, cannot save as slot")
+        AppError::bad_request("该行程物品未关联物品库物品，无法保存为槽位")
     })?;
 
     // 2. Fetch the item to get category_id and tag_id
     let item = sqlx::query_as::<_, Item>("SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE id = ?")
         .bind(item_id)
-        .fetch_one(&pool)
-        .await?;
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("物品", item_id))?;
 
     // 3. Find the trip's activity_id
     let trip = sqlx::query_as::<_, Trip>("SELECT * FROM trips WHERE id = ?")
         .bind(ti.trip_id)
-        .fetch_one(&pool)
-        .await?;
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("行程", ti.trip_id))?;
 
     let activity_id = trip.activity_id.ok_or_else(|| {
-        anyhow::anyhow!("Trip has no activity, cannot save as slot")
+        AppError::bad_request("行程未关联活动模板，无法保存为槽位")
     })?;
 
     // 4. Create the activity_slot
