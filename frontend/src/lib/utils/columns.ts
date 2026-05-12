@@ -56,9 +56,9 @@ export async function loadAllColumns(): Promise<ItemColumnDef[]> {
 	if (cachedColumns) return cachedColumns;
 	const defs = await api.get<AttributeDefinition[]>('/attribute-definitions');
 	// Prepend the tag column (special, not an attribute)
+	// All others come from attribute_definitions, including name, brand, model
 	cachedColumns = [
 		{ key: 'tag', label: '标签', type: 'tag', filterable: true },
-		{ key: 'brand', label: '品牌', type: 'text', filterable: true },
 		...defs.map(attrDefToColumn),
 	];
 	return cachedColumns;
@@ -74,7 +74,7 @@ export function getAllColumns(): ItemColumnDef[] {
 }
 
 const STORAGE_KEY = 'inventory-visible-columns';
-const DEFAULT_KEYS = ['tag', 'brand'];
+const DEFAULT_KEYS = ['tag', 'name'];
 
 export function loadVisibleColumns(): string[] {
 	try {

@@ -19,9 +19,9 @@
 			const q = search.toLowerCase();
 			list = list.filter(
 				(i) =>
-					i.name.toLowerCase().includes(q) ||
-					i.brand.toLowerCase().includes(q) ||
-					i.model.toLowerCase().includes(q)
+					String(i.attrs?.name ?? '').toLowerCase().includes(q) ||
+					String(i.attrs?.brand ?? '').toLowerCase().includes(q) ||
+					String(i.attrs?.model ?? '').toLowerCase().includes(q)
 			);
 		}
 		if (filterCategoryId !== null) {
@@ -75,14 +75,9 @@
 			<div class="inventory-grid">
 				{#each group.items as item (item.id)}
 					<ItemCard
-						name={item.name}
-						brand={item.brand}
-						model={item.model}
+						{item}
 						categoryIcon={getCategoryIcon(item.category_id)}
-						qty={item.default_qty}
 						alreadyAdded={tripItemIds.has(item.id)}
-						itemId={item.id}
-						tagId={item.tag_id}
 						{enrichedItems}
 					/>
 				{/each}

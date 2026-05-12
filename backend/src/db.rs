@@ -18,6 +18,7 @@ pub async fn init_pool() -> SqlitePool {
     rebuild_trip_items_fk(&pool).await;
     rebuild_trips_table(&pool).await;
     migrate_attrs(&pool).await;
+    rebuild_items_table(&pool).await;
     pool
 }
 
@@ -228,6 +229,73 @@ async fn rebuild_trips_table(pool: &SqlitePool) {
         .expect("failed to re-enable foreign keys");
 
     tracing::info!("trips table rebuild complete");
+}
+
+/// Pack old physical columns (name, brand, model, default_qty, notes) into attrs JSON.
+/// Does NOT drop the old columns — they stay in the table but are no longer used by code.
+/// Idempotent: checks if old column 'name' exists and attrs JSON doesn't already have name.
+async fn rebuild_items_table(pool: &SqlitePool) {
+    // Check if old column 'name' exists on items table
+    let col_info: Vec<(String,)> = sqlx::query_as(
+        "SELECT name FROM pragma_table_info('items') WHERE name = 'name'",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    if col_info.is_empty() {
+        tracing::info!("items table already uses only attrs JSON, skipping rebuild");
+        return;
+    }
+
+    // Check if items already have name in attrs (meaning migration already ran)
+    let already_migrated: Vec<(i64,)> = sqlx::query_as(
+        "SELECT id FROM items WHERE json_extract(attrs, '$.name') IS NOT NULL AND json_extract(attrs, '$.name') != '' LIMIT 1",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    if !already_migrated.is_empty() {
+        tracing::info!("items already have name in attrs, skipping rebuild");
+        return;
+    }
+
+    tracing::info!("Packing old item columns into attrs JSON...");
+
+    // Pack name/brand/model/default_qty/notes into attrs, merging with existing attrs
+    sqlx::query(
+        "UPDATE items SET attrs = json_patch(
+            json_object(
+                'name', name,
+                'brand', brand,
+                'model', model,
+                'default_qty', default_qty,
+                'notes', notes
+            ),
+            CASE WHEN attrs IS NOT NULL AND attrs != '' THEN attrs ELSE '{}' END
+        )",
+    )
+    .execute(pool)
+    .await
+    .expect("failed to pack item columns into attrs");
+
+    // Create expression indexes for name search/sort performance
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_items_category_name ON items(category_id, json_extract(attrs, '$.name'))",
+    )
+    .execute(pool)
+    .await
+    .expect("failed to create idx_items_category_name");
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_items_name ON items(json_extract(attrs, '$.name'))",
+    )
+    .execute(pool)
+    .await
+    .expect("failed to create idx_items_name");
+
+    tracing::info!("attrs JSON packing complete");
 }
 
 /// Migrate old hardcoded item columns into the attrs JSON column.

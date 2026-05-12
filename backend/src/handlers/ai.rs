@@ -274,14 +274,15 @@ fn build_system_prompt(
 
 ## 输出字段说明
 对于每个物品，输出以下字段：
-- name: 物品名称（简洁，如"冲锋衣"、"登山杖"）
-- brand: 品牌（母公司名，如"迪卡侬"、"始祖鸟"，未知留空字符串）
-- model: 型号（如"Beta LT"、"TREK 100"，未知留空字符串）
 - category_name: 从上面的分类列表中选择最合适的分类名称
 - tag_name: 从上面的标签列表中选择最合适的标签名称，没有合适的留 null
-- notes: 备注（通常为空字符串）
-- default_qty: 默认数量，通常为 1
-- attrs: 物品属性对象，包含以下属性：
+- attrs: 物品属性对象，必须包含以下基础属性：
+  - name: 物品名称（简洁，如"冲锋衣"、"登山杖"）
+  - brand: 品牌（母公司名，如"迪卡侬"、"始祖鸟"，未知留空字符串）
+  - model: 型号（如"Beta LT"、"TREK 100"，未知留空字符串）
+  - notes: 备注（通常为空字符串）
+  - default_qty: 默认数量，通常为 1
+  - 以及其他注册属性：
 {attrs_desc}
 
 ## attrs 自由格式（重要）
@@ -382,9 +383,13 @@ fn build_organize_prompt(categories: &[Category], tags: &[Tag], items: &[Item]) 
             .tag_id
             .and_then(|tid| tags.iter().find(|t| t.id == tid));
         let tag_name = tag.map(|t| t.name.as_str()).unwrap_or("");
+        let item_name = item.attr_str("name");
+        let brand = item.attr_str("brand");
+        let model = item.attr_str("model");
+        let notes = item.attr_str("notes");
         items_desc.push_str(&format!(
             "- id:{} name:\"{}\" brand:\"{}\" model:\"{}\" category:\"{}\" tag:\"{}\" notes:\"{}\"\n",
-            item.id, item.name, item.brand, item.model, cat_name, tag_name, item.notes
+            item.id, item_name, brand, model, cat_name, tag_name, notes
         ));
     }
 
@@ -425,9 +430,7 @@ fn build_organize_prompt(categories: &[Category], tags: &[Tag], items: &[Item]) 
   "item_id": 123,
   "reason": "说明修改原因",
   "fields": {{
-    "name": "新名称（不改则不包含此字段）",
-    "brand": "新品牌（不改则不包含此字段）",
-    "model": "新型号（不改则不包含此字段）",
+    "attrs": {{"name": "新名称（不改则不包含此字段）", "brand": "新品牌", ...}},
     "category_name": "新分类名（不改则不包含此字段）",
     "tag_name": "新标签名（不改则不包含此字段，设为 null 表示清除标签）"
   }}
@@ -441,8 +444,8 @@ fn build_organize_prompt(categories: &[Category], tags: &[Tag], items: &[Item]) 
   "item_id": 123,
   "reason": "说明拆分原因",
   "new_items": [
-    {{"name": "物品1", "brand": "", "model": "", "category_name": "分类", "tag_name": "标签或null", "notes": "", "default_qty": 1, "attrs": {{}}}},
-    {{"name": "物品2", ...}}
+    {{"category_name": "分类", "tag_name": "标签或null", "attrs": {{"name": "物品1", "brand": "", "model": "", "notes": "", "default_qty": 1}}}},
+    {{"category_name": "分类", "attrs": {{"name": "物品2", ...}}}}
   ]
 }}
 ```
@@ -677,18 +680,24 @@ pub async fn organize_apply(
                     let cat_id = if valid_cat_ids.contains(&cat_id) { cat_id } else { 1 };
                     let tag_id = new_item.tag_id.filter(|id| valid_tag_ids.contains(id));
 
+                    let attrs_str = serde_json::to_string(&new_item.attrs).unwrap_or_else(|_| "{}".to_string());
+                    let name = new_item.attrs.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let brand = new_item.attrs.get("brand").and_then(|v| v.as_str()).unwrap_or("");
+                    let model = new_item.attrs.get("model").and_then(|v| v.as_str()).unwrap_or("");
+                    let default_qty = new_item.attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
+                    let notes = new_item.attrs.get("notes").and_then(|v| v.as_str()).unwrap_or("");
                     let result = sqlx::query(
-                        "INSERT INTO items (name, brand, model, category_id, tag_id, default_qty, notes, attrs) \
+                        "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id, attrs) \
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     )
-                    .bind(&new_item.name)
-                    .bind(&new_item.brand)
-                    .bind(&new_item.model)
+                    .bind(name)
+                    .bind(brand)
+                    .bind(model)
                     .bind(cat_id)
+                    .bind(default_qty)
+                    .bind(notes)
                     .bind(tag_id)
-                    .bind(new_item.default_qty)
-                    .bind(&new_item.notes)
-                    .bind(serde_json::to_string(&new_item.attrs).unwrap_or_else(|_| "{}".to_string()))
+                    .bind(attrs_str)
                     .execute(&mut *tx)
                     .await?;
 
@@ -758,28 +767,35 @@ async fn apply_update_fields(
     valid_cat_ids: &std::collections::HashSet<i64>,
     valid_tag_ids: &std::collections::HashSet<i64>,
 ) -> Result<(), AppError> {
-    // Build dynamic UPDATE
-    if let Some(ref name) = fields.name {
-        sqlx::query("UPDATE items SET name = ? WHERE id = ?")
-            .bind(name)
-            .bind(item_id)
-            .execute(&mut **tx)
-            .await?;
+    // Merge attrs JSON if provided
+    if let Some(ref new_attrs) = fields.attrs {
+        // Read existing attrs
+        let existing_attrs: Option<(String,)> = sqlx::query_as(
+            "SELECT attrs FROM items WHERE id = ?",
+        )
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        if let Some((existing_str,)) = existing_attrs {
+            let existing: serde_json::Value = serde_json::from_str(&existing_str).unwrap_or_default();
+            let mut merged = existing.clone();
+            if let serde_json::Value::Object(ref new_obj) = new_attrs {
+                if let serde_json::Value::Object(ref mut merged_obj) = merged {
+                    for (k, v) in new_obj {
+                        merged_obj.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            let merged_str = serde_json::to_string(&merged).unwrap_or_default();
+            sqlx::query("UPDATE items SET attrs = ? WHERE id = ?")
+                .bind(&merged_str)
+                .bind(item_id)
+                .execute(&mut **tx)
+                .await?;
+        }
     }
-    if let Some(ref brand) = fields.brand {
-        sqlx::query("UPDATE items SET brand = ? WHERE id = ?")
-            .bind(brand)
-            .bind(item_id)
-            .execute(&mut **tx)
-            .await?;
-    }
-    if let Some(ref model) = fields.model {
-        sqlx::query("UPDATE items SET model = ? WHERE id = ?")
-            .bind(model)
-            .bind(item_id)
-            .execute(&mut **tx)
-            .await?;
-    }
+
     if let Some(cat_id) = fields.category_id {
         if valid_cat_ids.contains(&cat_id) {
             sqlx::query("UPDATE items SET category_id = ? WHERE id = ?")
@@ -790,21 +806,13 @@ async fn apply_update_fields(
         }
     }
     if let Some(ref tag_id_opt) = fields.tag_id {
-        // Validate: Some(id) must exist, Some(None) clears the tag
         let safe_tag_id = match tag_id_opt {
             Some(id) if valid_tag_ids.contains(id) => &Some(*id),
-            Some(_) => &None, // invalid tag_id → clear tag
-            None => &None,    // explicit clear
+            Some(_) => &None,
+            None => &None,
         };
         sqlx::query("UPDATE items SET tag_id = ? WHERE id = ?")
             .bind(safe_tag_id)
-            .bind(item_id)
-            .execute(&mut **tx)
-            .await?;
-    }
-    if let Some(ref notes) = fields.notes {
-        sqlx::query("UPDATE items SET notes = ? WHERE id = ?")
-            .bind(notes)
             .bind(item_id)
             .execute(&mut **tx)
             .await?;

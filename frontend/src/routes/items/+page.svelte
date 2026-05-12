@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import type { Item, Category, Tag, ItemUsageCount, AiParsedItem, AttributeDefinition } from '$lib/types';
+	import { itemName } from '$lib/types';
 	import SearchFilter from '$lib/components/SearchFilter.svelte';
 	import ColumnPicker from '$lib/components/ColumnPicker.svelte';
 	import ItemListTable from '$lib/components/ItemListTable.svelte';
@@ -88,18 +89,25 @@
 
 	async function handleFieldUpdate(field: string, value: unknown) {
 		if (!selectedItem) return;
-		const data: Record<string, unknown> = { ...selectedItem, [field]: value };
-		// When category changes, clear tag if it doesn't belong to new category
-		if (field === 'category_id') {
-			const currentTag = tags.find(t => t.id === selectedItem!.tag_id);
-			if (currentTag && currentTag.category_id !== value) {
-				data.tag_id = null;
+		const isTopLevel = field === 'category_id' || field === 'tag_id';
+		let data: Record<string, unknown>;
+		if (isTopLevel) {
+			data = { [field]: value };
+			// When category changes, clear tag if it doesn't belong to new category
+			if (field === 'category_id') {
+				const currentTag = tags.find(t => t.id === selectedItem!.tag_id);
+				if (currentTag && currentTag.category_id !== value) {
+					data.tag_id = null;
+				}
 			}
+		} else {
+			// Update within attrs
+			const newAttrs = { ...selectedItem.attrs, [field]: value };
+			data = { attrs: newAttrs };
 		}
 		try {
 			const updated = await api.put<Item>(`/items/${selectedItem.id}`, data);
 			selectedItem = updated;
-			// In-place update items array instead of full reload
 			const needsFullReload = field === 'category_id';
 			if (needsFullReload) {
 				await load();
@@ -124,7 +132,7 @@
 
 	async function handleDelete() {
 		if (!selectedItem) return;
-		if (!confirm(`确定删除「${selectedItem.name}」？`)) return;
+		if (!confirm(`确定删除「${itemName(selectedItem)}」？`)) return;
 		try {
 			await api.del(`/items/${selectedItem.id}`);
 			selectedItem = null;
@@ -145,19 +153,15 @@
 		prefillAiText = '';
 		for (const item of aiItems) {
 			const payload = {
-				name: item.name,
-				brand: item.brand || '',
-				model: item.model || '',
 				category_id: item.category_id ?? categories[0]?.id ?? 1,
-				default_qty: item.default_qty || 1,
-				notes: item.notes || '',
 				tag_id: item.tag_id ?? null,
 				attrs: item.attrs ?? {},
 			};
 			try {
 				await api.post('/items', payload);
 			} catch (e) {
-				console.error('Failed to create item:', item.name, e);
+				const name = String(item.attrs?.name ?? '?');
+				console.error('Failed to create item:', name, e);
 			}
 		}
 		await load();

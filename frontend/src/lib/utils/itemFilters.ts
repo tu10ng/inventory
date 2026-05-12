@@ -18,12 +18,13 @@ export function filterItems(
 	let list = items;
 	if (search) {
 		const q = search.toLowerCase();
-		list = list.filter(
-			(i) =>
-				i.name.toLowerCase().includes(q) ||
-				i.brand.toLowerCase().includes(q) ||
-				i.model.toLowerCase().includes(q)
-		);
+		list = list.filter((i) => {
+			// Search in name, brand, model (identity fields via attrs)
+			const name = String(i.attrs?.name ?? '').toLowerCase();
+			const brand = String(i.attrs?.brand ?? '').toLowerCase();
+			const model = String(i.attrs?.model ?? '').toLowerCase();
+			return name.includes(q) || brand.includes(q) || model.includes(q);
+		});
 	}
 	if (filterCategoryId !== null) {
 		list = list.filter((i) => i.category_id === filterCategoryId);
@@ -39,10 +40,10 @@ export function filterItems(
 				const display = t ? t.name : '-';
 				return vals.has(display);
 			} else if (col.type === 'bool') {
-				const v = (key === 'brand' ? item.brand : item.attrs?.[key]) as number;
+				const v = item.attrs?.[key] as number;
 				return vals.has(v > 0 ? '1' : '0');
 			} else {
-				const v = key === 'brand' ? item.brand : item.attrs?.[key];
+				const v = item.attrs?.[key];
 				return vals.has(v ? String(v) : '-');
 			}
 		});
@@ -61,17 +62,11 @@ export function sortItems(
 	const dir = sortDir;
 	return [...items].sort((a, b) => {
 		let va: unknown, vb: unknown;
-		if (key === 'name') {
-			va = a.name;
-			vb = b.name;
-		} else if (key === 'tag') {
+		if (key === 'tag') {
 			const ta = a.tag_id ? tags.find(t => t.id === a.tag_id) : null;
 			const tb = b.tag_id ? tags.find(t => t.id === b.tag_id) : null;
 			va = ta?.name ?? '';
 			vb = tb?.name ?? '';
-		} else if (key === 'brand') {
-			va = a.brand;
-			vb = b.brand;
 		} else {
 			va = a.attrs?.[key];
 			vb = b.attrs?.[key];
@@ -102,12 +97,7 @@ export function groupItems(
 	const ungrouped: Item[] = [];
 
 	for (const item of items) {
-		let value: unknown;
-		if (groupByKey === 'brand') {
-			value = item.brand;
-		} else {
-			value = item.attrs?.[groupByKey];
-		}
+		const value = item.attrs?.[groupByKey];
 		if (value != null && String(value).trim() !== '') {
 			const key = String(value).trim();
 			if (!groupsMap.has(key)) {

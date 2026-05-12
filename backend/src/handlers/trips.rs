@@ -203,7 +203,7 @@ async fn compute_resync_diff(pool: &SqlitePool, trip_id: i64) -> Result<ResyncDi
         .collect();
     let item_names: std::collections::HashMap<i64, String> = if !item_ids.is_empty() {
         let placeholders = item_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!("SELECT id, name FROM items WHERE id IN ({})", placeholders);
+        let sql = format!("SELECT id, json_extract(attrs, '$.name') FROM items WHERE id IN ({})", placeholders);
         let mut query = sqlx::query_as::<_, (i64, String)>(&sql);
         for id in &item_ids {
             query = query.bind(id);

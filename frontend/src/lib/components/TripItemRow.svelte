@@ -46,14 +46,14 @@
 			/>
 			<span class="item-name" class:line-through={tripItem.checked}>
 				{#if tripItem.is_essential}<span class="essential-star" title="必备">★</span>{/if}
-				{tripItem.custom_name || itemInfo?.name || '未知物品'}
+				{tripItem.custom_name || String(itemInfo?.attrs?.name ?? '') || '未知物品'}
 			</span>
 		</label>
 	</div>
 
 	<div class="item-meta">
-		{#if itemInfo?.brand || itemInfo?.model}
-			<span class="item-detail">{itemInfo?.brand} {itemInfo?.model}</span>
+		{#if itemInfo?.attrs?.brand || itemInfo?.attrs?.model}
+			<span class="item-detail">{String(itemInfo?.attrs?.brand ?? '')} {String(itemInfo?.attrs?.model ?? '')}</span>
 		{/if}
 		<InlineEdit
 			value={tripItem.qty}

@@ -14,14 +14,20 @@ export interface Tag {
 
 export interface Item {
 	id: number;
-	name: string;
-	brand: string;
-	model: string;
 	category_id: number;
-	default_qty: number;
-	notes: string;
 	tag_id: number | null;
 	attrs: Record<string, unknown>;
+}
+
+// Helper: get a string attr from Item
+export function itemName(item: Item): string {
+	return String(item.attrs?.name ?? '');
+}
+export function itemBrand(item: Item): string {
+	return String(item.attrs?.brand ?? '');
+}
+export function itemModel(item: Item): string {
+	return String(item.attrs?.model ?? '');
 }
 
 export interface AttributeDefinition {
@@ -164,24 +170,17 @@ export interface DndItem {
 	id: string;
 	item_id: number;
 	name: string;
-	brand: string;
-	model: string;
 	category_id: number;
 	category_icon: string;
-	default_qty: number;
 	already_added: boolean;
+	attrs: Record<string, unknown>;
 }
 
 export interface AiParsedItem {
-	name: string;
-	brand: string;
-	model: string;
 	category_name: string | null;
 	tag_name: string | null;
 	category_id: number | null;
 	tag_id: number | null;
-	notes: string;
-	default_qty: number;
 	attrs: Record<string, unknown>;
 }
 
@@ -193,14 +192,11 @@ export interface AiParseResponse {
 // ── AI Organize ──
 
 export interface OrganizeUpdateFields {
-	name?: string;
-	brand?: string;
-	model?: string;
 	category_name?: string;
 	tag_name?: string;
 	category_id?: number;
 	tag_id?: number | null;
-	notes?: string;
+	attrs?: Record<string, unknown>;
 }
 
 export type OrganizeAction =
@@ -239,8 +235,6 @@ export interface ImportPreviewResult {
 
 export interface ImportItemPreview {
 	name: string;
-	brand: string;
-	model: string;
 	action: 'new' | 'skip' | 'update';
 	existing_id: number | null;
 }

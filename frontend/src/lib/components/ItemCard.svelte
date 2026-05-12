@@ -1,20 +1,25 @@
 <script lang="ts">
-	import type { TripItemEnriched } from '$lib/types';
+	import type { Item, TripItemEnriched } from '$lib/types';
+	import { itemName, itemBrand, itemModel } from '$lib/types';
 	import { startDrag, endDrag } from '$lib/stores/dragState.svelte';
 
-	let { name, brand, model, categoryIcon, qty, alreadyAdded = false,
+	let { item, categoryIcon, alreadyAdded = false,
+		onclick = null,
 		itemId = 0, tagId = null, enrichedItems = []
 	}: {
-		name: string;
-		brand: string;
-		model: string;
+		item: Item;
 		categoryIcon: string;
-		qty: number;
 		alreadyAdded?: boolean;
+		onclick?: (() => void) | null;
 		itemId?: number;
 		tagId?: number | null;
 		enrichedItems?: TripItemEnriched[];
 	} = $props();
+
+	const displayName = $derived(itemName(item));
+	const displayBrand = $derived(itemBrand(item));
+	const displayModel = $derived(itemModel(item));
+	const displayQty = $derived(Number(item.attrs?.default_qty ?? 1));
 
 	const isDraggable = $derived(itemId > 0);
 	let dragging = $state(false);
@@ -32,6 +37,10 @@
 		dragging = false;
 		endDrag();
 	}
+
+	function handleClick() {
+		onclick?.();
+	}
 </script>
 
 <div
@@ -41,14 +50,18 @@
 	draggable={isDraggable ? 'true' : undefined}
 	ondragstart={handleDragStart}
 	ondragend={handleDragEnd}
+	onclick={onclick ? handleClick : undefined}
+	role={onclick ? 'button' : undefined}
+	tabindex={onclick ? 0 : undefined}
+	onkeydown={onclick ? (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); } : undefined}
 >
 	<div class="card-icon">{categoryIcon}</div>
-	<div class="card-name">{name}</div>
-	{#if brand || model}
-		<div class="card-detail">{brand} {model}</div>
+	<div class="card-name">{displayName}</div>
+	{#if displayBrand || displayModel}
+		<div class="card-detail">{displayBrand} {displayModel}</div>
 	{/if}
-	{#if qty > 1}
-		<div class="card-qty">x{qty}</div>
+	{#if displayQty > 1}
+		<div class="card-qty">x{displayQty}</div>
 	{/if}
 	{#if alreadyAdded}
 		<div class="added-tag">已添加</div>

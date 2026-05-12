@@ -66,7 +66,7 @@ export function generateTripText(
 				name = ti.slot.slot_name;
 			} else if (ti.item_id) {
 				const item = itemMap.get(ti.item_id);
-				name = item?.name || ti.custom_name || '未知物品';
+				name = String(item?.attrs?.name ?? '') || ti.custom_name || '未知物品';
 			} else {
 				name = ti.custom_name || '未知物品';
 			}

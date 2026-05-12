@@ -18,7 +18,7 @@ use crate::models::{
 
 pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Item>>, AppError> {
     let rows = sqlx::query_as::<_, Item>(
-        "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items ORDER BY category_id, id",
+        "SELECT id, category_id, tag_id, attrs FROM items ORDER BY category_id, id",
     )
     .fetch_all(&pool)
     .await?;
@@ -30,7 +30,7 @@ pub async fn get(
     Path(id): Path<i64>,
 ) -> Result<Json<Item>, AppError> {
     let row = sqlx::query_as::<_, Item>(
-        "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE id = ?",
+        "SELECT id, category_id, tag_id, attrs FROM items WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(&pool)
@@ -44,16 +44,23 @@ pub async fn create(
     Json(body): Json<CreateItem>,
 ) -> Result<Json<Item>, AppError> {
     body.validate()?;
+    // Ensure name is in attrs (frontend sends it that way, but be safe)
     let attrs_str = serde_json::to_string(&body.attrs).unwrap_or_else(|_| "{}".to_string());
+    let name = body.attrs.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let brand = body.attrs.get("brand").and_then(|v| v.as_str()).unwrap_or("");
+    let model = body.attrs.get("model").and_then(|v| v.as_str()).unwrap_or("");
+    let default_qty = body.attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
+    let notes = body.attrs.get("notes").and_then(|v| v.as_str()).unwrap_or("");
+    // Old physical columns still exist (legacy) — fill them from attrs for compatibility
     let row = sqlx::query_as::<_, Item>(
-        "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id, attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, name, brand, model, category_id, default_qty, notes, tag_id, attrs",
+        "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id, attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, category_id, tag_id, attrs",
     )
-    .bind(&body.name)
-    .bind(&body.brand)
-    .bind(&body.model)
+    .bind(name)
+    .bind(brand)
+    .bind(model)
     .bind(body.category_id)
-    .bind(body.default_qty)
-    .bind(&body.notes)
+    .bind(default_qty)
+    .bind(notes)
     .bind(body.tag_id)
     .bind(&attrs_str)
     .fetch_one(&pool)
@@ -67,45 +74,68 @@ pub async fn update(
     Json(body): Json<UpdateItem>,
 ) -> Result<Json<Item>, AppError> {
     let existing = sqlx::query_as::<_, Item>(
-        "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE id = ?",
+        "SELECT id, category_id, tag_id, attrs FROM items WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(&pool)
     .await?
     .ok_or_else(|| AppError::not_found("物品", id))?;
 
-    let name = body.name.unwrap_or(existing.name);
-    let brand = body.brand.unwrap_or(existing.brand);
-    let model = body.model.unwrap_or(existing.model);
     let category_id = body.category_id.unwrap_or(existing.category_id);
-    let default_qty = body.default_qty.unwrap_or(existing.default_qty);
-    let notes = body.notes.unwrap_or(existing.notes);
     let tag_id = match body.tag_id {
         Some(v) => v,
         None => existing.tag_id,
     };
-    let attrs = body.attrs.unwrap_or(existing.attrs);
+    // Merge incoming attrs on top of existing instead of replacing
+    let attrs = match &body.attrs {
+        Some(new_attrs) => {
+            let mut merged = existing.attrs.clone();
+            if let serde_json::Value::Object(ref mut obj) = merged {
+                if let serde_json::Value::Object(ref new_obj) = new_attrs {
+                    for (k, v) in new_obj {
+                        obj.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            merged
+        }
+        None => existing.attrs.clone(),
+    };
 
-    if name.trim().is_empty() {
+    // Validate
+    let name = attrs
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if name.is_empty() {
         return Err(AppError::validation("物品名称不能为空"));
     }
     if name.len() > 200 {
         return Err(AppError::validation("物品名称不能超过200字符"));
     }
-    if default_qty < 1 {
+    let qty = attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
+    if qty < 1 {
         return Err(AppError::validation("默认数量必须大于0"));
     }
 
     let attrs_str = serde_json::to_string(&attrs).unwrap_or_else(|_| "{}".to_string());
+    // Also sync legacy physical columns from attrs
+    let name = attrs.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let brand = attrs.get("brand").and_then(|v| v.as_str()).unwrap_or("");
+    let model = attrs.get("model").and_then(|v| v.as_str()).unwrap_or("");
+    let default_qty = attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
+    let notes = attrs.get("notes").and_then(|v| v.as_str()).unwrap_or("");
     let row = sqlx::query_as::<_, Item>(
-        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ?, attrs = ? WHERE id = ? RETURNING id, name, brand, model, category_id, default_qty, notes, tag_id, attrs",
+        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ?, attrs = ? WHERE id = ? RETURNING id, category_id, tag_id, attrs",
     )
-    .bind(&name)
-    .bind(&brand)
-    .bind(&model)
+    .bind(name)
+    .bind(brand)
+    .bind(model)
     .bind(category_id)
     .bind(default_qty)
-    .bind(&notes)
+    .bind(notes)
     .bind(tag_id)
     .bind(&attrs_str)
     .bind(id)
@@ -166,13 +196,13 @@ pub async fn export_items(State(pool): State<SqlitePool>) -> Result<Response<Bod
     .await?;
 
     let attribute_definitions = sqlx::query_as::<_, AttributeDefinition>(
-        "SELECT id, key, label, attr_type, config, category_scope, tag_scope, sort_order FROM attribute_definitions ORDER BY sort_order, id",
+        "SELECT id, key, label, attr_type, config, category_scope, tag_scope, sort_order, is_identity, is_required, default_value, search_weight FROM attribute_definitions ORDER BY sort_order, id",
     )
     .fetch_all(&pool)
     .await?;
 
     let items = sqlx::query_as::<_, Item>(
-        "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items ORDER BY category_id, id",
+        "SELECT id, category_id, tag_id, attrs FROM items ORDER BY category_id, id",
     )
     .fetch_all(&pool)
     .await?;
@@ -183,7 +213,7 @@ pub async fn export_items(State(pool): State<SqlitePool>) -> Result<Response<Bod
         .as_secs();
 
     let export_data = ExportData {
-        version: 1,
+        version: 2,
         exported_at: now.to_string(),
         categories,
         tags,
@@ -211,12 +241,12 @@ pub async fn import_preview(
     State(pool): State<SqlitePool>,
     Json(body): Json<ImportRequest>,
 ) -> Result<Json<ImportPreviewResult>, AppError> {
-    if body.version != 1 {
+    if body.version < 1 || body.version > 2 {
         return Err(AppError::bad_request("不支持的导出文件版本"));
     }
 
-    // Build lowercase name -> id map of existing items
-    let existing_rows = sqlx::query("SELECT id, name FROM items")
+    // Build lowercase name -> id map of existing items (name is in attrs JSON now)
+    let existing_rows = sqlx::query("SELECT id, json_extract(attrs, '$.name') as name FROM items")
         .fetch_all(&pool)
         .await?;
 
@@ -238,14 +268,13 @@ pub async fn import_preview(
     };
 
     for item in &body.items {
-        let key = item.name.to_lowercase();
+        let item_name = item.attr_str("name");
+        let key = item_name.to_lowercase();
         if let Some(existing_id) = name_to_id.get(&key) {
             skip_or_update_items += 1;
             if preview_items.len() < 50 {
                 preview_items.push(ImportItemPreview {
-                    name: item.name.clone(),
-                    brand: item.brand.clone(),
-                    model: item.model.clone(),
+                    name: item_name.clone(),
                     action: action_label.to_string(),
                     existing_id: Some(*existing_id),
                 });
@@ -254,9 +283,7 @@ pub async fn import_preview(
             new_items += 1;
             if preview_items.len() < 50 {
                 preview_items.push(ImportItemPreview {
-                    name: item.name.clone(),
-                    brand: item.brand.clone(),
-                    model: item.model.clone(),
+                    name: item_name.clone(),
                     action: "new".to_string(),
                     existing_id: None,
                 });
@@ -276,7 +303,7 @@ pub async fn import_items(
     State(pool): State<SqlitePool>,
     Json(body): Json<ImportRequest>,
 ) -> Result<Json<ImportResult>, AppError> {
-    if body.version != 1 {
+    if body.version < 1 || body.version > 2 {
         return Err(AppError::bad_request("不支持的导出文件版本"));
     }
 
@@ -320,7 +347,6 @@ pub async fn import_items(
         if let Some(row) = existing {
             let existing_id: i64 = row.get(0);
             tag_remap.insert(tag.id, existing_id);
-            // Update category_id in case it changed
             sqlx::query("UPDATE tags SET category_id = ? WHERE id = ?")
                 .bind(new_category_id)
                 .bind(existing_id)
@@ -350,7 +376,7 @@ pub async fn import_items(
             .await?;
         if existing.is_none() {
             sqlx::query(
-                "INSERT INTO attribute_definitions (key, label, attr_type, config, category_scope, tag_scope, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO attribute_definitions (key, label, attr_type, config, category_scope, tag_scope, sort_order, is_identity, is_required, default_value, search_weight) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&adef.key)
             .bind(&adef.label)
@@ -359,14 +385,18 @@ pub async fn import_items(
             .bind(&adef.category_scope)
             .bind(&adef.tag_scope)
             .bind(adef.sort_order)
+            .bind(adef.is_identity)
+            .bind(adef.is_required)
+            .bind(&adef.default_value)
+            .bind(adef.search_weight)
             .execute(&mut *tx)
             .await?;
             attribute_definitions_created += 1;
         }
     }
 
-    // 4. Items: match by name (case-insensitive)
-    let existing_rows = sqlx::query("SELECT id, LOWER(name) as name_lower FROM items")
+    // 4. Items: match by name (case-insensitive, name from attrs JSON)
+    let existing_rows = sqlx::query("SELECT id, LOWER(json_extract(attrs, '$.name')) as name_lower FROM items")
         .fetch_all(&mut *tx)
         .await?;
     let mut name_to_id: HashMap<String, i64> = HashMap::new();
@@ -381,7 +411,8 @@ pub async fn import_items(
     let mut items_skipped: u64 = 0;
 
     for item in &body.items {
-        let key = item.name.to_lowercase();
+        let item_name = item.attr_str("name");
+        let key = item_name.to_lowercase();
         if let Some(existing_id) = name_to_id.get(&key) {
             match body.strategy {
                 ImportStrategy::Skip => {
@@ -395,15 +426,20 @@ pub async fn import_items(
                     let new_tag_id = item.tag_id.and_then(|tid| tag_remap.get(&tid).copied());
                     let attrs_str =
                         serde_json::to_string(&item.attrs).unwrap_or_else(|_| "{}".to_string());
+                    let name = item.attr_str("name");
+                    let brand = item.attr_str("brand");
+                    let model = item.attr_str("model");
+                    let default_qty = item.attr_i64("default_qty").max(1);
+                    let notes = item.attr_str("notes");
                     sqlx::query(
                         "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ?, attrs = ? WHERE id = ?",
                     )
-                    .bind(&item.name)
-                    .bind(&item.brand)
-                    .bind(&item.model)
+                    .bind(&name)
+                    .bind(&brand)
+                    .bind(&model)
                     .bind(new_category_id)
-                    .bind(item.default_qty)
-                    .bind(&item.notes)
+                    .bind(default_qty)
+                    .bind(&notes)
                     .bind(new_tag_id)
                     .bind(&attrs_str)
                     .bind(existing_id)
@@ -420,15 +456,20 @@ pub async fn import_items(
             let new_tag_id = item.tag_id.and_then(|tid| tag_remap.get(&tid).copied());
             let attrs_str =
                 serde_json::to_string(&item.attrs).unwrap_or_else(|_| "{}".to_string());
+            let name = item.attr_str("name");
+            let brand = item.attr_str("brand");
+            let model = item.attr_str("model");
+            let default_qty = item.attr_i64("default_qty").max(1);
+            let notes = item.attr_str("notes");
             sqlx::query(
                 "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id, attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
-            .bind(&item.name)
-            .bind(&item.brand)
-            .bind(&item.model)
+            .bind(&name)
+            .bind(&brand)
+            .bind(&model)
             .bind(new_category_id)
-            .bind(item.default_qty)
-            .bind(&item.notes)
+            .bind(default_qty)
+            .bind(&notes)
             .bind(new_tag_id)
             .bind(&attrs_str)
             .execute(&mut *tx)

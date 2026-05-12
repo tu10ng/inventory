@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Item, Category, Tag } from '$lib/types';
+	import { itemName, itemBrand, itemModel } from '$lib/types';
 	import type { ItemColumnDef } from '$lib/utils/columns';
 	import type { ItemGroup } from '$lib/utils/itemFilters';
 	import { getCellValue } from '$lib/utils/cellValue';
@@ -204,7 +205,7 @@
 								class:selected={item.id === selectedItemId}
 								onclick={() => onSelect(item)}
 							>
-								<span class="item-name">{item.name}</span>
+								<span class="item-name">{itemName(item)}</span>
 								{#each visibleColumns as col (col.key)}
 									{@const v = getCellValue(item, col)}
 									<span class="cell cell-{col.type}">
@@ -225,7 +226,7 @@
 							class:selected={item.id === selectedItemId}
 							onclick={() => onSelect(item)}
 						>
-							<span class="item-name">{item.name}</span>
+							<span class="item-name">{itemName(item)}</span>
 							{#each visibleColumns as col (col.key)}
 								<CellRenderer {item} {col} tag={getTag(item)} />
 							{/each}
@@ -241,12 +242,12 @@
 						onclick={() => onSelect(item)}
 					>
 						<span class="item-name">
-							{item.name}
+							{itemName(item)}
 							{#if visibleColumns.length === 0 && itemTag}
 								<span class="inline-tag">{itemTag.name}</span>
 							{/if}
-							{#if visibleColumns.length === 0 && (item.brand || item.model)}
-								<span class="inline-brand">{item.brand}{item.brand && item.model ? ' ' : ''}{item.model}</span>
+							{#if visibleColumns.length === 0 && (String(item.attrs?.brand ?? '') || String(item.attrs?.model ?? ''))}
+								<span class="inline-brand">{itemBrand(item)}{itemBrand(item) && itemModel(item) ? ' ' : ''}{itemModel(item)}</span>
 							{/if}
 						</span>
 						{#each visibleColumns as col (col.key)}

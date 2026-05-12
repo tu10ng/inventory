@@ -79,17 +79,16 @@ pub struct UpdateTag {
     pub sort_order: Option<i64>,
 }
 
+fn default_qty() -> i64 {
+    1
+}
+
 // ── Items ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Item {
     pub id: i64,
-    pub name: String,
-    pub brand: String,
-    pub model: String,
     pub category_id: i64,
-    pub default_qty: i64,
-    pub notes: String,
     pub tag_id: Option<i64>,
     #[sqlx(default)]
     #[serde(default = "default_attrs")]
@@ -100,36 +99,53 @@ fn default_attrs() -> serde_json::Value {
     serde_json::json!({})
 }
 
+/// Helper: extract a string field from attrs JSON.
+impl Item {
+    pub fn attr_str(&self, key: &str) -> String {
+        self.attrs
+            .get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    pub fn attr_i64(&self, key: &str) -> i64 {
+        self.attrs
+            .get(key)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateItem {
-    pub name: String,
-    #[serde(default)]
-    pub brand: String,
-    #[serde(default)]
-    pub model: String,
     pub category_id: i64,
-    #[serde(default = "default_qty")]
-    pub default_qty: i64,
-    #[serde(default)]
-    pub notes: String,
     pub tag_id: Option<i64>,
     #[serde(default = "default_attrs")]
     pub attrs: serde_json::Value,
 }
 
-fn default_qty() -> i64 {
-    1
-}
-
 impl CreateItem {
     pub fn validate(&self) -> Result<(), crate::error::AppError> {
-        if self.name.trim().is_empty() {
+        let name = self
+            .attrs
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if name.is_empty() {
             return Err(crate::error::AppError::validation("物品名称不能为空"));
         }
-        if self.name.len() > 200 {
+        if name.len() > 200 {
             return Err(crate::error::AppError::validation("物品名称不能超过200字符"));
         }
-        if self.default_qty < 1 {
+        let qty = self
+            .attrs
+            .get("default_qty")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(1);
+        if qty < 1 {
             return Err(crate::error::AppError::validation("默认数量必须大于0"));
         }
         Ok(())
@@ -138,12 +154,7 @@ impl CreateItem {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateItem {
-    pub name: Option<String>,
-    pub brand: Option<String>,
-    pub model: Option<String>,
     pub category_id: Option<i64>,
-    pub default_qty: Option<i64>,
-    pub notes: Option<String>,
     pub attrs: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "deserialize_some")]
     pub tag_id: Option<Option<i64>>,
@@ -472,6 +483,18 @@ pub struct AttributeDefinition {
     pub category_scope: String,
     pub tag_scope: String,
     pub sort_order: i64,
+    #[sqlx(default)]
+    #[serde(default)]
+    pub is_identity: bool,
+    #[sqlx(default)]
+    #[serde(default)]
+    pub is_required: bool,
+    #[sqlx(default)]
+    #[serde(default)]
+    pub default_value: String,
+    #[sqlx(default)]
+    #[serde(default)]
+    pub search_weight: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -488,6 +511,14 @@ pub struct CreateAttributeDefinition {
     pub tag_scope: String,
     #[serde(default)]
     pub sort_order: i64,
+    #[serde(default)]
+    pub is_identity: bool,
+    #[serde(default)]
+    pub is_required: bool,
+    #[serde(default)]
+    pub default_value: String,
+    #[serde(default)]
+    pub search_weight: i64,
 }
 
 fn default_attr_type() -> String {
@@ -503,6 +534,10 @@ pub struct UpdateAttributeDefinition {
     pub category_scope: Option<String>,
     pub tag_scope: Option<String>,
     pub sort_order: Option<i64>,
+    pub is_identity: Option<bool>,
+    pub is_required: Option<bool>,
+    pub default_value: Option<String>,
+    pub search_weight: Option<i64>,
 }
 
 // ── Status Definitions ──
@@ -600,12 +635,6 @@ pub struct AiParseRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiParsedItem {
     #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub brand: String,
-    #[serde(default)]
-    pub model: String,
-    #[serde(default)]
     pub category_name: Option<String>,
     #[serde(default)]
     pub tag_name: Option<String>,
@@ -613,10 +642,6 @@ pub struct AiParsedItem {
     pub category_id: Option<i64>,
     #[serde(default)]
     pub tag_id: Option<i64>,
-    #[serde(default)]
-    pub notes: String,
-    #[serde(default = "default_qty")]
-    pub default_qty: i64,
     #[serde(default = "default_attrs")]
     pub attrs: serde_json::Value,
 }
@@ -653,14 +678,11 @@ pub enum OrganizeAction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrganizeUpdateFields {
-    pub name: Option<String>,
-    pub brand: Option<String>,
-    pub model: Option<String>,
     pub category_name: Option<String>,
     pub tag_name: Option<String>,
     pub category_id: Option<i64>,
     pub tag_id: Option<Option<i64>>,
-    pub notes: Option<String>,
+    pub attrs: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -721,8 +743,6 @@ pub struct ImportPreviewResult {
 #[derive(Debug, Serialize)]
 pub struct ImportItemPreview {
     pub name: String,
-    pub brand: String,
-    pub model: String,
     pub action: String,
     pub existing_id: Option<i64>,
 }

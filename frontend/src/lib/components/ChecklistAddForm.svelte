@@ -28,7 +28,7 @@
 			<select bind:value={addItemId} style="width: 100%;">
 				<option value={null}>选择物品...</option>
 				{#each allItems as it}
-					<option value={it.id}>{it.name} {it.brand} {it.model}</option>
+					<option value={it.id}>{String(it.attrs?.name ?? '')} {String(it.attrs?.brand ?? '')} {String(it.attrs?.model ?? '')}</option>
 				{/each}
 			</select>
 		</div>

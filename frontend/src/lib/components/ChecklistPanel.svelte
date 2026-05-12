@@ -58,11 +58,11 @@
 		const existing = enrichedItems.find(ti => ti.item_id === itemId);
 		if (existing) {
 			const itemInfo = allItems.find(i => i.id === itemId);
-			const name = itemInfo?.name ?? '该物品';
+			const name = String(itemInfo?.attrs?.name ?? '该物品');
 			if (!window.confirm(`"${name}" 已在清单中，确定要再次添加吗？`)) return;
 		}
 		const itemInfo = allItems.find(i => i.id === itemId);
-		const qty = itemInfo?.default_qty ?? 1;
+		const qty = Number(itemInfo?.attrs?.default_qty ?? 1);
 		try {
 			await api.post(`/trips/${trip.id}/items`, { item_id: itemId, qty });
 		} catch (e) {
@@ -213,7 +213,7 @@
 			const existing = enrichedItems.find(ti => ti.item_id === addItemId);
 			if (existing) {
 				const itemInfo = allItems.find(i => i.id === addItemId);
-				const name = itemInfo?.name ?? '该物品';
+				const name = String(itemInfo?.attrs?.name ?? '该物品');
 				if (!window.confirm(`"${name}" 已在清单中，确定要再次添加吗？`)) return;
 			}
 		}

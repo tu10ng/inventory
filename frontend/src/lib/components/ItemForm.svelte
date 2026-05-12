@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Item, Category, Tag, AttributeDefinition } from '$lib/types';
+	import { itemName } from '$lib/types';
 	import { getAttrConfig } from '$lib/utils/attrs';
 	import { attrMatchesScope } from '$lib/utils/columns';
 
@@ -13,21 +14,11 @@
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
-	let name = $state(item?.name ?? '');
-	// svelte-ignore state_referenced_locally
 	let category_id = $state(item?.category_id ?? categories[0]?.id ?? 0);
 	// svelte-ignore state_referenced_locally
 	let tag_id = $state<number | null>(item?.tag_id ?? null);
-	// svelte-ignore state_referenced_locally
-	let brand = $state(item?.brand ?? '');
-	// svelte-ignore state_referenced_locally
-	let model = $state(item?.model ?? '');
-	// svelte-ignore state_referenced_locally
-	let default_qty = $state(item?.default_qty ?? 1);
-	// svelte-ignore state_referenced_locally
-	let notes = $state(item?.notes ?? '');
 
-	// Dynamic attrs
+	// Unified attrs: name, brand, model, default_qty, notes all live here
 	// svelte-ignore state_referenced_locally
 	let attrs = $state<Record<string, unknown>>({ ...(item?.attrs ?? {}) });
 
@@ -36,6 +27,11 @@
 	// Scoped attribute definitions (registered + matching scope)
 	const scopedAttrDefs = $derived(
 		attrDefs.filter(ad => attrMatchesScope(ad, category_id, tag_id))
+	);
+
+	// Known attrs for the dynamic section – filter out 'name' since it's rendered at the top
+	const knownAttrDefs = $derived(
+		scopedAttrDefs.filter(ad => ad.key !== 'name')
 	);
 
 	// Ad-hoc keys: keys in attrs that are NOT in any attrDef
@@ -102,12 +98,14 @@
 
 	function handleSave() {
 		onSave({
-			name, category_id, tag_id, brand, model, default_qty, notes,
-			attrs,
+			category_id, tag_id, attrs,
 		});
 	}
 
 	const isEdit = $derived(!!item?.id);
+
+	// Validate name via the itemName helper (reads attrs.name)
+	const hasName = $derived(!!itemName({ attrs } as unknown as Item));
 </script>
 
 <div class="item-form">
@@ -115,7 +113,7 @@
 
 	<div class="form-group">
 		<label for="item-form-name">名称 *</label>
-		<input id="item-form-name" bind:value={name} placeholder="物品名称" />
+		<input id="item-form-name" value={attrs.name ?? ''} oninput={(e) => setAttr('name', e.currentTarget.value)} placeholder="物品名称" />
 	</div>
 
 	<div class="form-row">
@@ -144,32 +142,12 @@
 		</div>
 	</div>
 
-	<div class="form-row">
-		<div class="form-group" style="flex:1">
-			<label for="item-form-brand">品牌</label>
-			<input id="item-form-brand" bind:value={brand} placeholder="品牌" />
-		</div>
-		<div class="form-group" style="flex:1">
-			<label for="item-form-model">型号</label>
-			<input id="item-form-model" bind:value={model} placeholder="型号" />
-		</div>
-		<div class="form-group" style="width:80px">
-			<label for="item-form-qty">数量</label>
-			<input id="item-form-qty" type="number" bind:value={default_qty} min="1" />
-		</div>
-	</div>
-
-	<div class="form-group">
-		<label for="item-form-notes">备注</label>
-		<input id="item-form-notes" bind:value={notes} placeholder="备注" />
-	</div>
-
-	<!-- Known attributes (scoped) -->
-	{#if scopedAttrDefs.length > 0}
+	<!-- Known attributes (scoped, excluding 'name' which is rendered at top) -->
+	{#if knownAttrDefs.length > 0}
 		<hr class="form-divider" />
 		<h4 class="sub-title">已知属性</h4>
 
-		{#each scopedAttrDefs as ad (ad.id)}
+		{#each knownAttrDefs as ad (ad.id)}
 			{@const config = getAttrConfig(ad)}
 			{#if ad.attr_type === 'number' || ad.attr_type === 'weight'}
 				<div class="form-row">
@@ -261,7 +239,7 @@
 
 	<div class="form-actions">
 		<button onclick={onCancel}>取消</button>
-		<button class="primary" onclick={handleSave} disabled={!name}>{isEdit ? '更新' : '添加'}</button>
+		<button class="primary" onclick={handleSave} disabled={!hasName}>{isEdit ? '更新' : '添加'}</button>
 	</div>
 </div>
 

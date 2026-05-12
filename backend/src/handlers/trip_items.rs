@@ -85,7 +85,7 @@ pub async fn list_enriched(
     if !all_tag_ids.is_empty() {
         let placeholders = all_tag_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let q = format!(
-            "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE tag_id IN ({}) ORDER BY name",
+            "SELECT id, category_id, tag_id, attrs FROM items WHERE tag_id IN ({}) ORDER BY json_extract(attrs, '$.name')",
             placeholders
         );
         let mut query = sqlx::query_as::<_, Item>(&q);
@@ -322,11 +322,13 @@ pub async fn save_as_slot(
     })?;
 
     // 2. Fetch the item to get category_id and tag_id
-    let item = sqlx::query_as::<_, Item>("SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE id = ?")
+    let item = sqlx::query_as::<_, Item>("SELECT id, category_id, tag_id, attrs FROM items WHERE id = ?")
         .bind(item_id)
         .fetch_optional(&pool)
         .await?
         .ok_or_else(|| AppError::not_found("物品", item_id))?;
+
+    let item_name = item.attr_str("name");
 
     // 3. Find the trip's activity_id
     let trip = sqlx::query_as::<_, Trip>("SELECT * FROM trips WHERE id = ?")
@@ -346,7 +348,7 @@ pub async fn save_as_slot(
         "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order, default_item_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *"
     )
     .bind(activity_id)
-    .bind(&item.name)
+    .bind(&item_name)
     .bind(item.category_id)
     .bind(ti.is_essential)
     .bind(ti.qty)

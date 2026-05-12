@@ -208,8 +208,6 @@
 								<thead>
 									<tr>
 										<th>名称</th>
-										<th>品牌</th>
-										<th>型号</th>
 										<th>操作</th>
 									</tr>
 								</thead>
@@ -217,8 +215,6 @@
 									{#each preview.preview_items as item}
 										<tr>
 											<td>{item.name}</td>
-											<td>{item.brand || '-'}</td>
-											<td>{item.model || '-'}</td>
 											<td><span class="action-badge {actionClass(item.action)}">{actionLabel(item.action)}</span></td>
 										</tr>
 									{/each}

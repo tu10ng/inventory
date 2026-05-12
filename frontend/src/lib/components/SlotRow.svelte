@@ -108,11 +108,11 @@
 			{#if currentItem}
 				<span class="item-pill">
 					{#if isSingleType}
-						<span class="pill-brand">{currentItem.brand || currentItem.name}</span>
+						<span class="pill-brand">{String(currentItem.attrs?.brand ?? '') || String(currentItem.attrs?.name ?? '')}</span>
 					{:else}
-						<span class="pill-name">{currentItem.name}</span>
-						{#if currentItem.brand}
-							<span class="pill-brand">{currentItem.brand}</span>
+						<span class="pill-name">{String(currentItem.attrs?.name ?? '')}</span>
+						{#if currentItem.attrs?.brand}
+							<span class="pill-brand">{String(currentItem.attrs?.brand ?? '')}</span>
 						{/if}
 					{/if}
 				</span>
@@ -144,7 +144,7 @@
 					<option value="">选择物品...</option>
 					{#each tripItem.candidates as c}
 						<option value={c.id}>
-							{c.name}{c.brand ? ` ${c.brand}` : ''}{c.model ? ` ${c.model}` : ''}
+							{String(c.attrs?.name ?? '')}{c.attrs?.brand ? ` ${String(c.attrs?.brand ?? '')}` : ''}{c.attrs?.model ? ` ${String(c.attrs?.model ?? '')}` : ''}
 						</option>
 					{/each}
 				</select>

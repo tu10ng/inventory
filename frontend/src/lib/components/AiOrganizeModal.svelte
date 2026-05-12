@@ -33,7 +33,8 @@
 	let applyResult = $state<OrganizeApplyResponse | null>(null);
 
 	function getItemName(itemId: number): string {
-		return items.find((i) => i.id === itemId)?.name ?? `#${itemId}`;
+		const item = items.find((i) => i.id === itemId);
+		return String(item?.attrs?.name ?? `#${itemId}`);
 	}
 
 	function getItemInfo(itemId: number): Item | undefined {
@@ -205,28 +206,28 @@
 								<div class="action-detail">
 									{#if action.action_type === 'update'}
 										<div class="diff-list">
-											{#if action.fields.name != null}
+											{#if action.fields.attrs?.name != null}
 												<div class="diff-row">
 													<span class="diff-label">名称</span>
-													<span class="diff-old">{item?.name ?? ''}</span>
+													<span class="diff-old">{String(item?.attrs?.name ?? '')}</span>
 													<span class="diff-arrow">→</span>
-													<span class="diff-new">{action.fields.name}</span>
+													<span class="diff-new">{String(action.fields.attrs?.name ?? '')}</span>
 												</div>
 											{/if}
-											{#if action.fields.brand != null}
+											{#if action.fields.attrs?.brand != null}
 												<div class="diff-row">
 													<span class="diff-label">品牌</span>
-													<span class="diff-old">{item?.brand ?? ''}</span>
+													<span class="diff-old">{String(item?.attrs?.brand ?? '')}</span>
 													<span class="diff-arrow">→</span>
-													<span class="diff-new">{action.fields.brand}</span>
+													<span class="diff-new">{String(action.fields.attrs?.brand ?? '')}</span>
 												</div>
 											{/if}
-											{#if action.fields.model != null}
+											{#if action.fields.attrs?.model != null}
 												<div class="diff-row">
 													<span class="diff-label">型号</span>
-													<span class="diff-old">{item?.model ?? ''}</span>
+													<span class="diff-old">{String(item?.attrs?.model ?? '')}</span>
 													<span class="diff-arrow">→</span>
-													<span class="diff-new">{action.fields.model}</span>
+													<span class="diff-new">{String(action.fields.attrs?.model ?? '')}</span>
 												</div>
 											{/if}
 											{#if action.fields.category_name != null || action.fields.category_id != null}
@@ -252,12 +253,12 @@
 													>
 												</div>
 											{/if}
-											{#if action.fields.notes != null}
+											{#if action.fields.attrs?.notes != null}
 												<div class="diff-row">
 													<span class="diff-label">备注</span>
-													<span class="diff-old">{item?.notes ?? ''}</span>
+													<span class="diff-old">{String(item?.attrs?.notes ?? '')}</span>
 													<span class="diff-arrow">→</span>
-													<span class="diff-new">{action.fields.notes}</span>
+													<span class="diff-new">{String(action.fields.attrs?.notes ?? '')}</span>
 												</div>
 											{/if}
 										</div>
@@ -266,7 +267,7 @@
 											<span class="split-label">拆分为：</span>
 											{#each action.new_items as newItem}
 												<span class="split-item"
-													>{newItem.name}{#if newItem.category_name}
+													>{String(newItem.attrs?.name ?? '')}{#if newItem.category_name}
 														<span class="split-cat">({newItem.category_name})</span
 														>{/if}</span
 												>

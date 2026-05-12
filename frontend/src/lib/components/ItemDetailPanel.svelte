@@ -31,15 +31,23 @@
 		];
 	});
 
+	// Core fields now live in attrs, extract them for display
+	const itemName = $derived(String(item.attrs?.name ?? ''));
+	const itemBrand = $derived(String(item.attrs?.brand ?? ''));
+	const itemModel = $derived(String(item.attrs?.model ?? ''));
+	const itemDefaultQty = $derived(Number(item.attrs?.default_qty ?? 1));
+	const itemNotes = $derived(String(item.attrs?.notes ?? ''));
+
 	// Scoped attribute definitions
 	const scopedAttrDefs = $derived(
 		attrDefs.filter(ad => attrMatchesScope(ad, item.category_id, item.tag_id))
 	);
 
-	// Ad-hoc keys: keys in attrs that are NOT in any attrDef
+	// Ad-hoc keys: keys in attrs that are NOT in any attrDef and NOT core fields
 	const allDefKeys = $derived(new Set(attrDefs.map(ad => ad.key)));
+	const coreFieldKeys = new Set(['name', 'brand', 'model', 'default_qty', 'notes']);
 	const adHocKeys = $derived(
-		Object.keys(item.attrs ?? {}).filter(k => !allDefKeys.has(k))
+		Object.keys(item.attrs ?? {}).filter(k => !allDefKeys.has(k) && !coreFieldKeys.has(k))
 	);
 
 	function getAttrValue(key: string): unknown {
@@ -88,7 +96,7 @@
 			<span class="cat-icon">{category?.icon ?? '📦'}</span>
 			<div class="header-info">
 				<h2 class="item-name">
-					<InlineEdit value={item.name} oncommit={(v) => onUpdate('name', v)} placeholder="物品名称" />
+					<InlineEdit value={itemName} oncommit={(v) => updateAttr('name', v)} placeholder="物品名称" />
 				</h2>
 				<div class="item-meta">
 					{#if tag}
@@ -117,25 +125,25 @@
 		<div class="field-row">
 			<span class="field-label">品牌</span>
 			<span class="field-value">
-				<InlineEdit value={item.brand} oncommit={(v) => onUpdate('brand', v)} placeholder="-" />
+				<InlineEdit value={itemBrand} oncommit={(v) => updateAttr('brand', v)} placeholder="-" />
 			</span>
 		</div>
 		<div class="field-row">
 			<span class="field-label">型号</span>
 			<span class="field-value">
-				<InlineEdit value={item.model} oncommit={(v) => onUpdate('model', v)} placeholder="-" />
+				<InlineEdit value={itemModel} oncommit={(v) => updateAttr('model', v)} placeholder="-" />
 			</span>
 		</div>
 		<div class="field-row">
 			<span class="field-label">默认数量</span>
 			<span class="field-value">
-				<InlineEdit value={item.default_qty} type="number" min={1} oncommit={(v) => onUpdate('default_qty', v)} />
+				<InlineEdit value={itemDefaultQty} type="number" min={1} oncommit={(v) => updateAttr('default_qty', v)} />
 			</span>
 		</div>
 		<div class="field-row">
 			<span class="field-label">备注</span>
 			<span class="field-value">
-				<InlineEdit value={item.notes} oncommit={(v) => onUpdate('notes', v)} placeholder="-" />
+				<InlineEdit value={itemNotes} oncommit={(v) => updateAttr('notes', v)} placeholder="-" />
 			</span>
 		</div>
 	</div>

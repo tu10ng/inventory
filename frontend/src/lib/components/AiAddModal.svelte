@@ -51,7 +51,10 @@
 					progressMsg = msg;
 				},
 				onResult(data: { items: AiParsedItem[]; new_tags: Tag[] }) {
-					parsedItems = data.items;
+					parsedItems = data.items.map(item => ({
+						...item,
+						attrs: item.attrs || {}
+					}));
 					if (data.new_tags && data.new_tags.length > 0) {
 						onNewTags?.(data.new_tags);
 					}
@@ -200,13 +203,13 @@
 								{#each parsedItems as item, i}
 									<tr>
 										<td>
-											<input type="text" bind:value={item.name} class="cell-input" />
+											<input type="text" bind:value={item.attrs.name} class="cell-input" />
 										</td>
 										<td>
-											<input type="text" bind:value={item.brand} class="cell-input" />
+											<input type="text" bind:value={item.attrs.brand} class="cell-input" />
 										</td>
 										<td>
-											<input type="text" bind:value={item.model} class="cell-input" />
+											<input type="text" bind:value={item.attrs.model} class="cell-input" />
 										</td>
 										<td>
 											<select

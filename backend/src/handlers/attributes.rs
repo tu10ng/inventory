@@ -38,7 +38,7 @@ pub async fn create(
         return Err(AppError::validation("属性标签不能为空"));
     }
     let row = sqlx::query_as::<_, AttributeDefinition>(
-        "INSERT INTO attribute_definitions (key, label, attr_type, config, category_scope, tag_scope, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO attribute_definitions (key, label, attr_type, config, category_scope, tag_scope, sort_order, is_identity, is_required, default_value, search_weight) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
     )
     .bind(&body.key)
     .bind(&body.label)
@@ -47,6 +47,10 @@ pub async fn create(
     .bind(&body.category_scope)
     .bind(&body.tag_scope)
     .bind(body.sort_order)
+    .bind(body.is_identity)
+    .bind(body.is_required)
+    .bind(&body.default_value)
+    .bind(body.search_weight)
     .fetch_one(&pool)
     .await?;
     Ok(Json(row))
@@ -70,6 +74,10 @@ pub async fn update(
     let category_scope = body.category_scope.unwrap_or(existing.category_scope);
     let tag_scope = body.tag_scope.unwrap_or(existing.tag_scope);
     let sort_order = body.sort_order.unwrap_or(existing.sort_order);
+    let is_identity = body.is_identity.unwrap_or(existing.is_identity);
+    let is_required = body.is_required.unwrap_or(existing.is_required);
+    let default_value = body.default_value.unwrap_or(existing.default_value);
+    let search_weight = body.search_weight.unwrap_or(existing.search_weight);
 
     if key.trim().is_empty() {
         return Err(AppError::validation("属性键不能为空"));
@@ -79,7 +87,7 @@ pub async fn update(
     }
 
     let row = sqlx::query_as::<_, AttributeDefinition>(
-        "UPDATE attribute_definitions SET key = ?, label = ?, attr_type = ?, config = ?, category_scope = ?, tag_scope = ?, sort_order = ? WHERE id = ? RETURNING *",
+        "UPDATE attribute_definitions SET key = ?, label = ?, attr_type = ?, config = ?, category_scope = ?, tag_scope = ?, sort_order = ?, is_identity = ?, is_required = ?, default_value = ?, search_weight = ? WHERE id = ? RETURNING *",
     )
     .bind(&key)
     .bind(&label)
@@ -88,6 +96,10 @@ pub async fn update(
     .bind(&category_scope)
     .bind(&tag_scope)
     .bind(sort_order)
+    .bind(is_identity)
+    .bind(is_required)
+    .bind(&default_value)
+    .bind(search_weight)
     .bind(id)
     .fetch_one(&pool)
     .await?;
