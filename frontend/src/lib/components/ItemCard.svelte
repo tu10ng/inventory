@@ -3,7 +3,7 @@
 	import { startDrag, endDrag } from '$lib/stores/dragState.svelte';
 
 	let { name, brand, model, categoryIcon, qty, alreadyAdded = false,
-		itemId = 0, tagId = null, enrichedItems = [], onclick
+		itemId = 0, tagId = null, enrichedItems = []
 	}: {
 		name: string;
 		brand: string;
@@ -14,7 +14,6 @@
 		itemId?: number;
 		tagId?: number | null;
 		enrichedItems?: TripItemEnriched[];
-		onclick?: () => void;
 	} = $props();
 
 	const isDraggable = $derived(itemId > 0);
@@ -39,14 +38,9 @@
 	class="item-card"
 	class:already-added={alreadyAdded}
 	class:dragging
-	class:clickable={!!onclick}
 	draggable={isDraggable ? 'true' : undefined}
 	ondragstart={handleDragStart}
 	ondragend={handleDragEnd}
-	onclick={onclick}
-	role={onclick ? 'button' : undefined}
-	tabindex={onclick ? 0 : undefined}
-	onkeydown={onclick ? (e) => e.key === 'Enter' && onclick?.() : undefined}
 >
 	<div class="card-icon">{categoryIcon}</div>
 	<div class="card-name">{name}</div>
@@ -81,9 +75,6 @@
 	}
 	.item-card[draggable='true'] {
 		cursor: grab;
-	}
-	.item-card.clickable {
-		cursor: pointer;
 	}
 	.item-card:hover {
 		border-color: var(--primary);

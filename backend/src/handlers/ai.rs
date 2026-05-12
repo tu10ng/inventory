@@ -623,7 +623,6 @@ pub async fn organize_apply(
     let mut updated: i64 = 0;
     let mut created: i64 = 0;
     let mut deleted: i64 = 0;
-    let new_tags: Vec<Tag> = Vec::new();
 
     let mut tx = pool.begin().await?;
 
@@ -749,7 +748,6 @@ pub async fn organize_apply(
         updated,
         created,
         deleted,
-        new_tags,
     }))
 }
 

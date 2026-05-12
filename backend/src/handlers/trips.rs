@@ -144,12 +144,21 @@ pub async fn populate(
     Ok(Json(items))
 }
 
+/// Detail about a single removal in resync diff.
+struct RemovalDetail {
+    trip_item_id: i64,
+    slot_id: Option<i64>,
+    custom_name: Option<String>,
+    item_name: String,
+    reason: String,
+}
+
 /// Diff result for resync: which trip_items to remove, which slots to add.
 struct ResyncDiff {
     /// IDs of trip_items to delete
     ids_to_remove: Vec<i64>,
     /// Info about each removal (for preview)
-    removals: Vec<(i64, Option<i64>, Option<String>, String, String)>, // (trip_item_id, slot_id, custom_name, item_name, reason)
+    removals: Vec<RemovalDetail>,
     /// Slots to insert (not yet in trip)
     slots_to_add: Vec<ActivitySlot>,
 }
@@ -187,59 +196,93 @@ async fn compute_resync_diff(pool: &SqlitePool, trip_id: i64) -> Result<ResyncDi
     // Track first occurrence of each slot_id for dedup
     let mut seen_slot_ids = std::collections::HashSet::new();
 
+    // Batch query all item names referenced by trip_items (avoids N+1 in loop)
+    let item_ids: Vec<i64> = trip_items
+        .iter()
+        .filter_map(|ti| ti.item_id)
+        .collect();
+    let item_names: std::collections::HashMap<i64, String> = if !item_ids.is_empty() {
+        let placeholders = item_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!("SELECT id, name FROM items WHERE id IN ({})", placeholders);
+        let mut query = sqlx::query_as::<_, (i64, String)>(&sql);
+        for id in &item_ids {
+            query = query.bind(id);
+        }
+        query.fetch_all(pool).await?.into_iter().collect()
+    } else {
+        std::collections::HashMap::new()
+    };
+
     for ti in &trip_items {
         if let Some(slot_id) = ti.slot_id {
             if !template_slot_ids.contains(&slot_id) {
                 // Slot removed from template
                 ids_to_remove.push(ti.id);
-                let item_name = if let Some(item_id) = ti.item_id {
-                    sqlx::query_scalar::<_, String>("SELECT name FROM items WHERE id = ?")
-                        .bind(item_id)
-                        .fetch_optional(pool)
-                        .await?
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                };
-                removals.push((ti.id, ti.slot_id, ti.custom_name.clone().into(), item_name, "模板已移除此槽位".to_string()));
+                let item_name = ti
+                    .item_id
+                    .and_then(|id| item_names.get(&id))
+                    .cloned()
+                    .unwrap_or_default();
+                removals.push(RemovalDetail {
+                    trip_item_id: ti.id,
+                    slot_id: ti.slot_id,
+                    custom_name: if ti.custom_name.is_empty() {
+                        None
+                    } else {
+                        Some(ti.custom_name.clone())
+                    },
+                    item_name,
+                    reason: "模板已移除此槽位".to_string(),
+                });
             } else if !seen_slot_ids.insert(slot_id) {
                 // Duplicate slot_id — remove later ones
                 ids_to_remove.push(ti.id);
-                let item_name = if let Some(item_id) = ti.item_id {
-                    sqlx::query_scalar::<_, String>("SELECT name FROM items WHERE id = ?")
-                        .bind(item_id)
-                        .fetch_optional(pool)
-                        .await?
-                        .unwrap_or_default()
-                } else {
-                    String::new()
-                };
-                removals.push((ti.id, ti.slot_id, ti.custom_name.clone().into(), item_name, "与模板重复".to_string()));
+                let item_name = ti
+                    .item_id
+                    .and_then(|id| item_names.get(&id))
+                    .cloned()
+                    .unwrap_or_default();
+                removals.push(RemovalDetail {
+                    trip_item_id: ti.id,
+                    slot_id: ti.slot_id,
+                    custom_name: if ti.custom_name.is_empty() {
+                        None
+                    } else {
+                        Some(ti.custom_name.clone())
+                    },
+                    item_name,
+                    reason: "与模板重复".to_string(),
+                });
             }
         } else {
             // Manual item (slot_id IS NULL) — all removed on resync
             ids_to_remove.push(ti.id);
-            let item_name = if let Some(item_id) = ti.item_id {
-                sqlx::query_scalar::<_, String>("SELECT name FROM items WHERE id = ?")
-                    .bind(item_id)
-                    .fetch_optional(pool)
-                    .await?
-                    .unwrap_or_default()
+            let item_name = ti
+                .item_id
+                .and_then(|id| item_names.get(&id))
+                .cloned()
+                .unwrap_or_default();
+            let custom = if ti.custom_name.is_empty() {
+                None
             } else {
-                String::new()
+                Some(ti.custom_name.clone())
             };
-            let custom = if ti.custom_name.is_empty() { None } else { Some(ti.custom_name.clone()) };
-            removals.push((ti.id, None, custom, item_name, "手动添加的物品".to_string()));
+            removals.push(RemovalDetail {
+                trip_item_id: ti.id,
+                slot_id: None,
+                custom_name: custom,
+                item_name,
+                reason: "手动添加的物品".to_string(),
+            });
         }
     }
 
-    // Find slots to add: template slots not present in trip
+    // Find slots to add: template slots not present in trip (excluding items being removed)
+    let remove_set: std::collections::HashSet<i64> = ids_to_remove.iter().copied().collect();
     let existing_slot_ids: std::collections::HashSet<i64> = trip_items
         .iter()
+        .filter(|ti| !remove_set.contains(&ti.id))
         .filter_map(|ti| ti.slot_id)
-        .filter(|sid| !ids_to_remove.iter().any(|rid| {
-            trip_items.iter().any(|ti| ti.id == *rid && ti.slot_id == Some(*sid))
-        }))
         .collect();
 
     let slots_to_add: Vec<ActivitySlot> = slots
@@ -260,22 +303,20 @@ pub async fn resync_preview(
 ) -> Result<Json<ResyncPreview>, AppError> {
     let diff = compute_resync_diff(&pool, trip_id).await?;
 
-    let items_to_remove: Vec<ResyncPreviewItem> = diff.removals.iter().map(|(id, _slot_id, custom_name, item_name, reason)| {
-        // Try to get slot_name if it had a slot_id
-        let slot_name_str = None; // will be filled below
+    let items_to_remove: Vec<ResyncPreviewItem> = diff.removals.iter().map(|r| {
         ResyncPreviewItem {
-            trip_item_id: Some(*id),
-            slot_name: slot_name_str,
-            item_name: if item_name.is_empty() { None } else { Some(item_name.clone()) },
-            custom_name: custom_name.clone(),
-            reason: reason.clone(),
+            trip_item_id: Some(r.trip_item_id),
+            slot_name: None, // will be filled below
+            item_name: if r.item_name.is_empty() { None } else { Some(r.item_name.clone()) },
+            custom_name: r.custom_name.clone(),
+            reason: r.reason.clone(),
         }
     }).collect();
 
     // Enrich slot names for removals that had a slot_id
     let mut items_to_remove = items_to_remove;
-    for (i, (_id, slot_id, _custom, _item_name, _reason)) in diff.removals.iter().enumerate() {
-        if let Some(sid) = slot_id {
+    for (i, r) in diff.removals.iter().enumerate() {
+        if let Some(sid) = r.slot_id {
             let slot_name = sqlx::query_scalar::<_, String>("SELECT slot_name FROM activity_slots WHERE id = ?")
                 .bind(sid)
                 .fetch_optional(&pool)

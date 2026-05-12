@@ -6,7 +6,6 @@
 - **Svelte 5** — 组件框架（runes 模式：`$state` / `$derived` / `$effect` / `$props`）
 - **TypeScript** — 类型系统
 - **Vite 8** — 构建工具（dev server proxy `/api` → `localhost:3000`）
-- **svelte-dnd-action** — 拖拽库（已安装，用于物品库拖拽）
 
 ## 目录结构
 
@@ -18,7 +17,7 @@ src/
 │   ├── api/client.ts          fetch 封装（get/post/put/patch/del）
 │   ├── types/index.ts         所有 TS 接口定义
 │   ├── utils/status.ts        状态常量（STATUS_LABELS, STATUS_OPTIONS, TRIP_STATUS_LABELS）
-│   └── components/            11 个可复用组件
+│   └── components/            18 个可复用组件
 ├── routes/
 │   ├── +layout.svelte         全局布局（侧边栏导航 + .content 容器）
 │   ├── +layout.ts             ssr = false, prerender = true
@@ -27,6 +26,7 @@ src/
 │   ├── trips/[id]/+page.svelte  行程详情（双栏：清单 + 物品库）
 │   ├── items/+page.svelte     物品库管理
 │   └── activities/+page.svelte  活动模板管理
+│   └── settings/+page.svelte   设置（分类/标签/人员管理）
 ```
 
 ## 开发约定

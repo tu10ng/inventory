@@ -4,7 +4,7 @@
 
 ## *** 项目的关键技术决策要提供选项, 让用户选择 ***
 
-## *** 每次修改问题后, 都要增加一个"反思"的步骤, 反思为什么之前会做错, 并且将原因写入CLAUDE.md, 避免下次重犯 ***
+## *** 每次修改问题后, 都要增加一个"反思"的步骤, 反思为什么之前会做错, 并且一定要把复盘原因写入CLAUDE.md, 避免下次重犯 ***
 
 ## 项目结构
 
@@ -19,14 +19,18 @@ pnpm monorepo，前后端分离。
 │   │   ├── models.rs         数据模型 (serde + sqlx::FromRow)
 │   │   └── handlers/         路由处理（每个资源一个文件）
 │   └── migrations/
-│       └── 001_initial.sql   建表 + 种子数据 + ALTER TABLE 增量迁移
+│       ├── 001_initial.sql   建表 + 种子数据
+│       └── 002_tag_scope.sql  tag_scope 列迁移
 ├── frontend/             SvelteKit 2 + Svelte 5 (runes) + TypeScript
 │   └── src/
 │       ├── app.css               全局样式 + 物品栏暗色主题 + 打印样式
 │       ├── lib/api/client.ts     fetch 封装，base path /api
 │       ├── lib/types/index.ts    TS 类型定义
-│       ├── lib/utils/status.ts   状态标签/选项常量
-│       ├── lib/components/       11 个可复用 Svelte 组件
+│       ├── lib/utils/status.ts   状态标签/选项常量（动态 API 加载）
+│       ├── lib/utils/columns.ts   列定义（动态加载）
+│       ├── lib/utils/cellValue.ts  单元格值提取
+│       ├── lib/utils/itemFilters.ts 物品筛选/排序
+│       ├── lib/components/       18 个可复用 Svelte 组件
 │       └── routes/               页面路由
 │           ├── +page.svelte          首页（最近行程快速入口）
 │           ├── trips/+page.svelte    行程列表（含克隆）
@@ -50,9 +54,10 @@ cd backend && cargo build         # 后端编译检查
 ## 数据库
 
 - SQLite，文件 `backend/inventory.db`，WAL 模式
-- Migration 在 `001_initial.sql` 一个文件里，启动时自动执行
-- 添加新表/种子数据：直接追加到 `001_initial.sql` 末尾，用 `INSERT OR IGNORE` + 显式 id 保证幂等
-- 增量迁移用 `ALTER TABLE ADD COLUMN`，`db.rs` 会自动忽略 "duplicate column name" 错误
+- Migration 文件在 `migrations/` 目录，按文件名排序执行
+- `_migrations` 追踪表防止重复执行
+- `db.rs` 扫描目录，执行未追踪的 migration 文件
+- 仍使用 `split(';')` 切分 SQL — **字符串值不能含分号**
 - 重置数据库：删除 `backend/inventory.db*` 后重启
 
 ## 数据模型
@@ -60,17 +65,22 @@ cd backend && cargo build         # 后端编译检查
 | 表 | 说明 |
 |---|---|
 | categories | 物品分类（服装/装备/营养/电子/急救/洗漱/证件/其他） |
-| items | 物品库（name, brand, model, category_id, default_qty） |
+| tags | 物品子类型标签，每个 tag 归属一个 category |
+| items | 物品库（name, brand, model, category_id, default_qty, notes, tag_id, attrs） |
+| attribute_definitions | 物品属性定义（key/label/attr_type/config/category_scope/tag_scope） |
+| status_definitions | 状态定义（scope: item/trip） |
 | activities | 活动模板（如"徒步"） |
-| activity_items | 活动↔物品关联（含 is_essential） |
+| activity_slots | 活动槽位（slot_name, category_id, tags, default_item_id, is_essential） |
+| activity_slot_tags | 槽位↔标签多对多关联 |
 | tips | 活动小贴士 |
 | people | 人员 |
 | trips | 行程（name, activity_id, start/end_date, status） |
-| trip_items | 行程物品（qty, checked, item_status, notes, person_id, is_essential） |
+| trip_items | 行程物品（qty, checked, item_status, notes, person_id, is_essential, slot_id） |
+| _migrations | 迁移追踪表 |
 
 trip status: `planning` → `packing` → `done`
 
-item_status: `''` | `need_buy` | `need_find` | `need_charge` | `need_fetch` | `need_give`
+item_status 动态定义于 `status_definitions` 表（scope: item）
 
 ## API 路径约定
 
@@ -78,23 +88,46 @@ RESTful，前缀 `/api`。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| GET/POST | `/api/categories` | 分类列表/创建 |
+| PUT/DELETE | `/api/categories/{id}` | 更新/删除分类 |
+| GET/POST | `/api/tags` | 标签列表/创建 |
+| PUT/DELETE | `/api/tags/{id}` | 更新/删除标签 |
+| GET/POST | `/api/items` | 物品列表/创建 |
+| GET/PUT/DELETE | `/api/items/{id}` | 物品 CRUD |
+| GET | `/api/item-stats` | 物品使用统计 |
+| GET | `/api/item-stats/{id}` | 单个物品使用详情 |
+| POST | `/api/items/export` | 导出物品库 JSON |
+| POST | `/api/items/import-preview` | 导入预览 |
+| POST | `/api/items/import` | 执行导入 |
+| GET/POST | `/api/attribute-definitions` | 属性定义 CRUD |
+| PUT/DELETE | `/api/attribute-definitions/{id}` | 更新/删除属性定义 |
+| GET/POST | `/api/status-definitions` | 状态定义 CRUD |
+| PUT/DELETE | `/api/status-definitions/{id}` | 更新/删除状态定义 |
+| GET/POST | `/api/people` | 人员列表/创建 |
+| PUT/DELETE | `/api/people/{id}` | 更新/删除人员 |
+| GET/POST | `/api/activities` | 活动列表/创建 |
+| PUT/DELETE | `/api/activities/{id}` | 活动 CRUD |
+| GET/POST | `/api/activities/{id}/slots` | 活动槽位 |
+| PUT/DELETE | `/api/activity-slots/{id}` | 更新/删除槽位 |
+| GET/POST | `/api/activities/{id}/tips` | 活动小贴士 |
+| PUT/DELETE | `/api/tips/{id}` | 更新/删除贴士 |
 | GET/POST | `/api/trips` | 行程列表/创建 |
+| GET/PUT/DELETE | `/api/trips/{id}` | 行程 CRUD |
+| GET/POST | `/api/trips/{id}/items` | 行程物品 |
+| GET | `/api/trips/{id}/items/enriched` | 行程物品（含 slot 信息+候选物品） |
+| PUT/DELETE | `/api/trip-items/{id}` | 更新/删除行程物品 |
+| PATCH | `/api/trip-items/{id}/check` | 切换勾选 |
+| POST | `/api/trip-items/{id}/save-as-slot` | 将行程物品保存为模板槽位 |
+| PATCH | `/api/trips/{id}/items/bulk` | 批量更新 |
+| POST | `/api/trips/{id}/populate` | 从模板填充 |
+| POST | `/api/trips/{id}/resync` | 从模板同步 |
+| POST | `/api/trips/{id}/resync-preview` | 同步预览 |
+| POST | `/api/trips/{id}/clone` | 克隆行程 |
 | POST | `/api/ai/parse-items` | AI 物品解析（阻塞式） |
-| POST | `/api/ai/parse-items-stream` | AI 物品解析（SSE 流式，实时显示思考过程） |
+| POST | `/api/ai/parse-items-stream` | AI 物品解析（SSE 流式） |
 | POST | `/api/ai/organize-preview` | AI 整理预览 |
 | POST | `/api/ai/organize-apply` | AI 整理执行 |
 | POST | `/api/ai/ocr` | OCR 图片识别 |
-| GET/PUT/DELETE | `/api/trips/{id}` | 行程 CRUD |
-| GET/POST | `/api/trips/{id}/items` | 行程物品 |
-| PUT/DELETE | `/api/trip-items/{id}` | 更新/删除行程物品（注意连字符） |
-| PATCH | `/api/trip-items/{id}/check` | 切换勾选 |
-| PATCH | `/api/trips/{id}/items/bulk` | 批量更新行程物品 |
-| POST | `/api/trips/{id}/populate` | 从模板填充物品 |
-| POST | `/api/trips/{id}/resync` | 从模板同步（移除模板外物品+补充新槽位） |
-| POST | `/api/trips/{id}/resync-preview` | 同步预览（返回将移除/新增的物品列表） |
-| POST | `/api/trips/{id}/clone` | 克隆行程 |
-| GET | `/api/item-stats` | 物品使用统计（独立路径，避免 `{id}` 冲突） |
-| GET | `/api/item-stats/{id}` | 单个物品使用详情 |
 
 ## 注意事项
 
@@ -132,3 +165,27 @@ RESTful，前缀 `/api`。
 - `response.json()` 失败后不能再用 `response.text()`，body stream 已被消费。应先用 `response.text()` 读文本，再 `JSON.parse()` 尝试解析
 - Svelte 5 模板中 `{...}` 内不能使用 `{ ...; ... }` body 语法（大括号冲突），应抽取为 `<script>` 中的函数
 - `AppError` 不实现 `Display`，format 时需用 `{:?}` / `{:#?}`（需 `#[derive(Debug)]`）
+
+## 2026-05-12 代码质量修复复盘
+
+### P0 Bug 根因
+
+1. **`tag_scope` 列遗漏**：`002_tag_scope.sql` 迁移加了列，但只更新了 `attributes.rs` 的 CRUD handler，export/import 是后来加的功能，被遗漏。教训：**Schema 变更时应该全局 grep 所有引用该表的 SQL**（`grep "attribute_definitions"` 确认所有引用点）。
+
+2. **`organize_apply` 的 `new_tags` 永远为空**：`OrganizeApplyResponse` 从 `AiParseResponse`（有 `new_tags`）照搬，但 apply 阶段 tag 已在 preview 阶段创建完毕。教训：**复制代码时必须审视每个字段在目标场景下是否还有意义，照搬结构体 ≠ 照搬逻辑**。
+
+### P1 死代码根因
+
+- `svelte-dnd-action` 是 slot+tag 系统开发时预装的依赖，最终用了原生 HTML5 drag，但没有清理。教训：**依赖不应该"预装"，应该在真正需要时才加，加了不用就要删**。
+
+### P2 复杂度问题根因
+
+- `compute_resync_diff` 的 N+1 查询是逐步堆叠补丁的典型后果：最初只处理"新增槽位"，后来追加删除逻辑（3 个独立 if 分支），每次只在循环体内加分支，没人退一步想"这条 item name 可以批量查"。教训：**当一个函数内部出现 3 个以上结构相似的代码块时，就该考虑提取公共逻辑**。
+
+### P3 前端质量问题根因
+
+- **"动态化改造不彻底"** 是最深层的问题：status 改为动态加载了，但 UI 颜色还在用硬编码 CSS；columns 动态加载了，但 `cellValue.ts` 只覆盖了 2/4 个核心字段。这类"改一半"的问题比不做更危险——给人"已支持动态化"的假象。教训：**做动态化改造时，必须全链路追踪：API → 类型 → 工具函数 → 组件渲染，每个环节都要确认不再有硬编码**。
+
+### P4 文档腐烂根因
+
+- 三阶段架构重构后（分类用户化→状态动态化→属性动态化），没有人系统地更新文档。大型重构的 checklist 必须包含"更新所有相关 CLAUDE.md"。

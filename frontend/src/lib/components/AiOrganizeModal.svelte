@@ -62,8 +62,8 @@
 			// Select all by default
 			selected = new Set(actions.map((_, i) => i));
 			stage = 'preview';
-		} catch (e: any) {
-			errorMsg = e.message || 'AI 分析失败';
+		} catch (e: unknown) {
+			errorMsg = e instanceof Error ? e.message : 'AI 分析失败';
 			stage = 'preview';
 		}
 	}
@@ -95,12 +95,10 @@
 			});
 			applyResult = resp;
 			stage = 'preview';
-			if (resp.new_tags.length > 0) {
-				onNewTags?.(resp.new_tags);
-			}
+			// Tags are already created during preview phase, no need to re-emit
 			onDone();
-		} catch (e: any) {
-			errorMsg = e.message || '应用失败';
+		} catch (e: unknown) {
+			errorMsg = e instanceof Error ? e.message : '应用失败';
 			stage = 'preview';
 		}
 	}

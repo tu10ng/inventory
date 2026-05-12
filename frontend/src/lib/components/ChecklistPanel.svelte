@@ -14,6 +14,14 @@
 
 	let exportLabel = $state('📋');
 	let exportTimer: ReturnType<typeof setTimeout> | undefined;
+	let errorMessage = $state<string | null>(null);
+	let errorTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function showError(msg: string) {
+		errorMessage = msg;
+		clearTimeout(errorTimer);
+		errorTimer = setTimeout(() => { errorMessage = null; }, 5000);
+	}
 
 	let panelDropOver = $state(false);
 
@@ -59,6 +67,7 @@
 			await api.post(`/trips/${trip.id}/items`, { item_id: itemId, qty });
 		} catch (e) {
 			console.error('添加物品失败', e);
+			showError('操作失败：' + (e instanceof Error ? e.message : '未知错误'));
 		}
 		onReload();
 	}
@@ -278,6 +287,12 @@
 	ondragleave={handlePanelDragLeave}
 	ondrop={handlePanelDrop}
 >
+{#if errorMessage}
+	<div class="error-banner" role="alert">
+		{errorMessage}
+		<button onclick={() => { errorMessage = null; clearTimeout(errorTimer); }}>✕</button>
+	</div>
+{/if}
 <ProgressBar checked={totalChecked} total={totalItems} />
 
 {#if tips.length > 0}
@@ -413,5 +428,26 @@
 		outline: 2px dashed var(--primary);
 		outline-offset: -2px;
 		background: rgba(59, 130, 246, 0.04);
+	}
+	.error-banner {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 8px 14px;
+		background: #fdf0f0;
+		border: 1px solid var(--danger);
+		border-radius: 8px;
+		color: var(--danger);
+		font-size: 13px;
+		margin-bottom: 12px;
+	}
+	.error-banner button {
+		background: none;
+		border: none;
+		color: var(--danger);
+		font-size: 16px;
+		cursor: pointer;
+		padding: 0 2px;
+		line-height: 1;
 	}
 </style>

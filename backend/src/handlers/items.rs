@@ -166,7 +166,7 @@ pub async fn export_items(State(pool): State<SqlitePool>) -> Result<Response<Bod
     .await?;
 
     let attribute_definitions = sqlx::query_as::<_, AttributeDefinition>(
-        "SELECT id, key, label, attr_type, config, category_scope, sort_order FROM attribute_definitions ORDER BY sort_order, id",
+        "SELECT id, key, label, attr_type, config, category_scope, tag_scope, sort_order FROM attribute_definitions ORDER BY sort_order, id",
     )
     .fetch_all(&pool)
     .await?;
@@ -202,7 +202,7 @@ pub async fn export_items(State(pool): State<SqlitePool>) -> Result<Response<Bod
             "attachment; filename=\"inventory-export.json\"",
         )
         .body(Body::from(json))
-        .unwrap();
+        .expect("Failed to build export response");
 
     Ok(resp)
 }
@@ -350,13 +350,14 @@ pub async fn import_items(
             .await?;
         if existing.is_none() {
             sqlx::query(
-                "INSERT INTO attribute_definitions (key, label, attr_type, config, category_scope, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO attribute_definitions (key, label, attr_type, config, category_scope, tag_scope, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&adef.key)
             .bind(&adef.label)
             .bind(&adef.attr_type)
             .bind(&adef.config)
             .bind(&adef.category_scope)
+            .bind(&adef.tag_scope)
             .bind(adef.sort_order)
             .execute(&mut *tx)
             .await?;

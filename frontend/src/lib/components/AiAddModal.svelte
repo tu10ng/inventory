@@ -50,7 +50,7 @@
 				onProgress(msg: string) {
 					progressMsg = msg;
 				},
-				onResult(data: any) {
+				onResult(data: { items: AiParsedItem[]; new_tags: Tag[] }) {
 					parsedItems = data.items;
 					if (data.new_tags && data.new_tags.length > 0) {
 						onNewTags?.(data.new_tags);

@@ -17,8 +17,9 @@
 			[trips, activities] = await Promise.all([
 				api.get<Trip[]>('/trips'),
 				api.get<Activity[]>('/activities'),
-				getTripStatuses()
 			]);
+			// Warm status cache in background (getTripStatusLabel depends on this cache)
+			getTripStatuses().catch(() => { /* non-critical */ });
 		} catch (e) {
 			error = (e as Error).message;
 		} finally {

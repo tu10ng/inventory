@@ -25,15 +25,18 @@
 
 ### items.rs
 - `list` / `get` / `create` / `update` / `delete` — 标准 CRUD
-- `usage_stats()` — `GET /api/item-stats`，返回 `Vec<ItemUsageCount>`（每个物品被多少行程使用）
-- `usage_detail(id)` — `GET /api/item-stats/{id}`，返回 `ItemUsageStats`（物品关联的行程列表）
+- `usage_stats()` — `GET /api/item-stats`，返回 `Vec<ItemUsageCount>`
+- `usage_detail(id)` — `GET /api/item-stats/{id}`，返回 `ItemUsageStats`
+- `export_items()` — `GET /api/items/export`，导出物品库 JSON
+- `import_preview()` — `POST /api/items/import-preview`，导入预览
+- `import_items()` — `POST /api/items/import`，执行导入
 
 ### people.rs
 - `list` / `create` / `update` / `delete` — 标准 CRUD
 
 ### activities.rs
 - `list` / `get` / `create` / `update` / `delete` — 活动 CRUD
-- `list_items` / `add_item` / `remove_item` — 活动物品关联管理
+- `list_slots` / `create_slot` / `update_slot` / `delete_slot` — 活动槽位管理
 - `list_tips` / `create_tip` / `update_tip` / `delete_tip` — 活动提示管理
 
 ### trips.rs

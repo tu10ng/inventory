@@ -12,6 +12,16 @@
 			? statusDefs.map(s => ({ value: s.value, label: s.label }))
 			: [{ value: '', label: '无' }]
 	);
+
+	const currentDef = $derived(
+		statusDefs.find(s => s.value === status)
+	);
+
+	const badgeStyle = $derived(
+		currentDef?.color
+			? `background: ${currentDef.color}20; color: ${currentDef.color}; border-color: ${currentDef.color}40`
+			: ''
+	);
 </script>
 
 <select
@@ -19,6 +29,7 @@
 	value={status}
 	onchange={(e) => onchange(e.currentTarget.value)}
 	onclick={(e) => e.stopPropagation()}
+	style={badgeStyle}
 >
 	{#each options as opt}
 		<option value={opt.value}>{opt.label}</option>

@@ -1,6 +1,5 @@
-use axum::extract::{Multipart, State};
+use axum::extract::Multipart;
 use axum::Json;
-use sqlx::SqlitePool;
 use std::io::Write;
 use std::process::Command;
 use tokio::task;
@@ -27,7 +26,6 @@ fn tesseract_ocr(image_path: &str) -> Result<String, String> {
 }
 
 pub async fn ocr_images(
-    State(_pool): State<SqlitePool>,
     mut multipart: Multipart,
 ) -> Result<Json<serde_json::Value>, AppError> {
     // Check tesseract availability

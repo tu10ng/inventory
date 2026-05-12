@@ -679,7 +679,6 @@ pub struct OrganizeApplyResponse {
     pub updated: i64,
     pub created: i64,
     pub deleted: i64,
-    pub new_tags: Vec<Tag>,
 }
 
 // ── Import / Export ──

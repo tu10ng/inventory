@@ -1,11 +1,13 @@
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::Json;
 use sqlx::SqlitePool;
 
 use crate::error::AppError;
 use crate::models::{AttributeDefinition, CreateAttributeDefinition, UpdateAttributeDefinition};
 
+/// Reserved for future scope-based filtering (category_id / tag_id).
 #[derive(serde::Deserialize, Default)]
+#[allow(dead_code)]
 pub struct ListQuery {
     pub category_id: Option<i64>,
     pub tag_id: Option<i64>,
@@ -13,7 +15,6 @@ pub struct ListQuery {
 
 pub async fn list(
     State(pool): State<SqlitePool>,
-    Query(_query): Query<ListQuery>,
 ) -> Result<Json<Vec<AttributeDefinition>>, AppError> {
     // Returns all definitions; scope filtering is done client-side
     // because the scope logic (OR match on category_scope/tag_scope, empty=global)

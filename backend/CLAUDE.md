@@ -43,9 +43,10 @@ pub async fn handler_name(
 
 ## 迁移
 
-- 所有 SQL 在 `migrations/001_initial.sql` 单文件
-- `db.rs` 用 `split(';')` 逐条执行 — **SQL 字符串值不能含分号**
-- 增量迁移用 `ALTER TABLE ADD COLUMN`，重复执行时 "duplicate column name" 错误会被 warn 而非 panic
+- Migration 文件在 `migrations/` 目录，按文件名排序执行
+- `_migrations` 追踪表防止重复执行
+- `db.rs` 扫描目录，执行未追踪的 migration 文件
+- 仍使用 `split(';')` 切分 SQL — **字符串值不能含分号**
 - 幂等写法：`CREATE TABLE IF NOT EXISTS`、`INSERT OR IGNORE`、`ALTER TABLE`（容错）
 
 ## 已知陷阱

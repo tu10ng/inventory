@@ -217,7 +217,6 @@ export interface OrganizeApplyResponse {
 	updated: number;
 	created: number;
 	deleted: number;
-	new_tags: Tag[];
 }
 
 // ── Import / Export ──

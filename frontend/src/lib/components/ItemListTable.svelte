@@ -3,6 +3,7 @@
 	import type { ItemColumnDef } from '$lib/utils/columns';
 	import type { ItemGroup } from '$lib/utils/itemFilters';
 	import { getCellValue } from '$lib/utils/cellValue';
+	import CellRenderer from './CellRenderer.svelte';
 	import ItemGroupBlock from './ItemGroupBlock.svelte';
 
 	let {
@@ -226,14 +227,7 @@
 						>
 							<span class="item-name">{item.name}</span>
 							{#each visibleColumns as col (col.key)}
-								{@const v = getCellValue(item, col)}
-								<span class="cell cell-{col.type}">
-									{#if v != null && String(v) !== ''}
-										<span class="cell-text">{v}{col.suffix ?? ''}</span>
-									{:else}
-										<span class="cell-empty">-</span>
-									{/if}
-								</span>
+								<CellRenderer {item} {col} tag={getTag(item)} />
 							{/each}
 						</button>
 					{/each}
@@ -256,64 +250,7 @@
 							{/if}
 						</span>
 						{#each visibleColumns as col (col.key)}
-							<span class="cell cell-{col.type}">
-								{#if col.type === 'tag'}
-									{@const t = getTag(item)}
-									{#if t}
-										<span class="cell-pill">{t.name}</span>
-									{:else}
-										<span class="cell-empty">-</span>
-									{/if}
-								{:else if col.type === 'text'}
-									{@const v = getCellValue(item, col)}
-									{#if v}
-										<span class="cell-text">{v}</span>
-									{:else}
-										<span class="cell-empty">-</span>
-									{/if}
-								{:else if col.type === 'number'}
-									{@const v = getCellValue(item, col) as number}
-									{#if v}
-										<span class="cell-num">{v}{col.suffix ? col.suffix : ''}</span>
-									{:else}
-										<span class="cell-empty">-</span>
-									{/if}
-								{:else if col.type === 'weight'}
-									{@const v = getCellValue(item, col) as number}
-									{#if v}
-										<span class="cell-num">{v}g</span>
-									{:else}
-										<span class="cell-empty">-</span>
-									{/if}
-								{:else if col.type === 'bool'}
-									{@const v = getCellValue(item, col) as number}
-									{#if v > 0}
-										<span class="cell-bool yes">✓</span>
-									{:else}
-										<span class="cell-bool no">✗</span>
-									{/if}
-								{:else if col.type === 'bar'}
-									{@const v = getCellValue(item, col) as number}
-									{@const max = col.max ?? 10}
-									{#if v > 0}
-										<span class="cell-bar">
-											<span class="bar-track">
-												<span class="bar-fill" style="width: {Math.min(v / max * 100, 100)}%"></span>
-											</span>
-											<span class="bar-val">{v}</span>
-										</span>
-									{:else}
-										<span class="cell-empty">-</span>
-									{/if}
-								{:else if col.type === 'stars'}
-									{@const v = getCellValue(item, col) as number}
-									{#if v > 0}
-										<span class="cell-stars">{'★'.repeat(Math.min(v, 5))}{'☆'.repeat(Math.max(5 - v, 0))}</span>
-									{:else}
-										<span class="cell-empty">-</span>
-									{/if}
-								{/if}
-							</span>
+							<CellRenderer {item} {col} tag={getTag(item)} />
 						{/each}
 					</button>
 				{/each}

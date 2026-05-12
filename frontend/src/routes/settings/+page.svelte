@@ -6,6 +6,8 @@
 	let categories = $state<Category[]>([]);
 	let tags = $state<Tag[]>([]);
 	let people = $state<Person[]>([]);
+	let loading = $state(true);
+	let error = $state<string | null>(null);
 
 	// ── Category form ──
 	let showCatForm = $state(false);
@@ -23,11 +25,19 @@
 	let personForm = $state({ name: '' });
 
 	async function load() {
-		[categories, tags, people] = await Promise.all([
-			api.get<Category[]>('/categories'),
-			api.get<Tag[]>('/tags'),
-			api.get<Person[]>('/people')
-		]);
+		try {
+			loading = true;
+			error = null;
+			[categories, tags, people] = await Promise.all([
+				api.get<Category[]>('/categories'),
+				api.get<Tag[]>('/tags'),
+				api.get<Person[]>('/people')
+			]);
+		} catch (e: unknown) {
+			error = e instanceof Error ? e.message : '加载失败';
+		} finally {
+			loading = false;
+		}
 	}
 
 	// ── Categories ──
@@ -59,8 +69,8 @@
 		try {
 			await api.del(`/categories/${id}`);
 			await load();
-		} catch (e: any) {
-			alert('删除失败：' + e.message);
+		} catch (e: unknown) {
+			alert('删除失败：' + (e instanceof Error ? e.message : '未知错误'));
 		}
 	}
 
@@ -102,8 +112,8 @@
 		try {
 			await api.del(`/tags/${id}`);
 			await load();
-		} catch (e: any) {
-			alert('删除失败：' + e.message);
+		} catch (e: unknown) {
+			alert('删除失败：' + (e instanceof Error ? e.message : '未知错误'));
 		}
 	}
 
@@ -136,8 +146,8 @@
 		try {
 			await api.del(`/people/${id}`);
 			await load();
-		} catch (e: any) {
-			alert('删除失败：' + e.message);
+		} catch (e: unknown) {
+			alert('删除失败：' + (e instanceof Error ? e.message : '未知错误'));
 		}
 	}
 
@@ -145,6 +155,13 @@
 </script>
 
 <h1>设置</h1>
+
+{#if loading}
+	<div class="spinner">加载中...</div>
+{:else if error}
+	<div class="error-banner">{error}</div>
+	<button class="primary" onclick={load}>重试</button>
+{:else}
 
 <!-- ── Section: Categories ── -->
 <section class="settings-section">
@@ -281,6 +298,7 @@
 		</div>
 	{/if}
 </section>
+{/if}
 
 <style>
 	.settings-section {
@@ -362,5 +380,19 @@
 	}
 	.tag-name {
 		flex: 1;
+	}
+	.spinner {
+		text-align: center;
+		padding: 40px;
+		color: var(--text-secondary);
+	}
+	.error-banner {
+		text-align: center;
+		padding: 16px;
+		background: #fdf0f0;
+		border: 1px solid var(--danger);
+		border-radius: 8px;
+		color: var(--danger);
+		margin-bottom: 16px;
 	}
 </style>
