@@ -168,8 +168,10 @@
 							<InlineEditToggle value={(val as number) > 0} oncommit={(v) => updateAttr(ad.key, v ? 1 : 0)} />
 						{:else if ad.attr_type === 'text' && config.options}
 							<InlineEditPills value={val as string} options={config.options} oncommit={(v) => updateAttr(ad.key, v)} />
+						{:else if ad.attr_type === 'text'}
+							<InlineEdit value={val as string} oncommit={(v) => updateAttr(ad.key, v)} placeholder="-" />
 						{:else}
-							<InlineEditPills value={val as string} options={[]} freeform={true} oncommit={(v) => updateAttr(ad.key, v)} />
+							<InlineEdit value={val as string} oncommit={(v) => updateAttr(ad.key, v)} placeholder="-" />
 						{/if}
 					</span>
 				</div>

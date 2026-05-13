@@ -231,3 +231,17 @@ RESTful，前缀 `/api`。
 cd backend && cargo test       # 45 个后端测试，< 0.1s
 cd frontend && pnpm test       # 48 个前端测试，< 1s
 ```
+
+## 2026-05-13 ItemDetailPanel 编辑 Bug 修复复盘
+
+### Bug 1: `handleFieldUpdate` 对 `attrs` 字段双重包裹
+
+**根因**：`handleFieldUpdate` 的原始逻辑只有两个分支：top-level 字段（`category_id`/`tag_id`）直接写入，其他字段都视为 attrs 内的子字段，用 `{ ...attrs, [field]: value }` 包裹。但当 `ItemDetailPanel.updateAttr()` 调用时，`field` 就是 `'attrs'`，`value` 已经是完整的 attrs 对象（在 `updateAttr` 中已做过 `{ ...item.attrs, [key]: value }` 合并）。`handleFieldUpdate` 又做了一次 `{ ...attrs, attrs: value }`，导致后端收到 `{ attrs: { name: "旧", attrs: { name: "新" } } }`，旧值覆盖新值。
+
+**教训**：**当调用方已经做了数据组装（`updateAttr` 构造完整 attrs），接收方不应再二次组装**。函数签名 `handleFieldUpdate(field: string, value: unknown)` 的 `field` 参数有两层语义：它既是"要修改的字段名"，也是"数据已经按什么层级组装好了"的提示。当 `field === 'attrs'` 时，`value` 已经是最终数据，不应再嵌套。这类"透传已组装数据"的模式应该有明确的短路分支。
+
+### Bug 2: `text` 类型已知属性用了药丸编辑器
+
+**根因**：属性编辑器选择逻辑只有 `text && config.options` 分支使用 `InlineEditPills`，其余类型（weight/number/bar/stars/bool 等）都有独立分支，但纯 `text` 类型（无 options）落入 `{:else}` 兜底，用了 `InlineEditPills` + `freeform={true}`。这个兜底逻辑的意图是处理"未知的 ad-hoc 属性类型"，但没有考虑到 `text` 类型是已知类型，只是恰好没有 options。
+
+**教训**：**`{:else}` 兜底分支的语义应该是"真正未知的情况"，而不是"我还没处理的已知情况"**。在写 if-else 链时，每增加一种已知的 `attr_type`，都应该显式处理，让 `{:else}` 只覆盖真正的未知类型。否则已定义的类型会被迫走不适合的 UI 控件。

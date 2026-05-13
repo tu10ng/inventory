@@ -100,8 +100,11 @@
 					data.tag_id = null;
 				}
 			}
+		} else if (field === 'attrs') {
+			// value is already the complete attrs object (from updateAttr)
+			data = { attrs: value as Record<string, unknown> };
 		} else {
-			// Update within attrs
+			// Update a single field within attrs
 			const newAttrs = { ...selectedItem.attrs, [field]: value };
 			data = { attrs: newAttrs };
 		}
