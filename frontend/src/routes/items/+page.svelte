@@ -14,7 +14,7 @@
 	import ImportModal from '$lib/components/ImportModal.svelte';
 	import OrderImportModal from '$lib/components/OrderImportModal.svelte';
 	import BulkActionBar from '$lib/components/BulkActionBar.svelte';
-	import type { BulkAction } from '$lib/components/BulkActionBar.svelte';
+	import type { BatchAttrOption } from '$lib/components/BulkActionBar.svelte';
 	import { loadAllColumns, getAllColumns, loadVisibleColumns } from '$lib/utils/columns';
 	import type { ItemColumnDef } from '$lib/utils/columns';
 	import { filterItems, sortItems, groupItems } from '$lib/utils/itemFilters';
@@ -30,8 +30,7 @@
 	let selectedItem = $state<Item | null>(null);
 	let panelMode = $state<'detail' | 'create' | null>(null);
 
-	// Batch operations
-	let selectable = $state(false);
+	// Batch operations — always active
 	let selectedItemIds = $state<Set<number>>(new Set());
 
 	let search = $state('');
@@ -317,13 +316,6 @@
 
 	// ── Batch operations ──
 
-	function toggleSelectMode() {
-		selectable = !selectable;
-		if (!selectable) {
-			selectedItemIds = new Set();
-		}
-	}
-
 	function toggleSelectItem(id: number) {
 		const next = new Set(selectedItemIds);
 		if (next.has(id)) next.delete(id);
@@ -331,21 +323,12 @@
 		selectedItemIds = next;
 	}
 
-	function toggleSelectAll() {
-		if (selectedItemIds.size === filteredItems.length) {
-			selectedItemIds = new Set();
-		} else {
-			selectedItemIds = new Set(filteredItems.map(i => i.id));
-		}
-	}
-
-	async function batchDelete() {
+	async function handleBatchDelete() {
 		if (!confirm(`确定删除选中的 ${selectedItemIds.size} 件物品？此操作不可撤销。`)) return;
 		try {
 			const idsToDelete = new Set(selectedItemIds);
 			await api.post('/items/batch', { ids: [...idsToDelete], action: 'delete' });
 			selectedItemIds = new Set();
-			selectable = false;
 			selectedItem = null;
 			panelMode = null;
 			items = items.filter(i => !idsToDelete.has(i.id));
@@ -354,30 +337,78 @@
 		}
 	}
 
-	async function batchChangeCategory() {
-		const catIdStr = prompt('请输入目标分类 ID：\n' + categories.map(c => `${c.id}: ${c.icon} ${c.name}`).join('\n'));
-		if (!catIdStr) return;
-		const catId = parseInt(catIdStr, 10);
-		if (isNaN(catId) || !categories.find(c => c.id === catId)) {
-			alert('无效的分类 ID');
-			return;
-		}
+	async function handleBatchUpdateAttr(attrKey: string, value: unknown) {
 		try {
 			const idsToUpdate = new Set(selectedItemIds);
-			await api.post('/items/batch', { ids: [...idsToUpdate], action: 'update', changes: { category_id: catId } });
+			let changes: Record<string, unknown>;
+
+			if (attrKey === 'category_id') {
+				changes = { category_id: value };
+			} else if (attrKey === 'tag_id') {
+				changes = { tag_id: value };
+			} else {
+				// attr within attrs JSON
+				changes = { attrs: { [attrKey]: value } };
+			}
+
+			await api.post('/items/batch', { ids: [...idsToUpdate], action: 'update', changes });
 			selectedItemIds = new Set();
-			selectable = false;
 			selectedItem = null;
 			panelMode = null;
-			items = items.map(i => idsToUpdate.has(i.id) ? { ...i, category_id: catId } : i);
+
+			// Optimistic local update
+			items = items.map(i => {
+				if (!idsToUpdate.has(i.id)) return i;
+				if (attrKey === 'category_id') {
+					return { ...i, category_id: value as number };
+				}
+				if (attrKey === 'tag_id') {
+					return { ...i, tag_id: value as number | null };
+				}
+				return { ...i, attrs: { ...i.attrs, [attrKey]: value } };
+			});
 		} catch (e) {
-			alert('批量更改分类失败：' + (e instanceof Error ? e.message : '未知错误'));
+			alert('批量更新失败：' + (e instanceof Error ? e.message : '未知错误'));
 		}
 	}
 
-	const batchActions: BulkAction[] = $derived([
-		{ label: '批量删除', action: batchDelete, variant: 'danger' },
-		{ label: '更改分类', action: batchChangeCategory },
+	// Build attribute options for BulkActionBar
+	const batchAttrOptions: BatchAttrOption[] = $derived([
+		// category_id as a select option
+		{
+			key: 'category_id',
+			label: '分类',
+			type: 'select',
+			selectOptions: categories.map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })),
+		},
+		// tag_id as a select option (with null)
+		{
+			key: 'tag_id',
+			label: '标签',
+			type: 'select',
+			selectOptions: [
+				{ value: null as unknown as number, label: '(无标签)' },
+				...tags.map(t => ({ value: t.id, label: t.name })),
+			],
+		},
+		// All attribute definitions as their respective types
+		...attrDefs.map(ad => {
+			const config = ad.config ? (() => { try { return JSON.parse(ad.config); } catch { return {}; } })() : {};
+			const opt: BatchAttrOption = {
+				key: ad.key,
+				label: ad.label,
+				type: ad.attr_type,
+			};
+			if (config.max !== undefined || config.suffix) {
+				opt.config = {};
+				if (config.max !== undefined) opt.config.max = config.max;
+				if (config.suffix) opt.config.suffix = config.suffix;
+			}
+			if (config.options) {
+				opt.config = { ...opt.config, options: config.options };
+			}
+			return opt;
+		}),
 	]);
 
 	$effect(() => { load(); });
@@ -433,16 +464,18 @@
 			<div class="toolbar-row toolbar-actions">
 				<button onclick={() => api.downloadExport('/items/export').catch(e => alert(e.message))}>导出</button>
 				<button onclick={() => showImportModal = true}>导入</button>
-				<button class:primary={!selectable} onclick={toggleSelectMode}>
-					{selectable ? '取消选择' : '批量操作'}
-				</button>
 				<button class="primary" onclick={startCreate}>+ 添加物品</button>
 				<button onclick={() => showAiModal = true}>AI 添加</button>
 				<button onclick={() => showOcrModal = true}>OCR 导入</button>
 				<button onclick={() => showOrganizeModal = true}>AI 整理</button>
 			</div>
 		</div>
-		<BulkActionBar selectedCount={selectedItemIds.size} actions={batchActions} />
+		<BulkActionBar
+			selectedCount={selectedItemIds.size}
+			attrOptions={batchAttrOptions}
+			onBatchDelete={handleBatchDelete}
+			onBatchUpdateAttr={handleBatchUpdateAttr}
+		/>
 		{#if ruleConfig?.mode === 'summary' && groupBy && groupByKey}
 			{@const summaryFields = ruleConfig.summary_fields ?? []}
 			<div class="summary-view">
@@ -484,7 +517,6 @@
 				{columnFilters}
 				{groupBy}
 				{groupedData}
-				{selectable}
 				selectedIds={selectedItemIds}
 				onSelect={selectItem}
 				onToggleCategory={toggleCategory}

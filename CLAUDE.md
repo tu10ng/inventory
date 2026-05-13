@@ -300,3 +300,21 @@ cd frontend && pnpm test       # 48 个前端测试，< 2s
 2. **`await load()` 是全页重载的反模式**：delete/save 操作后调用 `await load()` 会设置 `loading = true`，导致整个页面被"加载中..."替换，数据返回后再渲染回来，造成视觉闪烁。教训：**CRUD 操作后应优先使用乐观本地更新（修改 $state 变量），只在确实需要重新计算服务端派生数据时才全量 reload**。`items` 是 `$state` 变量，修改后 `$derived` 链（filteredItems/sortedItems/groupedData）会自动重新计算，UI 无缝更新。
 
 3. **BatchDelete 和 batchChangeCategory 需要在 API 调用前捕获 ID 快照**：在 `await api.post(...)` 之前捕获 `const idsToDelete = new Set(selectedItemIds)`，因为在 API 调用完成后立即清空 `selectedItemIds`。如果在 API 调用后仍引用 `selectedItemIds`，乐观更新时会拿到空集合。教训：**乐观更新中，如果副作用数据需要在异步操作后使用，必须在异步调用前捕获快照**。
+
+## 2026-05-14 批量操作重构复盘
+
+### 实施内容
+
+1. 后端 `POST /api/items/batch` 的 `update` action 扩展支持 `tag_id`（含设 null）和 `attrs` merge（逐 item + transaction + legacy 列同步）
+2. ItemListTable 复选框始终可见（移除 `{#if selectable}` 条件，prop 默认 `true`）
+3. ItemGroupBlock 新增 `selectedIds`/`onToggleSelect` props，增加 checkbox 列
+4. BulkActionBar 重写为属性驱动批量编辑器：属性下拉 → 按类型渲染值编辑器 → 应用/批量删除，同时保留 `actions` prop 向后兼容 ChecklistPanel
+5. items/+page.svelte 移除 `selectable` 切换状态和 `toggleSelectMode`/`batchActions`，新增 `handleBatchUpdateAttr` 和 `batchAttrOptions`
+
+### 反思
+
+1. **修改共享组件时必须全局检查所有调用方**：BulkActionBar 被两个页面引用——`items/+page.svelte`（属性驱动模式）和 `ChecklistPanel.svelte`（legacy `actions` 模式）。重写时只考虑了 items 页的需求，删除了 `actions` prop，导致 ChecklistPanel 类型错误。教训：**组件 API 变更后，用 `grep "<ComponentName"` 找到所有引用点逐一检查，不能假设只有一个调用方**。向后兼容可以用可选 prop 共存——`actions` + `attrOptions` 两个模式互斥。
+
+2. **Svelte 5 `bind:` 与 `unknown` 类型不兼容**：`editingValue: unknown` 作为状态变量，不能直接用 `bind:value` 或 `bind:checked`，需要改用 `value`/`checked` + `oninput`/`onchange` 显式 event handler 并做类型断言。
+
+3. **可选回调函数调用前需判空**：`onBatchDelete` 和 `onBatchUpdateAttr` 在 props 中是可选类型（`?: () => Promise<void>`），调用前需要 `if (!onBatchDelete) return;` 守卫。

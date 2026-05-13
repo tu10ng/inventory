@@ -217,7 +217,7 @@ pub async fn batch(
             let changes = body.changes.as_ref().unwrap();
             let mut updated: u64 = 0;
 
-            // Support limited change types: category_id, tag_id, and attrs merge
+            // category_id
             if let Some(cat_id) = changes.get("category_id").and_then(|v| v.as_i64()) {
                 let placeholders: Vec<String> = body.ids.iter().map(|_| "?".to_string()).collect();
                 let sql = format!(
@@ -230,6 +230,87 @@ pub async fn batch(
                 }
                 let result = query.execute(&pool).await?;
                 updated = result.rows_affected();
+            }
+
+            // tag_id (supports setting to null)
+            if let Some(tag_val) = changes.get("tag_id") {
+                let tag_id: Option<i64> = if tag_val.is_null() {
+                    None
+                } else {
+                    tag_val.as_i64()
+                };
+                let placeholders: Vec<String> = body.ids.iter().map(|_| "?".to_string()).collect();
+                let sql = format!(
+                    "UPDATE items SET tag_id = ? WHERE id IN ({})",
+                    placeholders.join(",")
+                );
+                let mut query = sqlx::query(&sql).bind(tag_id);
+                for id in &body.ids {
+                    query = query.bind(id);
+                }
+                let result = query.execute(&pool).await?;
+                updated = result.rows_affected();
+            }
+
+            // attrs merge — per-item merge + legacy column sync in transaction
+            if let Some(attrs_to_merge) = changes.get("attrs") {
+                if let Some(attrs_obj) = attrs_to_merge.as_object() {
+                    if !attrs_obj.is_empty() {
+                        let mut tx = pool.begin().await?;
+                        for id in &body.ids {
+                            let existing = sqlx::query_as::<_, Item>(
+                                "SELECT id, category_id, tag_id, attrs FROM items WHERE id = ?",
+                            )
+                            .bind(id)
+                            .fetch_optional(&mut *tx)
+                            .await?;
+                            if let Some(item) = existing {
+                                let mut merged = item.attrs.clone();
+                                if let serde_json::Value::Object(ref mut obj) = merged {
+                                    for (k, v) in attrs_obj {
+                                        obj.insert(k.clone(), v.clone());
+                                    }
+                                }
+                                let attrs_str =
+                                    serde_json::to_string(&merged).unwrap_or_else(|_| "{}".to_string());
+                                let name = merged
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let brand = merged
+                                    .get("brand")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let model = merged
+                                    .get("model")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let default_qty = merged
+                                    .get("default_qty")
+                                    .and_then(|v| v.as_i64())
+                                    .unwrap_or(1);
+                                let notes = merged
+                                    .get("notes")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                sqlx::query(
+                                    "UPDATE items SET name = ?, brand = ?, model = ?, default_qty = ?, notes = ?, attrs = ? WHERE id = ?",
+                                )
+                                .bind(name)
+                                .bind(brand)
+                                .bind(model)
+                                .bind(default_qty)
+                                .bind(notes)
+                                .bind(&attrs_str)
+                                .bind(id)
+                                .execute(&mut *tx)
+                                .await?;
+                                updated += 1;
+                            }
+                        }
+                        tx.commit().await?;
+                    }
+                }
             }
 
             Ok(Json(BatchItemsResponse { updated, deleted: 0 }))

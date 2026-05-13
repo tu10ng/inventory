@@ -12,7 +12,9 @@
 		visibleColumns = [],
 		selectedItemId,
 		tags = [],
+		selectedIds = new Set(),
 		onSelect,
+		onToggleSelect,
 	}: {
 		label: string;
 		value: string;
@@ -20,7 +22,9 @@
 		visibleColumns?: ItemColumnDef[];
 		selectedItemId: number | null;
 		tags?: Tag[];
+		selectedIds?: Set<number>;
 		onSelect: (item: Item) => void;
+		onToggleSelect?: (id: number) => void;
 	} = $props();
 
 	const tagMap = $derived(new Map(tags.map(t => [t.id, t])));
@@ -40,6 +44,7 @@
 			class:selected={item.id === selectedItemId}
 			onclick={() => onSelect(item)}
 		>
+			<span class="check-col" onclick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(item.id)} onchange={() => onToggleSelect?.(item.id)} /></span>
 			<span class="item-name">
 				{itemName(item)}
 				{#if visibleColumns.length === 0 && itemTag}
@@ -75,11 +80,11 @@
 
 	.item-row {
 		display: grid;
-		grid-template-columns: 1fr repeat(var(--extra-cols, 0), auto);
+		grid-template-columns: 32px 1fr repeat(var(--extra-cols, 0), auto);
 		align-items: center;
 		gap: 0;
 		width: 100%;
-		padding: 6px 12px 6px 12px;
+		padding: 6px 12px 6px 8px;
 		border: none;
 		border-bottom: 1px solid color-mix(in srgb, var(--border), transparent 50%);
 		background: var(--surface);
@@ -118,6 +123,18 @@
 		border: 1px solid #c7d2fe;
 		flex-shrink: 0;
 	}
+	.check-col {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.check-col input[type='checkbox'] {
+		width: 14px;
+		height: 14px;
+		accent-color: var(--primary);
+		cursor: pointer;
+	}
+
 	.inline-brand {
 		font-size: 12px;
 		color: var(--text-secondary);
