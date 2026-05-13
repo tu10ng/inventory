@@ -145,8 +145,8 @@ impl CreateItem {
             .get("default_qty")
             .and_then(|v| v.as_i64())
             .unwrap_or(1);
-        if qty < 1 {
-            return Err(crate::error::AppError::validation("默认数量必须大于0"));
+        if qty < 0 {
+            return Err(crate::error::AppError::validation("默认数量不能为负数"));
         }
         Ok(())
     }
@@ -1024,7 +1024,7 @@ mod tests {
             tag_id: None,
             attrs: json!({"name": "测试物品", "default_qty": 0}),
         };
-        assert!(item.validate().is_err());
+        assert!(item.validate().is_ok());
     }
 
     #[test]

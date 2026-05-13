@@ -116,8 +116,8 @@ pub async fn update(
         return Err(AppError::validation("物品名称不能超过200字符"));
     }
     let qty = attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
-    if qty < 1 {
-        return Err(AppError::validation("默认数量必须大于0"));
+    if qty < 0 {
+        return Err(AppError::validation("默认数量不能为负数"));
     }
 
     let attrs_str = serde_json::to_string(&attrs).unwrap_or_else(|_| "{}".to_string());
@@ -520,7 +520,7 @@ pub async fn import_items(
                     let name = item.attr_str("name");
                     let brand = item.attr_str("brand");
                     let model = item.attr_str("model");
-                    let default_qty = item.attr_i64("default_qty").max(1);
+                    let default_qty = item.attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
                     let notes = item.attr_str("notes");
                     sqlx::query(
                         "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, tag_id = ?, attrs = ? WHERE id = ?",
@@ -550,7 +550,7 @@ pub async fn import_items(
             let name = item.attr_str("name");
             let brand = item.attr_str("brand");
             let model = item.attr_str("model");
-            let default_qty = item.attr_i64("default_qty").max(1);
+            let default_qty = item.attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
             let notes = item.attr_str("notes");
             sqlx::query(
                 "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id, attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

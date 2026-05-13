@@ -282,3 +282,21 @@ cd frontend && pnpm test       # 48 个前端测试，< 2s
 1. **组件有多条渲染路径时必须逐一检查**：ItemListTable 有 3 种 item 渲染路径（分组模式下的分组内容、分组模式下的未分组项、非分组模式），新增 checkbox 列时每条路径都要加上 `{#if selectable}` 块，容易遗漏。教训：**改动组件中重复出现的渲染代码块时，先用 grep 搜索所有出现位置，确认总数，然后逐一修改并确认没有遗漏**。
 
 2. **批量操作后要重置 UI 状态**：batchDelete 和 batchChangeCategory 成功后不仅要清空 selectedItemIds，还要退出 selectable 模式并清空右侧面板（selectedItem/panelMode），否则 UI 会处于不一致状态（如右侧仍显示已删除物品的详情）。教训：**副作用操作（删除/修改）后，要追溯所有可能受影响的 UI 状态变量并重置**。
+
+## 2026-05-14 物品数量支持 0 + 删除物品消除页面闪烁复盘
+
+### 实施内容
+
+1. **default_qty 验证放宽**：后端 models.rs 和 handlers/items.rs 的 `qty < 1` → `qty < 0`，错误信息改为"默认数量不能为负数"
+2. **import/export 中去掉 `.max(1)` 夹持**：`attr_i64("default_qty").max(1)` 会错误地将 0 夹持为 1，改用直接 JSON 访问
+3. **前端 InlineEdit min={0}**：ItemDetailPanel 数量编辑允许 0
+4. **ItemCard 显示 x0**：`displayQty > 1 || displayQty === 0` 时显示徽章，0 时加 `.zero` 灰色半透明样式
+5. **删除/批量操作乐观本地更新**：handleDelete/batchDelete/batchChangeCategory/handleSave 改为直接修改本地 `$state items` 数组，不再调用 `await load()` 触发全页重载
+
+### 反思
+
+1. **辅助方法的默认值可能遮蔽合法值**：`attr_i64("default_qty")` 在 key 不存在时返回 0，但 0 恰好是本次要支持的合法值。原始代码加 `.max(1)` 就是为了修正这个"错误的默认值"，但这同时夹持了真正的 0。教训：**辅助方法（如 `attr_i64`）的默认值应该是调用方显式选择的，而不是硬编码在方法内**。当默认值与某个合法值冲突时，应该用直接访问替代辅助方法。
+
+2. **`await load()` 是全页重载的反模式**：delete/save 操作后调用 `await load()` 会设置 `loading = true`，导致整个页面被"加载中..."替换，数据返回后再渲染回来，造成视觉闪烁。教训：**CRUD 操作后应优先使用乐观本地更新（修改 $state 变量），只在确实需要重新计算服务端派生数据时才全量 reload**。`items` 是 `$state` 变量，修改后 `$derived` 链（filteredItems/sortedItems/groupedData）会自动重新计算，UI 无缝更新。
+
+3. **BatchDelete 和 batchChangeCategory 需要在 API 调用前捕获 ID 快照**：在 `await api.post(...)` 之前捕获 `const idsToDelete = new Set(selectedItemIds)`，因为在 API 调用完成后立即清空 `selectedItemIds`。如果在 API 调用后仍引用 `selectedItemIds`，乐观更新时会拿到空集合。教训：**乐观更新中，如果副作用数据需要在异步操作后使用，必须在异步调用前捕获快照**。

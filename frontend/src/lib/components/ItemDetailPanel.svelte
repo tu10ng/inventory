@@ -152,7 +152,7 @@
 		<div class="field-row">
 			<span class="field-label">默认数量</span>
 			<span class="field-value">
-				<InlineEdit value={itemDefaultQty} type="number" min={1} oncommit={(v) => updateAttr('default_qty', v)} />
+				<InlineEdit value={itemDefaultQty} type="number" min={0} oncommit={(v) => updateAttr('default_qty', v)} />
 			</span>
 		</div>
 		<div class="field-row">

@@ -155,7 +155,7 @@
 			const created = await api.post<Item>('/items', data);
 			selectedItem = created;
 			panelMode = 'detail';
-			await load();
+			items = [...items, created];
 		} catch (e) {
 			alert((e as Error).message);
 		}
@@ -166,9 +166,10 @@
 		if (!confirm(`确定删除「${itemName(selectedItem)}」？`)) return;
 		try {
 			await api.del(`/items/${selectedItem.id}`);
+			const deletedId = selectedItem.id;
 			selectedItem = null;
 			panelMode = null;
-			await load();
+			items = items.filter(i => i.id !== deletedId);
 		} catch (e) {
 			alert((e as Error).message);
 		}
@@ -341,12 +342,13 @@
 	async function batchDelete() {
 		if (!confirm(`确定删除选中的 ${selectedItemIds.size} 件物品？此操作不可撤销。`)) return;
 		try {
-			await api.post('/items/batch', { ids: [...selectedItemIds], action: 'delete' });
+			const idsToDelete = new Set(selectedItemIds);
+			await api.post('/items/batch', { ids: [...idsToDelete], action: 'delete' });
 			selectedItemIds = new Set();
 			selectable = false;
 			selectedItem = null;
 			panelMode = null;
-			await load();
+			items = items.filter(i => !idsToDelete.has(i.id));
 		} catch (e) {
 			alert('批量删除失败：' + (e instanceof Error ? e.message : '未知错误'));
 		}
@@ -361,12 +363,13 @@
 			return;
 		}
 		try {
-			await api.post('/items/batch', { ids: [...selectedItemIds], action: 'update', changes: { category_id: catId } });
+			const idsToUpdate = new Set(selectedItemIds);
+			await api.post('/items/batch', { ids: [...idsToUpdate], action: 'update', changes: { category_id: catId } });
 			selectedItemIds = new Set();
 			selectable = false;
 			selectedItem = null;
 			panelMode = null;
-			await load();
+			items = items.map(i => idsToUpdate.has(i.id) ? { ...i, category_id: catId } : i);
 		} catch (e) {
 			alert('批量更改分类失败：' + (e instanceof Error ? e.message : '未知错误'));
 		}

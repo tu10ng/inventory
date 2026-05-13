@@ -64,8 +64,8 @@
 	{#if displayBrand || displayModel}
 		<div class="card-detail">{displayBrand} {displayModel}</div>
 	{/if}
-	{#if displayQty > 1}
-		<div class="card-qty">x{displayQty}</div>
+	{#if displayQty > 1 || displayQty === 0}
+		<div class="card-qty" class:zero={displayQty === 0}>x{displayQty}</div>
 	{/if}
 	{#if alreadyAdded}
 		<div class="added-tag">已添加</div>
@@ -131,6 +131,10 @@
 		padding: 0 5px;
 		border-radius: 8px;
 		font-weight: 600;
+	}
+	.card-qty.zero {
+		background: var(--text-secondary);
+		opacity: 0.5;
 	}
 	.added-tag {
 		font-size: 10px;
