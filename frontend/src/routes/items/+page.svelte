@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Item, Category, Tag, ItemUsageCount, AiParsedItem, AttributeDefinition } from '$lib/types';
+	import type { Item, Category, Tag, ItemUsageCount, AiParsedItem, AttributeDefinition, DisplayRule, ItemRelationEnriched, RelationType, CreateItemRelation, DisplayRuleConfig } from '$lib/types';
 	import { itemName } from '$lib/types';
+	import { parseDisplayRuleConfig } from '$lib/types';
 	import SearchFilter from '$lib/components/SearchFilter.svelte';
 	import ColumnPicker from '$lib/components/ColumnPicker.svelte';
 	import ItemListTable from '$lib/components/ItemListTable.svelte';
@@ -12,6 +13,8 @@
 	import AiOrganizeModal from '$lib/components/AiOrganizeModal.svelte';
 	import ImportModal from '$lib/components/ImportModal.svelte';
 	import OrderImportModal from '$lib/components/OrderImportModal.svelte';
+	import BulkActionBar from '$lib/components/BulkActionBar.svelte';
+	import type { BulkAction } from '$lib/components/BulkActionBar.svelte';
 	import { loadAllColumns, getAllColumns, loadVisibleColumns } from '$lib/utils/columns';
 	import type { ItemColumnDef } from '$lib/utils/columns';
 	import { filterItems, sortItems, groupItems } from '$lib/utils/itemFilters';
@@ -26,6 +29,10 @@
 
 	let selectedItem = $state<Item | null>(null);
 	let panelMode = $state<'detail' | 'create' | null>(null);
+
+	// Batch operations
+	let selectable = $state(false);
+	let selectedItemIds = $state<Set<number>>(new Set());
 
 	let search = $state('');
 	let filterCategoryId = $state<number | null>(null);
@@ -44,6 +51,11 @@
 	let sortDir = $state<'asc' | 'desc'>('asc');
 	let columnFilters = $state<Map<string, Set<string>>>(new Map());
 	let groupByKey = $state<string | null>(null);
+	let displayRules = $state<DisplayRule[]>([]);
+	let selectedRuleId = $state<number | null>(null);
+	let ruleConfig = $state<DisplayRuleConfig | null>(null);
+	let itemRelations = $state<ItemRelationEnriched[]>([]);
+	let relationTypes = $state<RelationType[]>([]);
 
 	let loading = $state(true);
 	let error = $state<string | null>(null);
@@ -70,6 +82,16 @@
 			} catch {
 				// stats not critical
 			}
+			try {
+				displayRules = await api.get<DisplayRule[]>('/display-rules');
+			} catch {
+				// rules not critical
+			}
+			try {
+				relationTypes = await api.get<RelationType[]>('/relation-types');
+			} catch {
+				// relation types not critical
+			}
 		} catch (e) {
 			error = (e as Error).message;
 		} finally {
@@ -77,9 +99,15 @@
 		}
 	}
 
-	function selectItem(item: Item) {
+	async function selectItem(item: Item) {
 		selectedItem = item;
 		panelMode = 'detail';
+		// Load relations for this item
+		try {
+			itemRelations = await api.get<ItemRelationEnriched[]>(`/items/${item.id}/relations`);
+		} catch {
+			itemRelations = [];
+		}
 	}
 
 	function startCreate() {
@@ -146,6 +174,27 @@
 		}
 	}
 
+	async function handleAddRelation(rel: CreateItemRelation) {
+		if (!selectedItem) return;
+		try {
+			await api.post(`/items/${selectedItem.id}/relations`, rel);
+			itemRelations = await api.get<ItemRelationEnriched[]>(`/items/${selectedItem.id}/relations`);
+		} catch (e) {
+			alert((e as Error).message);
+		}
+	}
+
+	async function handleRemoveRelation(id: number) {
+		try {
+			await api.del(`/item-relations/${id}`);
+			if (selectedItem) {
+				itemRelations = await api.get<ItemRelationEnriched[]>(`/items/${selectedItem.id}/relations`);
+			}
+		} catch (e) {
+			alert((e as Error).message);
+		}
+	}
+
 	function handleCancel() {
 		selectedItem = null;
 		panelMode = null;
@@ -168,6 +217,41 @@
 			}
 		}
 		await load();
+	}
+
+	function applyRule(ruleId: number | null) {
+		selectedRuleId = ruleId;
+		if (ruleId === null) {
+			ruleConfig = null;
+			return;
+		}
+
+		const rule = displayRules.find(r => r.id === ruleId);
+		if (!rule) return;
+
+		// Parse config
+		const config = parseDisplayRuleConfig(rule.config);
+		ruleConfig = config;
+
+		// Set category filter (null category_id = global, keep current filter)
+		filterCategoryId = rule.category_id;
+
+		// Set grouping
+		groupByKey = rule.group_by_key || null;
+
+		// Set sorting
+		sortKey = rule.sort_by_key || null;
+		sortDir = rule.sort_dir === 'desc' ? 'desc' : 'asc';
+
+		// Set visible columns
+		try {
+			const cols: string[] = JSON.parse(rule.visible_columns);
+			if (Array.isArray(cols) && cols.length > 0) {
+				visibleKeys = cols;
+			}
+		} catch {
+			// ignore malformed JSON
+		}
 	}
 
 	function toggleCategory(catId: number) {
@@ -230,6 +314,69 @@
 		}
 	});
 
+	// ── Batch operations ──
+
+	function toggleSelectMode() {
+		selectable = !selectable;
+		if (!selectable) {
+			selectedItemIds = new Set();
+		}
+	}
+
+	function toggleSelectItem(id: number) {
+		const next = new Set(selectedItemIds);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		selectedItemIds = next;
+	}
+
+	function toggleSelectAll() {
+		if (selectedItemIds.size === filteredItems.length) {
+			selectedItemIds = new Set();
+		} else {
+			selectedItemIds = new Set(filteredItems.map(i => i.id));
+		}
+	}
+
+	async function batchDelete() {
+		if (!confirm(`确定删除选中的 ${selectedItemIds.size} 件物品？此操作不可撤销。`)) return;
+		try {
+			await api.post('/items/batch', { ids: [...selectedItemIds], action: 'delete' });
+			selectedItemIds = new Set();
+			selectable = false;
+			selectedItem = null;
+			panelMode = null;
+			await load();
+		} catch (e) {
+			alert('批量删除失败：' + (e instanceof Error ? e.message : '未知错误'));
+		}
+	}
+
+	async function batchChangeCategory() {
+		const catIdStr = prompt('请输入目标分类 ID：\n' + categories.map(c => `${c.id}: ${c.icon} ${c.name}`).join('\n'));
+		if (!catIdStr) return;
+		const catId = parseInt(catIdStr, 10);
+		if (isNaN(catId) || !categories.find(c => c.id === catId)) {
+			alert('无效的分类 ID');
+			return;
+		}
+		try {
+			await api.post('/items/batch', { ids: [...selectedItemIds], action: 'update', changes: { category_id: catId } });
+			selectedItemIds = new Set();
+			selectable = false;
+			selectedItem = null;
+			panelMode = null;
+			await load();
+		} catch (e) {
+			alert('批量更改分类失败：' + (e instanceof Error ? e.message : '未知错误'));
+		}
+	}
+
+	const batchActions: BulkAction[] = $derived([
+		{ label: '批量删除', action: batchDelete, variant: 'danger' },
+		{ label: '更改分类', action: batchChangeCategory },
+	]);
+
 	$effect(() => { load(); });
 </script>
 
@@ -255,6 +402,20 @@
 					onSearchChange={(v) => (search = v)}
 					onCategoryChange={(id) => (filterCategoryId = id)}
 				/>
+				{#if displayRules.length > 0}
+					<div class="rule-select">
+						<label for="rule-select">规则</label>
+						<select id="rule-select" value={selectedRuleId ?? ''} onchange={(e) => {
+							const v = e.currentTarget.value;
+							applyRule(v ? Number(v) : null);
+						}}>
+							<option value="">无</option>
+							{#each displayRules as rule (rule.id)}
+								<option value={rule.id}>{rule.name}</option>
+							{/each}
+						</select>
+					</div>
+				{/if}
 				<div class="group-by-select">
 					<label for="group-by-select">分组</label>
 					<select id="group-by-select" value={groupByKey ?? ''} onchange={(e) => (groupByKey = e.currentTarget.value || null)}>
@@ -269,29 +430,66 @@
 			<div class="toolbar-row toolbar-actions">
 				<button onclick={() => api.downloadExport('/items/export').catch(e => alert(e.message))}>导出</button>
 				<button onclick={() => showImportModal = true}>导入</button>
+				<button class:primary={!selectable} onclick={toggleSelectMode}>
+					{selectable ? '取消选择' : '批量操作'}
+				</button>
 				<button class="primary" onclick={startCreate}>+ 添加物品</button>
 				<button onclick={() => showAiModal = true}>AI 添加</button>
 				<button onclick={() => showOcrModal = true}>OCR 导入</button>
 				<button onclick={() => showOrganizeModal = true}>AI 整理</button>
 			</div>
 		</div>
-		<ItemListTable
-			items={sortedItems}
-			{categories}
-			{tags}
-			{visibleColumns}
-			selectedItemId={selectedItem?.id ?? null}
-			{collapsedCategories}
-			{sortKey}
-			{sortDir}
-			{columnFilters}
-			{groupBy}
-			{groupedData}
-			onSelect={selectItem}
-			onToggleCategory={toggleCategory}
-			onSort={handleSort}
-			onFilterChange={handleFilterChange}
-		/>
+		<BulkActionBar selectedCount={selectedItemIds.size} actions={batchActions} />
+		{#if ruleConfig?.mode === 'summary' && groupBy && groupByKey}
+			{@const summaryFields = ruleConfig.summary_fields ?? []}
+			<div class="summary-view">
+				{#each [...(groupedData?.entries() ?? [])] as [catId, { groups, ungrouped }] (catId)}
+					{@const cat = categories.find(c => c.id === catId)}
+					<div class="summary-category">
+						<h3 class="summary-cat-header">{cat?.icon ?? ''} {cat?.name ?? '未分类'}</h3>
+						<div class="summary-grid">
+							{#each groups as group (group.value)}
+								<div class="summary-card card">
+									<div class="summary-card-header">
+										<span class="summary-group-key">{group.label || '(无)'}</span>
+										<span class="summary-count">{group.items.length} 件</span>
+									</div>
+									<div class="summary-fields">
+										{#each summaryFields as field}
+											{@const values = [...new Set(group.items.map(i => String(i.attrs?.[field] ?? '')).filter(Boolean))]}
+											{#if values.length > 0}
+												<span class="summary-chip" title={field}>{values.join(', ')}</span>
+											{/if}
+										{/each}
+									</div>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<ItemListTable
+				items={sortedItems}
+				{categories}
+				{tags}
+				{visibleColumns}
+				selectedItemId={selectedItem?.id ?? null}
+				{collapsedCategories}
+				{sortKey}
+				{sortDir}
+				{columnFilters}
+				{groupBy}
+				{groupedData}
+				{selectable}
+				selectedIds={selectedItemIds}
+				onSelect={selectItem}
+				onToggleCategory={toggleCategory}
+				onSort={handleSort}
+				onFilterChange={handleFilterChange}
+				onToggleSelect={toggleSelectItem}
+			/>
+		{/if}
 	</div>
 
 	<div class="right-panel">
@@ -303,8 +501,12 @@
 					{tags}
 					{attrDefs}
 					usageCount={usageStats.get(selectedItem.id) ?? 0}
+					relations={itemRelations}
+					{relationTypes}
 					onUpdate={handleFieldUpdate}
 					onDelete={handleDelete}
+					onAddRelation={handleAddRelation}
+					onRemoveRelation={handleRemoveRelation}
 				/>
 			{:else if panelMode === 'create'}
 				<ItemForm
@@ -394,6 +596,22 @@
 		flex: 1;
 		margin-bottom: 0;
 	}
+	.rule-select {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 12px;
+		color: var(--text-secondary);
+		flex-shrink: 0;
+	}
+	.rule-select select {
+		font-size: 12px;
+		padding: 2px 6px;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		background: var(--surface);
+		color: var(--text);
+	}
 	.group-by-select {
 		display: flex;
 		align-items: center;
@@ -464,6 +682,55 @@
 		margin-top: 12px;
 	}
 
+	.summary-view {
+		overflow-y: auto;
+		flex: 1;
+		min-height: 0;
+	}
+	.summary-category {
+		margin-bottom: 16px;
+	}
+	.summary-cat-header {
+		font-size: 14px;
+		font-weight: 600;
+		padding: 4px 0;
+		margin-bottom: 8px;
+		border-bottom: 1px solid var(--border);
+	}
+	.summary-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		gap: 8px;
+	}
+	.summary-card {
+		padding: 10px 12px;
+	}
+	.summary-card-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 6px;
+	}
+	.summary-group-key {
+		font-weight: 600;
+		font-size: 13px;
+	}
+	.summary-count {
+		font-size: 11px;
+		color: var(--text-secondary);
+	}
+	.summary-fields {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+	}
+	.summary-chip {
+		font-size: 11px;
+		background: var(--primary);
+		color: white;
+		padding: 2px 8px;
+		border-radius: 10px;
+	}
 	@media (max-width: 768px) {
 		.page-container {
 			height: auto;

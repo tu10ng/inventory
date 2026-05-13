@@ -24,9 +24,20 @@
 
 	const categoryTags = $derived(tags.filter(t => t.category_id === category_id));
 
+	// Current item_type value
+	const itemType = $derived(String(attrs.item_type ?? '') || '实体');
+
 	// Scoped attribute definitions (registered + matching scope)
 	const scopedAttrDefs = $derived(
-		attrDefs.filter(ad => attrMatchesScope(ad, category_id, tag_id))
+		attrDefs
+			.filter(ad => attrMatchesScope(ad, category_id, tag_id))
+			.filter(ad => {
+				// Virtual-item-specific attributes only show when item_type is '虚拟'
+				if (ad.key === 'expiry_date' || ad.key === 'file_url') {
+					return itemType === '虚拟';
+				}
+				return true;
+			})
 	);
 
 	// Known attrs for the dynamic section – filter out 'name' since it's rendered at the top

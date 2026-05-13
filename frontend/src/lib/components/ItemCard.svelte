@@ -5,12 +5,14 @@
 
 	let { item, categoryIcon, alreadyAdded = false,
 		onclick = null,
+		onHover = null,
 		itemId = 0, tagId = null, enrichedItems = []
 	}: {
 		item: Item;
 		categoryIcon: string;
 		alreadyAdded?: boolean;
 		onclick?: (() => void) | null;
+		onHover?: ((itemId: number | null) => void) | null;
 		itemId?: number;
 		tagId?: number | null;
 		enrichedItems?: TripItemEnriched[];
@@ -51,6 +53,8 @@
 	ondragstart={handleDragStart}
 	ondragend={handleDragEnd}
 	onclick={onclick ? handleClick : undefined}
+	onmouseenter={onHover ? () => onHover(itemId) : undefined}
+	onmouseleave={onHover ? () => onHover(null) : undefined}
 	role={onclick ? 'button' : undefined}
 	tabindex={onclick ? 0 : undefined}
 	onkeydown={onclick ? (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); } : undefined}

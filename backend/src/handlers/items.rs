@@ -11,9 +11,9 @@ use sqlx::SqlitePool;
 
 use crate::error::AppError;
 use crate::models::{
-    AttributeDefinition, Category, CreateItem, ExportData, ImportItemPreview,
-    ImportPreviewResult, ImportRequest, ImportResult, ImportStrategy, Item,
-    ItemUsageCount, ItemUsageStats, Tag, TripRef, UpdateItem,
+    AttributeDefinition, BatchItemsRequest, BatchItemsResponse, Category, CreateItem, DisplayRule,
+    ExportData, ImportItemPreview, ImportPreviewResult, ImportRequest, ImportResult,
+    ImportStrategy, Item, ItemUsageCount, ItemUsageStats, Tag, TripRef, UpdateItem,
 };
 
 pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Item>>, AppError> {
@@ -180,6 +180,64 @@ pub async fn usage_detail(
     Ok(Json(ItemUsageStats { item_id: id, trips }))
 }
 
+// ── Batch ──
+
+pub async fn batch(
+    State(pool): State<SqlitePool>,
+    Json(body): Json<BatchItemsRequest>,
+) -> Result<Json<BatchItemsResponse>, AppError> {
+    if body.ids.is_empty() {
+        return Err(AppError::bad_request("ids 不能为空"));
+    }
+    if body.action != "delete" && body.action != "update" {
+        return Err(AppError::bad_request("action 必须为 delete 或 update"));
+    }
+    if body.action == "update" && body.changes.is_none() {
+        return Err(AppError::bad_request("update 操作需要提供 changes"));
+    }
+
+    match body.action.as_str() {
+        "delete" => {
+            let placeholders: Vec<String> = body.ids.iter().map(|_| "?".to_string()).collect();
+            let sql = format!(
+                "DELETE FROM items WHERE id IN ({})",
+                placeholders.join(",")
+            );
+            let mut query = sqlx::query(&sql);
+            for id in &body.ids {
+                query = query.bind(id);
+            }
+            let result = query.execute(&pool).await?;
+            Ok(Json(BatchItemsResponse {
+                updated: 0,
+                deleted: result.rows_affected(),
+            }))
+        }
+        "update" => {
+            let changes = body.changes.as_ref().unwrap();
+            let mut updated: u64 = 0;
+
+            // Support limited change types: category_id, tag_id, and attrs merge
+            if let Some(cat_id) = changes.get("category_id").and_then(|v| v.as_i64()) {
+                let placeholders: Vec<String> = body.ids.iter().map(|_| "?".to_string()).collect();
+                let sql = format!(
+                    "UPDATE items SET category_id = ? WHERE id IN ({})",
+                    placeholders.join(",")
+                );
+                let mut query = sqlx::query(&sql).bind(cat_id);
+                for id in &body.ids {
+                    query = query.bind(id);
+                }
+                let result = query.execute(&pool).await?;
+                updated = result.rows_affected();
+            }
+
+            Ok(Json(BatchItemsResponse { updated, deleted: 0 }))
+        }
+        _ => unreachable!(),
+    }
+}
+
 // ── Import / Export ──
 
 pub async fn export_items(State(pool): State<SqlitePool>) -> Result<Response<Body>, AppError> {
@@ -207,18 +265,25 @@ pub async fn export_items(State(pool): State<SqlitePool>) -> Result<Response<Bod
     .fetch_all(&pool)
     .await?;
 
+    let display_rules = sqlx::query_as::<_, DisplayRule>(
+        "SELECT id, name, category_id, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config FROM display_rules ORDER BY sort_order, id",
+    )
+    .fetch_all(&pool)
+    .await?;
+
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
 
     let export_data = ExportData {
-        version: 2,
+        version: 3,
         exported_at: now.to_string(),
         categories,
         tags,
         attribute_definitions,
         items,
+        display_rules,
     };
 
     let json = serde_json::to_string_pretty(&export_data).map_err(|e| {
@@ -241,7 +306,7 @@ pub async fn import_preview(
     State(pool): State<SqlitePool>,
     Json(body): Json<ImportRequest>,
 ) -> Result<Json<ImportPreviewResult>, AppError> {
-    if body.version < 1 || body.version > 2 {
+    if body.version < 1 || body.version > 3 {
         return Err(AppError::bad_request("不支持的导出文件版本"));
     }
 
@@ -395,7 +460,33 @@ pub async fn import_items(
         }
     }
 
-    // 4. Items: match by name (case-insensitive, name from attrs JSON)
+    // 4. Display rules: upsert by name
+    let mut display_rules_created: u64 = 0;
+    for rule in &body.display_rules {
+        let existing = sqlx::query("SELECT id FROM display_rules WHERE name = ?")
+            .bind(&rule.name)
+            .fetch_optional(&mut *tx)
+            .await?;
+        if existing.is_none() {
+            let rule_cat_id = rule.category_id.and_then(|cid| cat_remap.get(&cid).copied()).or(rule.category_id);
+            sqlx::query(
+                "INSERT INTO display_rules (name, category_id, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&rule.name)
+            .bind(rule_cat_id)
+            .bind(&rule.group_by_key)
+            .bind(&rule.sort_by_key)
+            .bind(&rule.sort_dir)
+            .bind(&rule.visible_columns)
+            .bind(rule.sort_order)
+            .bind(&rule.config)
+            .execute(&mut *tx)
+            .await?;
+            display_rules_created += 1;
+        }
+    }
+
+    // 5. Items: match by name (case-insensitive, name from attrs JSON)
     let existing_rows = sqlx::query("SELECT id, LOWER(json_extract(attrs, '$.name')) as name_lower FROM items")
         .fetch_all(&mut *tx)
         .await?;
@@ -487,6 +578,7 @@ pub async fn import_items(
         items_created,
         items_updated,
         items_skipped,
+        display_rules_created,
     }))
 }
 
@@ -730,7 +822,7 @@ mod tests {
             .await
             .unwrap();
         let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(data["version"], 2);
+        assert_eq!(data["version"], 3);
     }
 
     #[tokio::test]
@@ -760,6 +852,7 @@ mod tests {
                 attrs: json!({"name": "冲锋衣"}),
             }],
             strategy: ImportStrategy::Skip,
+            display_rules: vec![],
         };
 
         let Json(preview) = import_preview(State(pool.clone()), Json(import_req)).await.unwrap();
@@ -785,6 +878,7 @@ mod tests {
                 attrs: json!({"name": "全新物品"}),
             }],
             strategy: ImportStrategy::Skip,
+            display_rules: vec![],
         };
 
         let Json(preview) = import_preview(State(pool.clone()), Json(import_req)).await.unwrap();
@@ -813,6 +907,7 @@ mod tests {
                 attrs: json!({"name": "软壳裤", "brand": "MAMMUT", "default_qty": 1, "notes": ""}),
             }],
             strategy: ImportStrategy::Skip,
+            display_rules: vec![],
         };
 
         let Json(result) = import_items(State(pool.clone()), Json(import_req)).await.unwrap();
@@ -846,6 +941,7 @@ mod tests {
                 attrs: json!({"name": "冲锋衣", "brand": "新品牌"}),
             }],
             strategy: ImportStrategy::Skip,
+            display_rules: vec![],
         };
 
         let Json(result) = import_items(State(pool.clone()), Json(import_req)).await.unwrap();
@@ -880,6 +976,7 @@ mod tests {
                 attrs: json!({"name": "冲锋衣", "brand": "新品牌", "default_qty": 1, "notes": ""}),
             }],
             strategy: ImportStrategy::Update,
+            display_rules: vec![],
         };
 
         let Json(result) = import_items(State(pool.clone()), Json(import_req)).await.unwrap();

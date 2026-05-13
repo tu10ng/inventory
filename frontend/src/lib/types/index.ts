@@ -215,6 +215,113 @@ export interface OrganizeApplyResponse {
 	deleted: number;
 }
 
+// ── Display Rules ──
+
+export interface DisplayRule {
+	id: number;
+	name: string;
+	category_id: number | null;
+	group_by_key: string;
+	sort_by_key: string;
+	sort_dir: string;
+	visible_columns: string;
+	sort_order: number;
+	config: string;
+}
+
+// ── Relation Types ──
+
+export interface RelationType {
+	id: number;
+	name: string;
+	label: string;
+	color: string;
+	icon: string;
+	bidirectional: boolean;
+	sort_order: number;
+}
+
+export interface ItemRelation {
+	id: number;
+	source_item_id: number;
+	target_item_id: number;
+	relation_type_id: number;
+	notes: string;
+}
+
+export interface ItemRelationEnriched {
+	id: number;
+	source_item_id: number;
+	target_item_id: number;
+	relation_type_id: number;
+	notes: string;
+	target_name: string;
+	relation_label: string;
+	relation_color: string;
+	relation_icon: string;
+}
+
+export interface CreateItemRelation {
+	target_item_id: number;
+	relation_type_id: number;
+	notes?: string;
+}
+
+// ── Activity Includes ──
+
+export interface ActivityInclude {
+	id: number;
+	activity_id: number;
+	included_activity_id: number;
+	sort_order: number;
+}
+
+export interface CreateActivityInclude {
+	included_activity_id: number;
+	sort_order?: number;
+}
+
+export interface ActivityIncludeEnriched {
+	id: number;
+	activity_id: number;
+	included_activity_id: number;
+	sort_order: number;
+	included_name: string;
+	included_icon: string;
+}
+
+// ── Display Rule Config ──
+
+export interface DisplayRuleConfig {
+	mode: 'list' | 'summary';
+	summary_fields: string[];
+}
+
+export function parseDisplayRuleConfig(config: string): DisplayRuleConfig {
+	try {
+		const parsed = JSON.parse(config);
+		return {
+			mode: parsed.mode || 'list',
+			summary_fields: parsed.summary_fields || [],
+		};
+	} catch {
+		return { mode: 'list', summary_fields: [] };
+	}
+}
+
+// ── Batch Items ──
+
+export interface BatchItemsRequest {
+	ids: number[];
+	action: 'delete' | 'update';
+	changes?: Record<string, unknown>;
+}
+
+export interface BatchItemsResponse {
+	updated: number;
+	deleted: number;
+}
+
 // ── Import / Export ──
 
 export interface ExportData {
@@ -224,6 +331,7 @@ export interface ExportData {
 	tags: Tag[];
 	attribute_definitions: AttributeDefinition[];
 	items: Item[];
+	display_rules: DisplayRule[];
 }
 
 export interface ImportPreviewResult {
@@ -246,4 +354,5 @@ export interface ImportResult {
 	items_created: number;
 	items_updated: number;
 	items_skipped: number;
+	display_rules_created: number;
 }

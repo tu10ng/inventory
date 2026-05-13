@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Item, Category, Tag, AttributeDefinition } from '$lib/types';
+	import type { Item, Category, Tag, AttributeDefinition, ItemRelationEnriched, RelationType, CreateItemRelation } from '$lib/types';
 	import { getAttrConfig } from '$lib/utils/attrs';
 	import { attrMatchesScope } from '$lib/utils/columns';
 	import InlineEdit from './InlineEdit.svelte';
@@ -9,14 +9,18 @@
 	import InlineEditStars from './InlineEditStars.svelte';
 	import InlineEditBar from './InlineEditBar.svelte';
 
-	let { item, categories, tags, attrDefs = [], usageCount = 0, onUpdate, onDelete }: {
+	let { item, categories, tags, attrDefs = [], usageCount = 0, relations = [], relationTypes = [], onUpdate, onDelete, onAddRelation, onRemoveRelation }: {
 		item: Item;
 		categories: Category[];
 		tags: Tag[];
 		attrDefs?: AttributeDefinition[];
 		usageCount?: number;
+		relations?: ItemRelationEnriched[];
+		relationTypes?: RelationType[];
 		onUpdate: (field: string, value: unknown) => void;
 		onDelete: () => void;
+		onAddRelation?: (relation: CreateItemRelation) => void;
+		onRemoveRelation?: (id: number) => void;
 	} = $props();
 
 	const category = $derived(categories.find(c => c.id === item.category_id));
@@ -38,9 +42,20 @@
 	const itemDefaultQty = $derived(Number(item.attrs?.default_qty ?? 1));
 	const itemNotes = $derived(String(item.attrs?.notes ?? ''));
 
-	// Scoped attribute definitions
+	// Current item_type value
+	const itemType = $derived(String(item.attrs?.item_type ?? '') || '实体');
+
+	// Scoped attribute definitions — filter by category/tag scope, then by item_type visibility
 	const scopedAttrDefs = $derived(
-		attrDefs.filter(ad => attrMatchesScope(ad, item.category_id, item.tag_id))
+		attrDefs
+			.filter(ad => attrMatchesScope(ad, item.category_id, item.tag_id))
+			.filter(ad => {
+				// Virtual-item-specific attributes only show when item_type is '虚拟'
+				if (ad.key === 'expiry_date' || ad.key === 'file_url') {
+					return itemType === '虚拟';
+				}
+				return true;
+			})
 	);
 
 	// Ad-hoc keys: keys in attrs that are NOT in any attrDef and NOT core fields
@@ -206,6 +221,44 @@
 			被 {usageCount} 个行程使用
 		</div>
 	{/if}
+
+	<!-- Relations -->
+	{#if relations.length > 0}
+		<div class="detail-section">
+			<h3 class="section-title">关联物品</h3>
+			{#each relations as rel (rel.id)}
+				<div class="relation-row">
+					<span class="relation-icon" style="color:{rel.relation_color}">{rel.relation_icon}</span>
+					<span class="relation-label">{rel.relation_label}</span>
+					<span class="relation-target">{rel.target_name}</span>
+					{#if onRemoveRelation}
+						<button class="remove-rel-btn" onclick={() => onRemoveRelation(rel.id)} title="移除">&times;</button>
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{/if}
+
+	{#if onAddRelation && relationTypes.length > 0}
+		<div class="relation-add">
+			<select id="relation-type-select" class="small-select">
+				{#each relationTypes as rt}
+					<option value={rt.id}>{rt.icon} {rt.label}</option>
+				{/each}
+			</select>
+			<button
+				class="small"
+				onclick={async () => {
+					const sel = document.getElementById('relation-type-select') as HTMLSelectElement;
+					const rtId = Number(sel.value);
+					const targetId = prompt('输入目标物品 ID:');
+					if (targetId) {
+						onAddRelation({ target_item_id: Number(targetId), relation_type_id: rtId });
+					}
+				}}
+			>+ 关联物品</button>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -317,5 +370,59 @@
 	}
 	.adhoc-add {
 		padding: 6px 12px;
+	}
+	.relation-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 3px 0;
+		font-size: 13px;
+	}
+	.relation-icon {
+		font-size: 14px;
+	}
+	.relation-label {
+		font-size: 11px;
+		color: var(--text-secondary);
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		padding: 0 4px;
+	}
+	.relation-target {
+		flex: 1;
+		font-weight: 500;
+	}
+	.remove-rel-btn {
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background: transparent;
+		color: var(--text-secondary);
+		border: 1px solid var(--border);
+		cursor: pointer;
+		font-size: 12px;
+		line-height: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+	.remove-rel-btn:hover {
+		background: var(--danger);
+		color: white;
+		border-color: var(--danger);
+	}
+	.relation-add {
+		padding: 6px 12px;
+		display: flex;
+		gap: 6px;
+		align-items: center;
+	}
+	.small-select {
+		padding: 2px 6px;
+		font-size: 12px;
+		border: 1px solid var(--border);
+		border-radius: 4px;
 	}
 </style>

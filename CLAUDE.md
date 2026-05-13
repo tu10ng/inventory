@@ -228,8 +228,8 @@ RESTful，前缀 `/api`。
 ### 测试命令
 
 ```bash
-cd backend && cargo test       # 45 个后端测试，< 0.1s
-cd frontend && pnpm test       # 48 个前端测试，< 1s
+cd backend && cargo test       # 53 个后端测试，< 0.2s
+cd frontend && pnpm test       # 48 个前端测试，< 2s
 ```
 
 ## 2026-05-13 ItemDetailPanel 编辑 Bug 修复复盘
@@ -245,3 +245,40 @@ cd frontend && pnpm test       # 48 个前端测试，< 1s
 **根因**：属性编辑器选择逻辑只有 `text && config.options` 分支使用 `InlineEditPills`，其余类型（weight/number/bar/stars/bool 等）都有独立分支，但纯 `text` 类型（无 options）落入 `{:else}` 兜底，用了 `InlineEditPills` + `freeform={true}`。这个兜底逻辑的意图是处理"未知的 ad-hoc 属性类型"，但没有考虑到 `text` 类型是已知类型，只是恰好没有 options。
 
 **教训**：**`{:else}` 兜底分支的语义应该是"真正未知的情况"，而不是"我还没处理的已知情况"**。在写 if-else 链时，每增加一种已知的 `attr_type`，都应该显式处理，让 `{:else}` 只覆盖真正的未知类型。否则已定义的类型会被迫走不适合的 UI 控件。
+
+## 2026-05-13 元层能力扩展实施复盘
+
+### 实施内容
+
+五个 Phase 全部完成：
+1. **虚拟物品**（纯配置验证）：新增 3 个 attribute_definitions 种子数据（item_type/expiry_date/file_url），前端 ItemForm/ItemDetailPanel 加入 item_type 感知的 $derived 过滤
+2. **动态关系系统**（新元层）：relation_types + item_relations 表/模型/Handler/路由/前端类型/ItemDetailPanel「关联物品」section
+3. **display_rules 聚合视图**（扩展元层）：DisplayRuleConfig 结构体（mode/summary_fields），前端 summary 模式渲染（分组卡片显示汇总字段值）
+4. **活动互相引用**（重构）：activity_includes 表，collect_activity_slots() 递归展开 + 循环检测，populate/computer_resync_diff 共用
+5. **物品批量操作**（UX 改进）：POST /api/items/batch，BulkActionBar 泛化为 actions prop
+
+### 反思
+
+1. **种子数据数量变更必须同步更新测试断言**：新增第 4 条 display_rules 种子后，`list_returns_seed_rules` 和 `create_and_list` 测试的 expected count 需要 +1。教训：**修改种子数据后，全局 grep 对应的 `assert_eq!(rules.len()` 或硬编码数量**。
+
+2. **泛化组件要同步检查所有调用方**：BulkActionBar 从 trip_items 专用改为通用后，ChecklistPanel 是唯一调用方。教训：**组件 API 变更后，用 grep 找到所有 `<ComponentName` 引用点逐一更新**。
+
+3. **migration 的 split(';') 限制需要记住**：relation_types 种子数据的 `'搭配'` label 不含分号所以安全，但任何含分号的字符串值（如 JSON 字符串内嵌分号）都会导致 migration 失败。教训：**种子数据中的 JSON 字段（如 display_rules.config）需要用单引号包裹或在 migration 外处理**。
+
+4. **routes 注册顺序仍会踩坑**：`/api/items/batch` 必须放在 `/api/items/{id}` 之前，否则 `batch` 会被当作 `{id}` 解析。虽然本次没有重复踩坑（已注意），但这类 Axum 路由歧义是持久性陷阱。
+
+5. **Rust 的 `use` 语句放在文件中间可行但不推荐**：最初在 items.rs 中间加了 `use crate::models::{BatchItemsRequest, BatchItemsResponse};`，与顶部的 import 冲突导致 "defined multiple times" 错误。应统一在文件顶部导入。
+
+## 2026-05-13 补充缺失 UI 入口实施复盘
+
+### 实施内容
+
+1. **设置页新增 relation_types 管理 section**：遵循与 Categories 相同的 pattern（list + inline form），字段为 name/label/color/icon/bidirectional/sort_order
+2. **物品库页新增批量操作**：复用已泛化的 BulkActionBar，支持批量删除和更改分类
+3. **ItemListTable 新增 checkbox 列**：selectable 模式下每行前显示 checkbox，header 有全选/取消全选
+
+### 反思
+
+1. **组件有多条渲染路径时必须逐一检查**：ItemListTable 有 3 种 item 渲染路径（分组模式下的分组内容、分组模式下的未分组项、非分组模式），新增 checkbox 列时每条路径都要加上 `{#if selectable}` 块，容易遗漏。教训：**改动组件中重复出现的渲染代码块时，先用 grep 搜索所有出现位置，确认总数，然后逐一修改并确认没有遗漏**。
+
+2. **批量操作后要重置 UI 状态**：batchDelete 和 batchChangeCategory 成功后不仅要清空 selectedItemIds，还要退出 selectable 模式并清空右侧面板（selectedItem/panelMode），否则 UI 会处于不一致状态（如右侧仍显示已删除物品的详情）。教训：**副作用操作（删除/修改）后，要追溯所有可能受影响的 UI 状态变量并重置**。

@@ -1,38 +1,32 @@
 <script lang="ts">
-	import type { Person } from '$lib/types';
+	export interface BulkAction {
+		label: string;
+		action: () => Promise<void> | void;
+		variant?: 'default' | 'danger';
+	}
 
 	let {
 		selectedCount,
-		people,
-		onCheck,
-		onUncheck,
-		onAssignPerson
+		actions = [],
 	}: {
 		selectedCount: number;
-		people: Person[];
-		onCheck: () => void;
-		onUncheck: () => void;
-		onAssignPerson: (personId: number | null) => void;
+		actions: BulkAction[];
 	} = $props();
 </script>
 
-<div class="bulk-bar card">
-	<span>已选 {selectedCount} 项</span>
-	<button class="small" onclick={onCheck}>全部勾选</button>
-	<button class="small" onclick={onUncheck}>取消勾选</button>
-	{#if people.length > 0}
-		<select class="small-select" onchange={(e) => {
-			const val = e.currentTarget.value;
-			if (val) onAssignPerson(val === 'null' ? null : Number(val));
-		}}>
-			<option value="">分配给...</option>
-			<option value="null">未分配</option>
-			{#each people as p}
-				<option value={p.id}>{p.name}</option>
-			{/each}
-		</select>
-	{/if}
-</div>
+{#if selectedCount > 0}
+	<div class="bulk-bar card">
+		<span class="bulk-count">已选 {selectedCount} 项</span>
+		{#each actions as act}
+			<button
+				class="small {act.variant === 'danger' ? 'danger' : ''}"
+				onclick={() => act.action()}
+			>
+				{act.label}
+			</button>
+		{/each}
+	</div>
+{/if}
 
 <style>
 	.bulk-bar {
@@ -43,10 +37,9 @@
 		background: #e8f0fe;
 		margin-bottom: 12px;
 	}
-	.small-select {
-		padding: 2px 6px;
-		font-size: 12px;
-		border: 1px solid var(--border);
-		border-radius: 4px;
+	.bulk-count {
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--primary);
 	}
 </style>

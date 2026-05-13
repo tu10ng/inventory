@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import CategoryGroup from '$lib/components/CategoryGroup.svelte';
-	import type { Activity, ActivitySlotWithTags, Tag, Tip, Category } from '$lib/types';
+	import type { Activity, ActivitySlotWithTags, ActivityIncludeEnriched, Tag, Tip, Category } from '$lib/types';
 
 	let activities = $state<Activity[]>([]);
 	let tags = $state<Tag[]>([]);
@@ -17,6 +17,13 @@
 	let slots = $state<ActivitySlotWithTags[]>([]);
 	let tips = $state<Tip[]>([]);
 	let newTip = $state('');
+
+	// Includes
+	let includes = $state<ActivityIncludeEnriched[]>([]);
+	let showIncludeAdd = $state(false);
+	let includeSearch = $state('');
+	let expandedIncludes = $state<Set<number>>(new Set());
+	let includedSlots = $state<Map<number, ActivitySlotWithTags[]>>(new Map());
 
 	// Slot form
 	let showSlotForm = $state(false);
@@ -86,10 +93,13 @@
 	async function selectActivity(id: number) {
 		try {
 			selectedId = id;
-			[slots, tips] = await Promise.all([
+			[slots, tips, includes] = await Promise.all([
 				api.get<ActivitySlotWithTags[]>(`/activities/${id}/slots`),
-				api.get<Tip[]>(`/activities/${id}/tips`)
+				api.get<Tip[]>(`/activities/${id}/tips`),
+				api.get<ActivityIncludeEnriched[]>(`/activities/${id}/includes`)
 			]);
+			expandedIncludes = new Set();
+			includedSlots = new Map();
 		} catch (e) {
 			alert((e as Error).message);
 		}
@@ -191,6 +201,60 @@
 			alert((e as Error).message);
 		}
 	}
+
+	// ── Includes ──
+
+	async function addInclude(includedActivityId: number) {
+		if (!selectedId) return;
+		try {
+			await api.post(`/activities/${selectedId}/includes`, {
+				included_activity_id: includedActivityId
+			});
+			includes = await api.get<ActivityIncludeEnriched[]>(`/activities/${selectedId}/includes`);
+			showIncludeAdd = false;
+			includeSearch = '';
+		} catch (e) {
+			alert((e as Error).message);
+		}
+	}
+
+	async function removeInclude(incId: number) {
+		try {
+			await api.del(`/activity-includes/${incId}`);
+			if (selectedId) {
+				includes = await api.get<ActivityIncludeEnriched[]>(`/activities/${selectedId}/includes`);
+			}
+		} catch (e) {
+			alert((e as Error).message);
+		}
+	}
+
+	async function toggleIncludePreview(inc: ActivityIncludeEnriched) {
+		const incId = inc.id;
+		if (expandedIncludes.has(incId)) {
+			expandedIncludes.delete(incId);
+			expandedIncludes = new Set(expandedIncludes);
+		} else {
+			expandedIncludes = new Set([...expandedIncludes, incId]);
+			if (!includedSlots.has(incId)) {
+				try {
+					const s = await api.get<ActivitySlotWithTags[]>(`/activities/${inc.included_activity_id}/slots`);
+					includedSlots = new Map(includedSlots).set(incId, s);
+				} catch {
+					// ignore
+				}
+			}
+		}
+	}
+
+	const includableActivities = $derived(
+		activities.filter(a => {
+			if (a.id === selectedId) return false;
+			if (includes.some(inc => inc.included_activity_id === a.id)) return false;
+			if (!includeSearch) return true;
+			return a.name.includes(includeSearch);
+		})
+	);
 
 	// ── Helpers ──
 
@@ -382,6 +446,52 @@
 					</div>
 				{/if}
 
+				<!-- Included activities -->
+				<h3 style="margin-top: 20px;">包含的活动</h3>
+				{#if includes.length > 0}
+					{#each includes as inc (inc.id)}
+						<div class="include-card card">
+							<div class="include-header" onclick={() => toggleIncludePreview(inc)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && toggleIncludePreview(inc)}>
+								<span class="include-expand">{expandedIncludes.has(inc.id) ? '▼' : '▶'}</span>
+								<span>{inc.included_icon} {inc.included_name}</span>
+								<button class="small danger" onclick={(e) => { e.stopPropagation(); removeInclude(inc.id); }}>移除</button>
+							</div>
+							{#if expandedIncludes.has(inc.id) && includedSlots.has(inc.id)}
+								<div class="include-slots">
+									{#each includedSlots.get(inc.id)! as slot (slot.id)}
+										<div class="include-slot-row">
+											<span class="include-slot-name">{slot.is_essential ? '★' : '☆'} {slot.slot_name}</span>
+											{#if slot.default_qty > 1}
+												<span class="include-slot-qty">x{slot.default_qty}</span>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{/each}
+				{/if}
+				<div class="include-add-bar">
+					{#if showIncludeAdd}
+						<div class="include-add-form">
+							<input bind:value={includeSearch} placeholder="搜索活动..." style="flex: 1;" />
+							<button class="small" onclick={() => { showIncludeAdd = false; includeSearch = ''; }}>取消</button>
+						</div>
+						<div class="include-candidates">
+							{#each includableActivities as a (a.id)}
+								<button class="small include-candidate" onclick={() => addInclude(a.id)}>
+									{a.icon} {a.name}
+								</button>
+							{/each}
+							{#if includableActivities.length === 0}
+								<span style="font-size: 12px; color: var(--text-secondary);">没有可选的活动</span>
+							{/if}
+						</div>
+					{:else}
+						<button class="small" onclick={() => showIncludeAdd = true}>+ 引用其他活动</button>
+					{/if}
+				</div>
+
 				<h3 style="margin-top: 20px;">提示</h3>
 				<div style="display: flex; gap: 8px; margin: 12px 0;">
 					<input bind:value={newTip} placeholder="添加提示，如：不穿含棉衣物" style="flex: 1;" />
@@ -517,6 +627,62 @@
 	}
 	.error-state button {
 		margin-top: 12px;
+	}
+	.include-card {
+		padding: 6px 12px;
+		margin-bottom: 4px;
+	}
+	.include-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		cursor: pointer;
+	}
+	.include-expand {
+		font-size: 10px;
+		width: 14px;
+		text-align: center;
+		color: var(--text-secondary);
+	}
+	.include-header > button {
+		margin-left: auto;
+	}
+	.include-slots {
+		margin-top: 6px;
+		margin-left: 22px;
+		padding-left: 12px;
+		border-left: 2px solid var(--border);
+	}
+	.include-slot-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 2px 0;
+		font-size: 13px;
+	}
+	.include-slot-name {
+		color: var(--text);
+	}
+	.include-slot-qty {
+		color: var(--text-secondary);
+		font-size: 11px;
+	}
+	.include-add-bar {
+		margin-top: 8px;
+	}
+	.include-add-form {
+		display: flex;
+		gap: 6px;
+		margin-bottom: 6px;
+	}
+	.include-candidates {
+		display: flex;
+		gap: 4px;
+		flex-wrap: wrap;
+		margin-bottom: 8px;
+	}
+	.include-candidate {
+		font-size: 12px;
 	}
 	@media (max-width: 768px) {
 		.activities-layout {

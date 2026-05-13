@@ -540,6 +540,80 @@ pub struct UpdateAttributeDefinition {
     pub search_weight: Option<i64>,
 }
 
+// ── Display Rules ──
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DisplayRule {
+    pub id: i64,
+    pub name: String,
+    pub category_id: Option<i64>,
+    pub group_by_key: String,
+    pub sort_by_key: String,
+    pub sort_dir: String,
+    pub visible_columns: String,
+    pub sort_order: i64,
+    pub config: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateDisplayRule {
+    pub name: String,
+    pub category_id: Option<i64>,
+    #[serde(default)]
+    pub group_by_key: String,
+    #[serde(default)]
+    pub sort_by_key: String,
+    #[serde(default = "default_sort_dir")]
+    pub sort_dir: String,
+    #[serde(default = "default_empty_array")]
+    pub visible_columns: String,
+    #[serde(default)]
+    pub sort_order: i64,
+    #[serde(default = "default_empty_obj")]
+    pub config: String,
+}
+
+fn default_sort_dir() -> String {
+    "asc".to_string()
+}
+
+fn default_empty_array() -> String {
+    "[]".to_string()
+}
+
+fn default_empty_obj() -> String {
+    "{}".to_string()
+}
+
+impl CreateDisplayRule {
+    pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.name.trim().is_empty() {
+            return Err(crate::error::AppError::validation("规则名称不能为空"));
+        }
+        if self.sort_dir != "asc" && self.sort_dir != "desc" {
+            return Err(crate::error::AppError::validation("排序方向只能为 asc 或 desc"));
+        }
+        // Validate visible_columns is valid JSON
+        serde_json::from_str::<serde_json::Value>(&self.visible_columns).map_err(|_| {
+            crate::error::AppError::validation("可见列不是有效的 JSON 数组")
+        })?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateDisplayRule {
+    pub name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_some")]
+    pub category_id: Option<Option<i64>>,
+    pub group_by_key: Option<String>,
+    pub sort_by_key: Option<String>,
+    pub sort_dir: Option<String>,
+    pub visible_columns: Option<String>,
+    pub sort_order: Option<i64>,
+    pub config: Option<String>,
+}
+
 // ── Status Definitions ──
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -713,6 +787,7 @@ pub struct ExportData {
     pub tags: Vec<Tag>,
     pub attribute_definitions: Vec<AttributeDefinition>,
     pub items: Vec<Item>,
+    pub display_rules: Vec<DisplayRule>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -729,6 +804,8 @@ pub struct ImportRequest {
     pub tags: Vec<Tag>,
     pub attribute_definitions: Vec<AttributeDefinition>,
     pub items: Vec<Item>,
+    #[serde(default)]
+    pub display_rules: Vec<DisplayRule>,
     pub strategy: ImportStrategy,
 }
 
@@ -755,6 +832,7 @@ pub struct ImportResult {
     pub items_created: u64,
     pub items_updated: u64,
     pub items_skipped: u64,
+    pub display_rules_created: u64,
 }
 
 // ── SSE Events (for streaming AI parse) ──
@@ -773,6 +851,130 @@ pub enum SseEvent {
     },
     #[serde(rename = "error")]
     Error { message: String },
+}
+
+// ── Relation Types ──
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct RelationType {
+    pub id: i64,
+    pub name: String,
+    pub label: String,
+    pub color: String,
+    pub icon: String,
+    pub bidirectional: bool,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateRelationType {
+    pub name: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub color: String,
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default)]
+    pub bidirectional: bool,
+    #[serde(default)]
+    pub sort_order: i64,
+}
+
+impl CreateRelationType {
+    pub fn validate(&self) -> Result<(), crate::error::AppError> {
+        if self.name.trim().is_empty() {
+            return Err(crate::error::AppError::validation("关系类型名称不能为空"));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateRelationType {
+    pub name: Option<String>,
+    pub label: Option<String>,
+    pub color: Option<String>,
+    pub icon: Option<String>,
+    pub bidirectional: Option<bool>,
+    pub sort_order: Option<i64>,
+}
+
+// ── Item Relations ──
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ItemRelation {
+    pub id: i64,
+    pub source_item_id: i64,
+    pub target_item_id: i64,
+    pub relation_type_id: i64,
+    pub notes: String,
+}
+
+/// Item relation with related item info for display
+#[derive(Debug, Serialize)]
+pub struct ItemRelationEnriched {
+    pub id: i64,
+    pub source_item_id: i64,
+    pub target_item_id: i64,
+    pub relation_type_id: i64,
+    pub notes: String,
+    pub target_name: String,
+    pub relation_label: String,
+    pub relation_color: String,
+    pub relation_icon: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateItemRelation {
+    pub target_item_id: i64,
+    pub relation_type_id: i64,
+    #[serde(default)]
+    pub notes: String,
+}
+
+// ── Activity Includes ──
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ActivityInclude {
+    pub id: i64,
+    pub activity_id: i64,
+    pub included_activity_id: i64,
+    pub sort_order: i64,
+}
+
+/// Activity include with the included activity's info
+#[derive(Debug, Serialize)]
+pub struct ActivityIncludeEnriched {
+    pub id: i64,
+    pub activity_id: i64,
+    pub included_activity_id: i64,
+    pub sort_order: i64,
+    pub included_name: String,
+    pub included_icon: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateActivityInclude {
+    pub included_activity_id: i64,
+    #[serde(default)]
+    pub sort_order: i64,
+}
+
+// ── Batch Items ──
+
+#[derive(Debug, Deserialize)]
+pub struct BatchItemsRequest {
+    pub ids: Vec<i64>,
+    pub action: String,
+    #[serde(default)]
+    pub changes: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchItemsResponse {
+    pub updated: u64,
+    pub deleted: u64,
 }
 
 // ── Tests ──

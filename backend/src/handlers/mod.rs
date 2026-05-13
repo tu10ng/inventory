@@ -2,15 +2,17 @@ pub mod activities;
 pub mod ai;
 pub mod attributes;
 pub mod categories;
+pub mod display_rules;
 pub mod items;
 pub mod ocr;
 pub mod people;
+pub mod relations;
 pub mod statuses;
 pub mod tags;
 pub mod trip_items;
 pub mod trips;
 
-use axum::routing::{get, patch, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use sqlx::SqlitePool;
 
@@ -26,6 +28,7 @@ pub fn router() -> Router<SqlitePool> {
         .route("/api/items/export", get(items::export_items))
         .route("/api/items/import-preview", post(items::import_preview))
         .route("/api/items/import", post(items::import_items))
+        .route("/api/items/batch", post(items::batch))
         .route("/api/items", get(items::list).post(items::create))
         .route("/api/items/{id}", get(items::get).put(items::update).delete(items::delete))
         .route("/api/item-stats", get(items::usage_stats))
@@ -51,6 +54,18 @@ pub fn router() -> Router<SqlitePool> {
         .route("/api/activities/{id}/tips", get(activities::list_tips).post(activities::create_tip))
         .route("/api/activity-slots/{id}", put(activities::update_slot).delete(activities::delete_slot))
         .route("/api/tips/{id}", put(activities::update_tip).delete(activities::delete_tip))
+        // Display rules
+        .route("/api/display-rules", get(display_rules::list).post(display_rules::create))
+        .route("/api/display-rules/{id}", put(display_rules::update).delete(display_rules::delete))
+        // Relation types (new meta-layer)
+        .route("/api/relation-types", get(relations::list_relation_types).post(relations::create_relation_type))
+        .route("/api/relation-types/{id}", put(relations::update_relation_type).delete(relations::delete_relation_type))
+        // Item relations
+        .route("/api/items/{id}/relations", get(relations::list_item_relations).post(relations::create_item_relation))
+        .route("/api/item-relations/{id}", delete(relations::delete_item_relation))
+        // Activity includes
+        .route("/api/activities/{id}/includes", get(relations::list_activity_includes).post(relations::create_activity_include))
+        .route("/api/activity-includes/{id}", delete(relations::delete_activity_include))
         // Trips
         .route("/api/trips", get(trips::list).post(trips::create))
         .route("/api/trips/{id}", get(trips::get).put(trips::update).delete(trips::delete))

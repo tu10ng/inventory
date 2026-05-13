@@ -323,10 +323,19 @@
 {#if selectable && selectedIds.size > 0}
 	<BulkActionBar
 		selectedCount={selectedIds.size}
-		{people}
-		onCheck={() => bulkAction('check')}
-		onUncheck={() => bulkAction('uncheck')}
-		onAssignPerson={(id) => bulkAction('person', id)}
+		actions={[
+			{ label: '全部勾选', action: () => bulkAction('check') },
+			{ label: '取消勾选', action: () => bulkAction('uncheck') },
+			...people.length > 0 ? [{
+				label: '分配给...',
+				action: async () => {
+					const idStr = prompt('输入人员 ID (留空=未分配):');
+					if (idStr !== null) {
+						await bulkAction('person', idStr === '' ? null : Number(idStr));
+					}
+				}
+			}] : []
+		]}
 	/>
 {/if}
 

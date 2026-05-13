@@ -19,10 +19,13 @@
 		columnFilters = new Map(),
 		groupBy = null,
 		groupedData = null,
+		selectable = false,
+		selectedIds = new Set(),
 		onSelect,
 		onToggleCategory,
 		onSort,
 		onFilterChange,
+		onToggleSelect,
 	}: {
 		items: Item[];
 		categories: Category[];
@@ -35,10 +38,13 @@
 		columnFilters?: Map<string, Set<string>>;
 		groupBy?: { key: string; label: string } | null;
 		groupedData?: Map<number, { groups: ItemGroup[]; ungrouped: Item[] }> | null;
+		selectable?: boolean;
+		selectedIds?: Set<number>;
 		onSelect: (item: Item) => void;
 		onToggleCategory: (catId: number) => void;
 		onSort?: (key: string) => void;
 		onFilterChange?: (key: string, values: Set<string>) => void;
+		onToggleSelect?: (id: number) => void;
 	} = $props();
 
 	let openFilter = $state<string | null>(null);
@@ -113,10 +119,13 @@
 
 <svelte:window onclick={closeFilter} />
 
-<div class="item-list-table" style="--extra-cols: {visibleColumns.length}">
+<div class="item-list-table" class:selectable style="--extra-cols: {visibleColumns.length}">
 	<!-- Header -->
 	{#if visibleColumns.length > 0}
 		<div class="header-row">
+			{#if selectable}
+				<span class="check-col"><input type="checkbox" checked={selectedIds.size === items.length && items.length > 0} onchange={() => { if (onToggleSelect) { if (selectedIds.size === items.length) { items.forEach(i => onToggleSelect(i.id)); } else { items.forEach(i => { if (!selectedIds.has(i.id)) onToggleSelect(i.id); }); } } }} /></span>
+			{/if}
 			<button class="hdr-name hdr-btn" onclick={() => handleSort('name')}>
 				<span>名称</span>
 				{#if sortKey === 'name'}
@@ -162,6 +171,9 @@
 		</div>
 	{:else}
 		<div class="header-row">
+			{#if selectable}
+				<span class="check-col"><input type="checkbox" checked={selectedIds.size === items.length && items.length > 0} onchange={() => { if (onToggleSelect) { if (selectedIds.size === items.length) { items.forEach(i => onToggleSelect(i.id)); } else { items.forEach(i => { if (!selectedIds.has(i.id)) onToggleSelect(i.id); }); } } }} /></span>
+			{/if}
 			<button class="hdr-name hdr-btn" onclick={() => handleSort('name')}>
 				<span>名称</span>
 				{#if sortKey === 'name'}
@@ -198,13 +210,19 @@
 						/>
 					{/each}
 					{#if catData.ungrouped.length > 0}
-						<div class="ungrouped-header">··· 未分组 ···</div>
+						<div class="ungrouped-header">
+							{#if selectable}<span class="check-col"></span>{/if}
+							<span>··· 未分组 ···</span>
+						</div>
 						{#each catData.ungrouped as item (item.id)}
 							<button
 								class="item-row"
 								class:selected={item.id === selectedItemId}
 								onclick={() => onSelect(item)}
 							>
+								{#if selectable}
+									<span class="check-col" onclick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(item.id)} onchange={() => onToggleSelect?.(item.id)} /></span>
+								{/if}
 								<span class="item-name">{itemName(item)}</span>
 								{#each visibleColumns as col (col.key)}
 									{@const v = getCellValue(item, col)}
@@ -226,6 +244,9 @@
 							class:selected={item.id === selectedItemId}
 							onclick={() => onSelect(item)}
 						>
+							{#if selectable}
+								<span class="check-col" onclick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(item.id)} onchange={() => onToggleSelect?.(item.id)} /></span>
+							{/if}
 							<span class="item-name">{itemName(item)}</span>
 							{#each visibleColumns as col (col.key)}
 								<CellRenderer {item} {col} tag={getTag(item)} />
@@ -241,6 +262,9 @@
 						class:selected={item.id === selectedItemId}
 						onclick={() => onSelect(item)}
 					>
+						{#if selectable}
+							<span class="check-col" onclick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(item.id)} onchange={() => onToggleSelect?.(item.id)} /></span>
+						{/if}
 						<span class="item-name">
 							{itemName(item)}
 							{#if visibleColumns.length === 0 && itemTag}
@@ -292,6 +316,10 @@
 		position: sticky;
 		top: 0;
 		z-index: 5;
+	}
+	.selectable .header-row {
+		grid-template-columns: 32px 1fr repeat(var(--extra-cols, 0), auto);
+		padding-left: 8px;
 	}
 	.hdr-col {
 		text-align: center;
@@ -462,6 +490,10 @@
 		text-align: left;
 		transition: background 0.1s;
 	}
+	.selectable .item-row {
+		grid-template-columns: 32px 1fr repeat(var(--extra-cols, 0), auto);
+		padding-left: 8px;
+	}
 	.item-row:hover {
 		background: color-mix(in srgb, var(--surface), var(--primary) 6%);
 	}
@@ -577,6 +609,18 @@
 		color: var(--text-secondary);
 		border-bottom: 1px dotted var(--border);
 		opacity: 0.7;
+	}
+
+	.check-col {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.check-col input[type='checkbox'] {
+		width: 14px;
+		height: 14px;
+		accent-color: var(--primary);
+		cursor: pointer;
 	}
 
 	.empty-state {

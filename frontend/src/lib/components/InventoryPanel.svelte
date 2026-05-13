@@ -3,11 +3,12 @@
 	import SearchFilter from './SearchFilter.svelte';
 	import ItemCard from './ItemCard.svelte';
 
-	let { items, categories, tripItemIds, enrichedItems }: {
+	let { items, categories, tripItemIds, enrichedItems, onHoverItem = null }: {
 		items: Item[];
 		categories: Category[];
 		tripItemIds: Set<number>;
 		enrichedItems: TripItemEnriched[];
+		onHoverItem?: ((itemId: number | null) => void) | null;
 	} = $props();
 
 	let search = $state('');
@@ -78,7 +79,9 @@
 						{item}
 						categoryIcon={getCategoryIcon(item.category_id)}
 						alreadyAdded={tripItemIds.has(item.id)}
+						itemId={item.id}
 						{enrichedItems}
+						onHover={onHoverItem}
 					/>
 				{/each}
 			</div>

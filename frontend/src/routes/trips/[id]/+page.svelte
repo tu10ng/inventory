@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api/client';
-	import type { Trip, TripItem, TripItemEnriched, Item, Category, Tip, Person, ResyncPreview, ResyncPreviewItem, StatusDefinition } from '$lib/types';
+	import type { Trip, TripItem, TripItemEnriched, Item, Category, Tip, Person, ResyncPreview, ResyncPreviewItem, StatusDefinition, ItemRelationEnriched } from '$lib/types';
 	import { getItemStatuses, getTripStatuses, getTripStatusLabel } from '$lib/utils/status';
 	import SplitPane from '$lib/components/SplitPane.svelte';
 	import ChecklistPanel from '$lib/components/ChecklistPanel.svelte';
@@ -22,6 +22,38 @@
 	const tripId = $derived(Number(page.params.id));
 
 	const tripItemIds = $derived(new Set(enrichedItems.filter((ti) => ti.item_id).map((ti) => ti.item_id!)));
+
+	// Relation recommendations
+	let hoveredItemId = $state<number | null>(null);
+	let hoveredRelations = $state<ItemRelationEnriched[]>([]);
+	let relationLoading = $state(false);
+
+	async function handleHoverItem(itemId: number | null) {
+		if (hoveredItemId === itemId) return;
+		hoveredItemId = itemId;
+		hoveredRelations = [];
+		if (itemId === null) return;
+
+		relationLoading = true;
+		try {
+			hoveredRelations = await api.get<ItemRelationEnriched[]>(`/items/${itemId}/relations`);
+		} catch {
+			// not critical
+		} finally {
+			relationLoading = false;
+		}
+	}
+
+	// Related items that are NOT already in the trip
+	const recommendedItems = $derived(
+		hoveredRelations
+			.filter(r => !tripItemIds.has(r.target_item_id))
+			.map(r => {
+				const item = allItems.find(i => i.id === r.target_item_id);
+				return item ? { relation: r, item } : null;
+			})
+			.filter((x): x is NonNullable<typeof x> => x !== null)
+	);
 
 	async function load() {
 		try {
@@ -186,7 +218,20 @@
 				{categories}
 				{tripItemIds}
 				{enrichedItems}
+				onHoverItem={handleHoverItem}
 			/>
+			{#if recommendedItems.length > 0}
+				<div class="recommendation-bar card">
+					<div class="rec-header">关联推荐</div>
+					<div class="rec-chips">
+						{#each recommendedItems as { relation, item } (item.id)}
+							<span class="rec-chip" title="{relation.relation_label}: {relation.relation_icon}">
+								{relation.relation_icon} {String(item.attrs?.name ?? '?')}
+							</span>
+						{/each}
+					</div>
+				</div>
+			{/if}
 		{/snippet}
 	</SplitPane>
 {/if}
@@ -219,5 +264,29 @@
 	}
 	.error-state button {
 		margin-top: 12px;
+	}
+	.recommendation-bar {
+		margin-top: 12px;
+		padding: 10px 12px;
+	}
+	.rec-header {
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--text-secondary);
+		margin-bottom: 6px;
+		text-transform: uppercase;
+	}
+	.rec-chips {
+		display: flex;
+		gap: 6px;
+		flex-wrap: wrap;
+	}
+	.rec-chip {
+		font-size: 12px;
+		background: var(--primary);
+		color: white;
+		padding: 3px 10px;
+		border-radius: 12px;
+		cursor: default;
 	}
 </style>

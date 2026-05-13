@@ -93,6 +93,64 @@ pub async fn delete(
     Ok(())
 }
 
+/// Recursively collect all slots from an activity and its included activities.
+/// Returns flattened, deduplicated slots (by slot_name + category_id: first wins).
+/// Has cycle detection to prevent infinite loops.
+async fn collect_activity_slots(
+    pool: &SqlitePool,
+    activity_id: i64,
+) -> Result<Vec<ActivitySlot>, AppError> {
+    // BFS/DFS with visited set for cycle detection
+    let mut visited = std::collections::HashSet::new();
+    let mut all_slots: Vec<(i64, ActivitySlot)> = Vec::new(); // (source_activity_id, slot)
+    let mut queue: Vec<i64> = vec![activity_id];
+
+    while let Some(aid) = queue.pop() {
+        if !visited.insert(aid) {
+            continue; // Already visited (cycle protection)
+        }
+
+        // Collect slots from this activity
+        let slots = sqlx::query_as::<_, ActivitySlot>(
+            "SELECT * FROM activity_slots WHERE activity_id = ? ORDER BY sort_order, id",
+        )
+        .bind(aid)
+        .fetch_all(pool)
+        .await?;
+
+        for slot in slots {
+            all_slots.push((aid, slot));
+        }
+
+        // Collect included activities
+        let includes: Vec<i64> = sqlx::query_scalar(
+            "SELECT included_activity_id FROM activity_includes WHERE activity_id = ? ORDER BY sort_order, id",
+        )
+        .bind(aid)
+        .fetch_all(pool)
+        .await?;
+
+        // Push in reverse order so they're processed in sort_order
+        for inc_id in includes.into_iter().rev() {
+            if !visited.contains(&inc_id) {
+                queue.push(inc_id);
+            }
+        }
+    }
+
+    // Deduplicate: same slot_name + category_id → first one wins (from the activity higher in graph)
+    let mut seen_slot_keys = std::collections::HashSet::new();
+    let mut deduped = Vec::new();
+    for (_src, slot) in all_slots {
+        let key = (slot.slot_name.clone(), slot.category_id);
+        if seen_slot_keys.insert(key) {
+            deduped.push(slot);
+        }
+    }
+
+    Ok(deduped)
+}
+
 pub async fn populate(
     State(pool): State<SqlitePool>,
     Path(trip_id): Path<i64>,
@@ -107,13 +165,7 @@ pub async fn populate(
         .activity_id
         .ok_or_else(|| AppError::bad_request("行程未关联活动模板"))?;
 
-    // Use activity_slots instead of activity_items
-    let slots = sqlx::query_as::<_, ActivitySlot>(
-        "SELECT * FROM activity_slots WHERE activity_id = ? ORDER BY sort_order, id",
-    )
-    .bind(activity_id)
-    .fetch_all(&pool)
-    .await?;
+    let slots = collect_activity_slots(&pool, activity_id).await?;
 
     let mut tx = pool.begin().await?;
 
@@ -174,12 +226,7 @@ async fn compute_resync_diff(pool: &SqlitePool, trip_id: i64) -> Result<ResyncDi
         .activity_id
         .ok_or_else(|| AppError::bad_request("行程未关联活动模板"))?;
 
-    let slots = sqlx::query_as::<_, ActivitySlot>(
-        "SELECT * FROM activity_slots WHERE activity_id = ? ORDER BY sort_order, id",
-    )
-    .bind(activity_id)
-    .fetch_all(pool)
-    .await?;
+    let slots = collect_activity_slots(pool, activity_id).await?;
 
     let trip_items = sqlx::query_as::<_, TripItem>(
         "SELECT * FROM trip_items WHERE trip_id = ? ORDER BY id",
