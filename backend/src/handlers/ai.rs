@@ -1091,3 +1091,137 @@ pub async fn parse_items_stream(
 
     Sse::new(stream).keep_alive(KeepAlive::default())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_categories() -> Vec<Category> {
+        vec![
+            Category { id: 1, name: "服装".to_string(), icon: "👕".to_string(), sort_order: 1 },
+            Category { id: 2, name: "装备".to_string(), icon: "🎒".to_string(), sort_order: 2 },
+            Category { id: 3, name: "营养".to_string(), icon: "🍫".to_string(), sort_order: 3 },
+            Category { id: 8, name: "其他".to_string(), icon: "📦".to_string(), sort_order: 8 },
+        ]
+    }
+
+    fn sample_tags() -> Vec<Tag> {
+        vec![
+            Tag { id: 1, name: "冲锋衣".to_string(), category_id: 1, sort_order: 1 },
+            Tag { id: 2, name: "登山杖".to_string(), category_id: 2, sort_order: 1 },
+            Tag { id: 3, name: "头灯".to_string(), category_id: 2, sort_order: 2 },
+        ]
+    }
+
+    #[test]
+    fn resolve_category_exact() {
+        let cats = sample_categories();
+        assert_eq!(resolve_category_id("服装", &cats), 1);
+        assert_eq!(resolve_category_id("装备", &cats), 2);
+    }
+
+    #[test]
+    fn resolve_category_fuzzy() {
+        let cats = sample_categories();
+        // "装" is contained in "服装" and "装备"
+        // The find() stops at first match, which is "服装"
+        assert_eq!(resolve_category_id("装", &cats), 1);
+        // "营养品" contains "营养"
+        assert_eq!(resolve_category_id("营养品", &cats), 3);
+    }
+
+    #[test]
+    fn resolve_category_unknown_fallback() {
+        let cats = sample_categories();
+        // "不存在的分类" doesn't match any → fallback to "其他"
+        assert_eq!(resolve_category_id("不存在的分类", &cats), 8);
+    }
+
+    #[test]
+    fn resolve_tag_exact() {
+        let tags = sample_tags();
+        assert_eq!(resolve_tag_id("冲锋衣", Some(1), &tags), Some(1));
+        assert_eq!(resolve_tag_id("登山杖", Some(2), &tags), Some(2));
+    }
+
+    #[test]
+    fn resolve_tag_wrong_category() {
+        let tags = sample_tags();
+        // "冲锋衣" exists but only in category_id=1. If we pass category_id=2, it should fallback
+        // to the without-category-constraint match
+        let result = resolve_tag_id("冲锋衣", Some(2), &tags);
+        // With cat constraint fails, without-cat fallback succeeds
+        assert_eq!(result, Some(1));
+    }
+
+    #[test]
+    fn resolve_tag_unknown() {
+        let tags = sample_tags();
+        assert_eq!(resolve_tag_id("不存在的标签", Some(1), &tags), None);
+    }
+
+    #[test]
+    fn resolve_parsed_item_sets_ids() {
+        let cats = sample_categories();
+        let tags = sample_tags();
+        let mut item = AiParsedItem {
+            category_name: Some("服装".to_string()),
+            tag_name: Some("冲锋衣".to_string()),
+            category_id: None,
+            tag_id: None,
+            attrs: Default::default(),
+        };
+        resolve_parsed_item(&mut item, &cats, &tags);
+        assert_eq!(item.category_id, Some(1));
+        assert_eq!(item.tag_id, Some(1));
+    }
+
+    #[test]
+    fn resolve_parsed_item_no_names() {
+        let cats = sample_categories();
+        let tags = sample_tags();
+        let mut item = AiParsedItem {
+            category_name: None,
+            tag_name: None,
+            category_id: None,
+            tag_id: None,
+            attrs: Default::default(),
+        };
+        resolve_parsed_item(&mut item, &cats, &tags);
+        assert_eq!(item.category_id, None);
+        assert_eq!(item.tag_id, None);
+    }
+
+    // ── extract_items_from_text ──
+
+    #[test]
+    fn extract_items_with_marker() {
+        let text = "Some thinking...\n---JSON---\n{\"items\":[{\"category_name\":\"服装\",\"attrs\":{\"name\":\"冲锋衣\"}}]}";
+        let items = extract_items_from_text(text).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].attrs.get("name").and_then(|v| v.as_str()), Some("冲锋衣"));
+    }
+
+    #[test]
+    fn extract_items_without_marker() {
+        let text = "{\"items\":[{\"category_name\":\"装备\",\"attrs\":{\"name\":\"登山杖\"}}]}";
+        let items = extract_items_from_text(text).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].category_name.as_deref(), Some("装备"));
+    }
+
+    #[test]
+    fn extract_items_with_markdown_fence() {
+        let text = "Thoughts...\n---JSON---\n```json\n{\"items\":[{\"category_name\":\"服装\",\"attrs\":{\"name\":\"软壳\"}}]}\n```";
+        let items = extract_items_from_text(text).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].attrs.get("name").and_then(|v| v.as_str()), Some("软壳"));
+    }
+
+    #[test]
+    fn extract_items_empty() {
+        let text = "---JSON---\n{\"items\":[]}";
+        let items = extract_items_from_text(text).unwrap();
+        assert_eq!(items.len(), 0);
+    }
+}

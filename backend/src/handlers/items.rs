@@ -489,3 +489,406 @@ pub async fn import_items(
         items_skipped,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // Each test gets its own sqlite::memory: pool = full isolation.
+
+    // ── CRUD ──
+
+    #[tokio::test]
+    async fn create_and_get() {
+        let pool = crate::db::init_test_pool().await;
+
+        let Json(item) = create(
+            State(pool.clone()),
+            Json(CreateItem {
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "冲锋衣", "brand": "始祖鸟", "model": "Beta LT", "default_qty": 1, "warmth_rating": 30, "notes": ""}),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(item.category_id, 1);
+        assert_eq!(item.attr_str("name"), "冲锋衣");
+        assert_eq!(item.attr_str("brand"), "始祖鸟");
+        assert_eq!(item.attr_str("model"), "Beta LT");
+        assert_eq!(item.attr_i64("warmth_rating"), 30);
+
+        let Json(fetched) = get(State(pool.clone()), axum::extract::Path(item.id)).await.unwrap();
+        assert_eq!(fetched.id, item.id);
+        assert_eq!(fetched.attr_str("name"), "冲锋衣");
+    }
+
+    #[tokio::test]
+    async fn create_missing_name() {
+        let pool = crate::db::init_test_pool().await;
+
+        let result = create(
+            State(pool.clone()),
+            Json(CreateItem {
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"brand": "始祖鸟"}),
+            }),
+        )
+        .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn update_partial_attrs_merge() {
+        let pool = crate::db::init_test_pool().await;
+
+        let Json(item) = create(
+            State(pool.clone()),
+            Json(CreateItem {
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "冲锋衣", "brand": "始祖鸟", "model": "Beta LT", "default_qty": 1, "warmth_rating": 30, "notes": ""}),
+            }),
+        )
+        .await
+        .unwrap();
+
+        // Update only name — other attrs fields should be preserved
+        let Json(updated) = update(
+            State(pool.clone()),
+            axum::extract::Path(item.id),
+            Json(UpdateItem {
+                category_id: None,
+                tag_id: None,
+                attrs: Some(json!({"name": "硬壳冲锋衣"})),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(updated.attr_str("name"), "硬壳冲锋衣");
+        assert_eq!(updated.attr_str("brand"), "始祖鸟"); // preserved
+        assert_eq!(updated.attr_str("model"), "Beta LT"); // preserved
+        assert_eq!(updated.attr_i64("warmth_rating"), 30); // preserved
+    }
+
+    #[tokio::test]
+    async fn update_merge_new_adhoc_key() {
+        let pool = crate::db::init_test_pool().await;
+
+        let Json(item) = create(
+            State(pool.clone()),
+            Json(CreateItem {
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "冲锋衣", "brand": "始祖鸟", "default_qty": 1, "notes": ""}),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let Json(updated) = update(
+            State(pool.clone()),
+            axum::extract::Path(item.id),
+            Json(UpdateItem {
+                category_id: None,
+                tag_id: None,
+                attrs: Some(json!({"color": "红色"})),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(updated.attr_str("color"), "红色");
+        assert_eq!(updated.attr_str("brand"), "始祖鸟"); // preserved
+    }
+
+    #[tokio::test]
+    async fn update_category_change() {
+        let pool = crate::db::init_test_pool().await;
+        // First create a tag (no seed tags in migration)
+        sqlx::query("INSERT INTO tags (name, category_id) VALUES ('test_tag', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let tag_id: i64 = sqlx::query_scalar("SELECT id FROM tags WHERE name = 'test_tag'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        let Json(item) = create(
+            State(pool.clone()),
+            Json(CreateItem {
+                category_id: 1,
+                tag_id: Some(tag_id),
+                attrs: json!({"name": "冲锋衣", "default_qty": 1, "notes": ""}),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let Json(updated) = update(
+            State(pool.clone()),
+            axum::extract::Path(item.id),
+            Json(UpdateItem {
+                category_id: Some(2),
+                tag_id: Some(None),
+                attrs: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(updated.category_id, 2);
+        assert_eq!(updated.tag_id, None);
+    }
+
+    #[tokio::test]
+    async fn delete_and_get_404() {
+        let pool = crate::db::init_test_pool().await;
+
+        let Json(item) = create(
+            State(pool.clone()),
+            Json(CreateItem {
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "冲锋衣", "default_qty": 1, "notes": ""}),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let _ = delete(State(pool.clone()), axum::extract::Path(item.id))
+            .await
+            .unwrap();
+
+        let result = get(State(pool.clone()), axum::extract::Path(item.id)).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent() {
+        let pool = crate::db::init_test_pool().await;
+
+        let result = delete(State(pool.clone()), axum::extract::Path(99999)).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn list_returns_sorted() {
+        let pool = crate::db::init_test_pool().await;
+
+        let _ = create(
+            State(pool.clone()),
+            Json(CreateItem {
+                category_id: 2,
+                tag_id: None,
+                attrs: json!({"name": "登山杖", "default_qty": 1, "notes": ""}),
+            }),
+        )
+        .await
+        .unwrap();
+        let _ = create(
+            State(pool.clone()),
+            Json(CreateItem {
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "冲锋衣", "default_qty": 1, "notes": ""}),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let Json(list) = list(State(pool.clone())).await.unwrap();
+        assert!(list.len() >= 2);
+        let cat1_idx = list.iter().position(|i| i.category_id == 1);
+        let cat2_idx = list.iter().position(|i| i.category_id == 2);
+        assert!(cat1_idx.is_some() && cat2_idx.is_some());
+        assert!(cat1_idx.unwrap() < cat2_idx.unwrap());
+    }
+
+    #[tokio::test]
+    async fn get_nonexistent() {
+        let pool = crate::db::init_test_pool().await;
+
+        let result = get(State(pool.clone()), axum::extract::Path(99999)).await;
+        assert!(result.is_err());
+    }
+
+    // ── Export / Import ──
+
+    #[tokio::test]
+    async fn export_has_correct_version() {
+        let pool = crate::db::init_test_pool().await;
+
+        let response = export_items(State(pool.clone())).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let data: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(data["version"], 2);
+    }
+
+    #[tokio::test]
+    async fn import_preview_detect_duplicate() {
+        let pool = crate::db::init_test_pool().await;
+
+        let _ = create(
+            State(pool.clone()),
+            Json(CreateItem {
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "冲锋衣", "default_qty": 1, "notes": ""}),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let import_req = ImportRequest {
+            version: 2,
+            categories: vec![],
+            tags: vec![],
+            attribute_definitions: vec![],
+            items: vec![Item {
+                id: 100,
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "冲锋衣"}),
+            }],
+            strategy: ImportStrategy::Skip,
+        };
+
+        let Json(preview) = import_preview(State(pool.clone()), Json(import_req)).await.unwrap();
+        assert_eq!(preview.total_items, 1);
+        assert_eq!(preview.new_items, 0);
+        assert_eq!(preview.skip_or_update_items, 1);
+        assert_eq!(preview.preview_items[0].action, "skip");
+    }
+
+    #[tokio::test]
+    async fn import_preview_new_item() {
+        let pool = crate::db::init_test_pool().await;
+
+        let import_req = ImportRequest {
+            version: 2,
+            categories: vec![],
+            tags: vec![],
+            attribute_definitions: vec![],
+            items: vec![Item {
+                id: 200,
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "全新物品"}),
+            }],
+            strategy: ImportStrategy::Skip,
+        };
+
+        let Json(preview) = import_preview(State(pool.clone()), Json(import_req)).await.unwrap();
+        assert_eq!(preview.new_items, 1);
+        assert_eq!(preview.total_items, 1);
+    }
+
+    #[tokio::test]
+    async fn import_create_new() {
+        let pool = crate::db::init_test_pool().await;
+
+        let import_req = ImportRequest {
+            version: 2,
+            categories: vec![Category {
+                id: 100,
+                name: "服装".to_string(),
+                icon: "👕".to_string(),
+                sort_order: 1,
+            }],
+            tags: vec![],
+            attribute_definitions: vec![],
+            items: vec![Item {
+                id: 200,
+                category_id: 100,
+                tag_id: None,
+                attrs: json!({"name": "软壳裤", "brand": "MAMMUT", "default_qty": 1, "notes": ""}),
+            }],
+            strategy: ImportStrategy::Skip,
+        };
+
+        let Json(result) = import_items(State(pool.clone()), Json(import_req)).await.unwrap();
+        assert_eq!(result.items_created, 1);
+    }
+
+    #[tokio::test]
+    async fn import_skip_strategy() {
+        let pool = crate::db::init_test_pool().await;
+
+        let _ = create(
+            State(pool.clone()),
+            Json(CreateItem {
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "冲锋衣", "brand": "旧品牌", "default_qty": 1, "notes": ""}),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let import_req = ImportRequest {
+            version: 2,
+            categories: vec![],
+            tags: vec![],
+            attribute_definitions: vec![],
+            items: vec![Item {
+                id: 300,
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "冲锋衣", "brand": "新品牌"}),
+            }],
+            strategy: ImportStrategy::Skip,
+        };
+
+        let Json(result) = import_items(State(pool.clone()), Json(import_req)).await.unwrap();
+        assert_eq!(result.items_skipped, 1);
+        assert_eq!(result.items_updated, 0);
+    }
+
+    #[tokio::test]
+    async fn import_update_strategy() {
+        let pool = crate::db::init_test_pool().await;
+
+        let Json(existing) = create(
+            State(pool.clone()),
+            Json(CreateItem {
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "冲锋衣", "brand": "旧品牌", "default_qty": 1, "notes": ""}),
+            }),
+        )
+        .await
+        .unwrap();
+
+        let import_req = ImportRequest {
+            version: 2,
+            categories: vec![],
+            tags: vec![],
+            attribute_definitions: vec![],
+            items: vec![Item {
+                id: 400,
+                category_id: 1,
+                tag_id: None,
+                attrs: json!({"name": "冲锋衣", "brand": "新品牌", "default_qty": 1, "notes": ""}),
+            }],
+            strategy: ImportStrategy::Update,
+        };
+
+        let Json(result) = import_items(State(pool.clone()), Json(import_req)).await.unwrap();
+        assert_eq!(result.items_updated, 1);
+
+        // Verify brand was updated
+        let Json(fetched) = get(State(pool.clone()), axum::extract::Path(existing.id))
+            .await
+            .unwrap();
+        assert_eq!(fetched.attr_str("brand"), "新品牌");
+    }
+}

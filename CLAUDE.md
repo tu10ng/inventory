@@ -205,3 +205,29 @@ RESTful，前缀 `/api`。
 - Table rebuild 只适用于叶子表（无 FK 子表）；父表迁移用 in-place UPDATE + 旧列留空
 - JSON 列更新：前端发送全量 attrs（通过 `{ ...existing, [field]: value }`），后端 merge 到 existing attrs（前端视图优先）
 - 旧物理列作为 shadow copy 保留：INSERT/UPDATE 时从 attrs JSON 提取值同步写入（NOT NULL 兼容）
+
+## 2026-05-13 自动化测试实施复盘
+
+### 测试架构决策
+
+1. **后端：sqlite::memory: + 每测试独立池**：最初计划用"事务 + rollback"模式，但 handler 函数接收 `State<SqlitePool>` 直接操作池，不在事务内。改为每测试调用 `init_test_pool()` 创建独立的 `:memory:` 数据库，天然隔离，无需清理。
+
+2. **前端：vitest 组件测试需要 `resolve.conditions: ['browser']`**：`@testing-library/svelte` v5 默认走 Svelte 的 server 端渲染路径，`mount()` 不可用。添加 `resolve.conditions: ['browser']` 强制走浏览器端。
+
+### 测试中发现的问题
+
+- **没有种子 tag 数据**：`update_category_change` 测试使用了 `tag_id: Some(1)`，但 migrations 只 seed 了 categories 和 status_definitions/attribute_definitions，没有 seed tags。测试需要手动插入 tag 或使用不存在的 tag id。教训：**测试数据不能假设生产环境的种子数据完整，要显式准备或检查**。
+
+### 前端组件测试的陷阱
+
+- **Svelte 5 runes 组件 + jsdom 兼容**：Svelte 5 的 `$derived`/`$state` 在 jsdom 环境下的行为与浏览器一致，但需要正确的 vitest 配置。
+- **`getByText` 对复合文本无效**：`ItemCard` 中 brand + model 渲染为 "始祖鸟 Beta LT"，不能单独 `getByText('始祖鸟')`，应匹配完整文本或按 class 查找。
+- **`getByText` 对多处出现的文本**：`ItemDetailPanel` 中物品名称在 header 和动态属性区都出现，`getByText` 会报多个匹配，应用 `getAllByText`。
+- **编辑模式检测依赖 `item.id`**：`ItemForm` 通过 `!!item?.id` 判断 isEdit，测试中传 `item: { id: 1, ... }` 才能触发"更新"模式。
+
+### 测试命令
+
+```bash
+cd backend && cargo test       # 45 个后端测试，< 0.1s
+cd frontend && pnpm test       # 48 个前端测试，< 1s
+```

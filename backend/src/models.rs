@@ -774,3 +774,155 @@ pub enum SseEvent {
     #[serde(rename = "error")]
     Error { message: String },
 }
+
+// ── Tests ──
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── CreateItem::validate() ──
+
+    #[test]
+    fn create_item_empty_name() {
+        let item = CreateItem {
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({}),
+        };
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn create_item_whitespace_name() {
+        let item = CreateItem {
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({"name": "   "}),
+        };
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn create_item_name_too_long() {
+        let long_name = "x".repeat(201);
+        let item = CreateItem {
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({"name": long_name}),
+        };
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn create_item_zero_qty() {
+        let item = CreateItem {
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({"name": "测试物品", "default_qty": 0}),
+        };
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn create_item_negative_qty() {
+        let item = CreateItem {
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({"name": "测试物品", "default_qty": -1}),
+        };
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn create_item_valid_minimal() {
+        let item = CreateItem {
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({"name": "测试物品"}),
+        };
+        assert!(item.validate().is_ok());
+    }
+
+    #[test]
+    fn create_item_valid_full() {
+        let item = CreateItem {
+            category_id: 2,
+            tag_id: Some(1),
+            attrs: json!({"name": "冲锋衣", "brand": "始祖鸟", "model": "Beta LT", "default_qty": 2, "warmth_rating": 30}),
+        };
+        assert!(item.validate().is_ok());
+    }
+
+    #[test]
+    fn create_item_name_exactly_200_chars() {
+        let name = "x".repeat(200);
+        let item = CreateItem {
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({"name": name}),
+        };
+        assert!(item.validate().is_ok());
+    }
+
+    #[test]
+    fn create_item_default_qty_not_present() {
+        let item = CreateItem {
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({"name": "测试"}),
+        };
+        // default_qty defaults to 1, which is valid
+        assert!(item.validate().is_ok());
+    }
+
+    // ── Item attr helpers ──
+
+    #[test]
+    fn item_attr_str_present() {
+        let item = Item {
+            id: 1,
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({"name": "冲锋衣", "brand": "始祖鸟"}),
+        };
+        assert_eq!(item.attr_str("name"), "冲锋衣");
+        assert_eq!(item.attr_str("brand"), "始祖鸟");
+    }
+
+    #[test]
+    fn item_attr_str_missing() {
+        let item = Item {
+            id: 1,
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({}),
+        };
+        assert_eq!(item.attr_str("name"), "");
+        assert_eq!(item.attr_str("nonexistent"), "");
+    }
+
+    #[test]
+    fn item_attr_i64_present() {
+        let item = Item {
+            id: 1,
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({"default_qty": 3, "warmth_rating": 25}),
+        };
+        assert_eq!(item.attr_i64("default_qty"), 3);
+        assert_eq!(item.attr_i64("warmth_rating"), 25);
+    }
+
+    #[test]
+    fn item_attr_i64_missing() {
+        let item = Item {
+            id: 1,
+            category_id: 1,
+            tag_id: None,
+            attrs: json!({}),
+        };
+        assert_eq!(item.attr_i64("default_qty"), 0);
+    }
+}

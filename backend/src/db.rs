@@ -14,11 +14,33 @@ pub async fn init_pool() -> SqlitePool {
         .await
         .expect("failed to connect to database");
 
-    run_migrations(&pool).await;
-    rebuild_trip_items_fk(&pool).await;
-    rebuild_trips_table(&pool).await;
-    migrate_attrs(&pool).await;
-    rebuild_items_table(&pool).await;
+    run_all_setup(&pool).await;
+    pool
+}
+
+async fn run_all_setup(pool: &SqlitePool) {
+    run_migrations(pool).await;
+    rebuild_trip_items_fk(pool).await;
+    rebuild_trips_table(pool).await;
+    migrate_attrs(pool).await;
+    rebuild_items_table(pool).await;
+}
+
+/// Create an in-memory SQLite pool for testing, with all migrations applied.
+/// Each test should wrap work in a transaction and rollback to keep tests isolated.
+#[cfg(test)]
+pub async fn init_test_pool() -> SqlitePool {
+    let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+        .expect("invalid db url")
+        .create_if_missing(true);
+
+    let pool = SqlitePoolOptions::new()
+        .max_connections(2)
+        .connect_with(opts)
+        .await
+        .expect("failed to create test db");
+
+    run_all_setup(&pool).await;
     pool
 }
 

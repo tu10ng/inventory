@@ -119,3 +119,141 @@ pub async fn delete(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn list_includes_identity_attrs() {
+        let pool = crate::db::init_test_pool().await;
+        let Json(defs) = list(State(pool.clone())).await.unwrap();
+
+        // Should have name, brand, model as identity attributes
+        let name_def = defs.iter().find(|d| d.key == "name");
+        assert!(name_def.is_some());
+        assert!(name_def.unwrap().is_identity);
+
+        let brand_def = defs.iter().find(|d| d.key == "brand");
+        assert!(brand_def.is_some());
+        assert!(brand_def.unwrap().is_identity);
+
+        let model_def = defs.iter().find(|d| d.key == "model");
+        assert!(model_def.is_some());
+        assert!(model_def.unwrap().is_identity);
+    }
+
+    #[tokio::test]
+    async fn list_includes_search_weight() {
+        let pool = crate::db::init_test_pool().await;
+        let Json(defs) = list(State(pool.clone())).await.unwrap();
+
+        let name_def = defs.iter().find(|d| d.key == "name").unwrap();
+        assert_eq!(name_def.search_weight, 10);
+
+        let brand_def = defs.iter().find(|d| d.key == "brand").unwrap();
+        assert_eq!(brand_def.search_weight, 5);
+
+        let notes_def = defs.iter().find(|d| d.key == "notes").unwrap();
+        assert_eq!(notes_def.search_weight, 1);
+    }
+
+    #[tokio::test]
+    async fn create_new_attr() {
+        let pool = crate::db::init_test_pool().await;
+
+        let body = CreateAttributeDefinition {
+            key: "test_field".to_string(),
+            label: "测试字段".to_string(),
+            attr_type: "text".to_string(),
+            config: "{}".to_string(),
+            category_scope: "".to_string(),
+            tag_scope: "".to_string(),
+            sort_order: 100,
+            is_identity: false,
+            is_required: false,
+            default_value: "".to_string(),
+            search_weight: 2,
+        };
+
+        let Json(created) = create(State(pool.clone()), Json(body)).await.unwrap();
+        assert_eq!(created.key, "test_field");
+        assert_eq!(created.label, "测试字段");
+        assert_eq!(created.attr_type, "text");
+        assert_eq!(created.search_weight, 2);
+    }
+
+    #[tokio::test]
+    async fn update_attr_fields() {
+        let pool = crate::db::init_test_pool().await;
+
+        // First create a new attr
+        let body = CreateAttributeDefinition {
+            key: "update_test".to_string(),
+            label: "原始标签".to_string(),
+            attr_type: "text".to_string(),
+            config: "{}".to_string(),
+            category_scope: "".to_string(),
+            tag_scope: "".to_string(),
+            sort_order: 50,
+            is_identity: false,
+            is_required: false,
+            default_value: "".to_string(),
+            search_weight: 0,
+        };
+        let Json(created) = create(State(pool.clone()), Json(body)).await.unwrap();
+
+        // Update search_weight
+        let Json(updated) = update(
+            State(pool.clone()),
+            axum::extract::Path(created.id),
+            Json(UpdateAttributeDefinition {
+                key: None,
+                label: None,
+                attr_type: None,
+                config: None,
+                category_scope: None,
+                tag_scope: None,
+                sort_order: None,
+                is_identity: None,
+                is_required: None,
+                default_value: None,
+                search_weight: Some(15),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(updated.search_weight, 15);
+        // Other fields preserved
+        assert_eq!(updated.label, "原始标签");
+    }
+
+    #[tokio::test]
+    async fn delete_attr() {
+        let pool = crate::db::init_test_pool().await;
+
+        let body = CreateAttributeDefinition {
+            key: "to_delete".to_string(),
+            label: "待删除".to_string(),
+            attr_type: "text".to_string(),
+            config: "{}".to_string(),
+            category_scope: "".to_string(),
+            tag_scope: "".to_string(),
+            sort_order: 200,
+            is_identity: false,
+            is_required: false,
+            default_value: "".to_string(),
+            search_weight: 0,
+        };
+        let Json(created) = create(State(pool.clone()), Json(body)).await.unwrap();
+
+        let _ = delete(State(pool.clone()), axum::extract::Path(created.id))
+            .await
+            .unwrap();
+
+        // Verify deleted
+        let result = delete(State(pool.clone()), axum::extract::Path(created.id)).await;
+        assert!(result.is_err());
+    }
+}
