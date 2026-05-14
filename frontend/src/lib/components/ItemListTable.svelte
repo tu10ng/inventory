@@ -218,7 +218,7 @@
 								class:selected={item.id === selectedItemId}
 								onclick={() => onSelect(item)}
 							>
-								<span class="check-col" onclick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(item.id)} onchange={() => onToggleSelect?.(item.id)} /></span>
+								<span class="check-col"><input type="checkbox" checked={selectedIds.has(item.id)} onclick={(e) => e.stopPropagation()} onchange={() => onToggleSelect?.(item.id)} /></span>
 								<span class="item-name">{itemName(item)}</span>
 								{#each visibleColumns as col (col.key)}
 									{@const v = getCellValue(item, col)}
@@ -240,7 +240,7 @@
 							class:selected={item.id === selectedItemId}
 							onclick={() => onSelect(item)}
 						>
-							<span class="check-col" onclick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(item.id)} onchange={() => onToggleSelect?.(item.id)} /></span>
+							<span class="check-col"><input type="checkbox" checked={selectedIds.has(item.id)} onclick={(e) => e.stopPropagation()} onchange={() => onToggleSelect?.(item.id)} /></span>
 							<span class="item-name">{itemName(item)}</span>
 							{#each visibleColumns as col (col.key)}
 								<CellRenderer {item} {col} tag={getTag(item)} />
@@ -256,7 +256,7 @@
 						class:selected={item.id === selectedItemId}
 						onclick={() => onSelect(item)}
 					>
-						<span class="check-col" onclick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedIds.has(item.id)} onchange={() => onToggleSelect?.(item.id)} /></span>
+						<span class="check-col"><input type="checkbox" checked={selectedIds.has(item.id)} onclick={(e) => e.stopPropagation()} onchange={() => onToggleSelect?.(item.id)} /></span>
 						<span class="item-name">
 							{itemName(item)}
 							{#if visibleColumns.length === 0 && itemTag}

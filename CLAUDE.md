@@ -375,3 +375,25 @@ OCR:    上传图片 → OCR 文本 ───→ AiAddModal → 确认 → 逐�
 1. **SSE 事件类型遗漏导致功能静默失败**：最初实现 Excel AI 流式解析时，新增了 `ExcelResult` SseEvent 变体，但前端 SSE client 的 switch-case 只匹配了 `result`，没有 `excel_result`。`ExcelResult` 事件被静默丢弃，`onResult` 回调从未触发。这次统一到 `Result` 变体后，前端无需修改即可正确处理。教训：**新增任何事件类型/枚举变体时，必须全链路检查所有消费者的匹配逻辑**。
 
 2. **两套 prompt 维护成本高**：`build_excel_prompt()` 和 `build_system_prompt()` 有大量重复内容（分类描述、标签描述、属性描述、品牌识别规则），修改一处时另一处容易遗漏。统一到 `build_system_prompt()` + 增加表格处理 section 后，维护成本降低。教训：**当发现两个 prompt/模板有超过 50% 内容重复时，应该合并而非继续维护两个副本**。
+
+## 2026-05-14 展示规则独立页面实施复盘
+
+### 实施内容
+
+1. **新建 `/views` 路由**：独立的规则视图页面，左右双栏布局
+   - 左栏：规则列表（垂直菜单式）+ "管理规则 →" 链接
+   - 右栏：按选中规则展示物品（list 模式复用 ItemListTable，summary 模式展示汇总卡片）
+   - 空状态：未选中规则时显示"请选择一个展示规则"
+   - 纯浏览模式：物品列表不响应点击，无详情面板，无 CRUD/批量操作
+2. **导航新增"规则视图"入口**：在物品库和活动模板之间
+3. **物品库页面精简**：移除 displayRules/selectedRuleId/ruleConfig 状态、applyRule() 函数、规则下拉框、summary 视图渲染
+
+### 反思
+
+1. **页面拆分时数据加载是独立的**：新页面 `/views` 和物品库页面各自独立调用 API 加载数据（items/categories/tags/attrDefs/displayRules）。两个页面之间没有共享状态，切换页面时会重新加载。这对于当前规模是合理的，但如果数据量很大，未来可考虑提取共享的数据层。
+
+2. **ItemListTable 的 selectable 和 onSelect 配合**：在纯浏览模式下，`selectable={false}` 隐藏复选框，`onSelect={() => {}}` 传入空函数（因为 onSelect 是必填 prop）。不需要修改 ItemListTable 组件本身。
+
+3. **`+page.ts` 不是必须的**：由于根 `+layout.ts` 已设置 `ssr = false` 和 `prerender = true`，views 路由无需单独的 `+page.ts`。只有需要覆盖这些设置的路由（如 `trips/[id]` 设置 `prerender = false`）才需要。
+
+4. **summary 视图的搬运是纯复制**：summary 渲染模板和 CSS 从 items 页面完整搬运到 views 页面，无需修改逻辑。搬运后 items 页面删除了对应的渲染分支和 CSS。

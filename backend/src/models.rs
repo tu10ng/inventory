@@ -109,6 +109,7 @@ impl Item {
             .to_string()
     }
 
+    #[allow(dead_code)]
     pub fn attr_i64(&self, key: &str) -> i64 {
         self.attrs
             .get(key)

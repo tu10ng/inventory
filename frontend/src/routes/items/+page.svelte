@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Item, Category, Tag, ItemUsageCount, AiParsedItem, AttributeDefinition, DisplayRule, ItemRelationEnriched, RelationType, CreateItemRelation, DisplayRuleConfig } from '$lib/types';
+	import type { Item, Category, Tag, ItemUsageCount, AiParsedItem, AttributeDefinition, ItemRelationEnriched, RelationType, CreateItemRelation } from '$lib/types';
 	import { itemName } from '$lib/types';
-	import { parseDisplayRuleConfig } from '$lib/types';
 	import SearchFilter from '$lib/components/SearchFilter.svelte';
 	import ColumnPicker from '$lib/components/ColumnPicker.svelte';
 	import ItemListTable from '$lib/components/ItemListTable.svelte';
@@ -52,9 +51,6 @@
 	let sortDir = $state<'asc' | 'desc'>('asc');
 	let columnFilters = $state<Map<string, Set<string>>>(new Map());
 	let groupByKey = $state<string | null>(localStorage.getItem('inventory-group-by') ?? null);
-	let displayRules = $state<DisplayRule[]>([]);
-	let selectedRuleId = $state<number | null>(null);
-	let ruleConfig = $state<DisplayRuleConfig | null>(null);
 	let itemRelations = $state<ItemRelationEnriched[]>([]);
 	let relationTypes = $state<RelationType[]>([]);
 
@@ -82,11 +78,6 @@
 				usageStats = new Map(stats.map((s) => [s.item_id, s.trip_count]));
 			} catch {
 				// stats not critical
-			}
-			try {
-				displayRules = await api.get<DisplayRule[]>('/display-rules');
-			} catch {
-				// rules not critical
 			}
 			try {
 				relationTypes = await api.get<RelationType[]>('/relation-types');
@@ -219,41 +210,6 @@
 			}
 		}
 		await load();
-	}
-
-	function applyRule(ruleId: number | null) {
-		selectedRuleId = ruleId;
-		if (ruleId === null) {
-			ruleConfig = null;
-			return;
-		}
-
-		const rule = displayRules.find(r => r.id === ruleId);
-		if (!rule) return;
-
-		// Parse config
-		const config = parseDisplayRuleConfig(rule.config);
-		ruleConfig = config;
-
-		// Set category filter (null category_id = global, keep current filter)
-		filterCategoryId = rule.category_id;
-
-		// Set grouping
-		groupByKey = rule.group_by_key || null;
-
-		// Set sorting
-		sortKey = rule.sort_by_key || null;
-		sortDir = rule.sort_dir === 'desc' ? 'desc' : 'asc';
-
-		// Set visible columns
-		try {
-			const cols: string[] = JSON.parse(rule.visible_columns);
-			if (Array.isArray(cols) && cols.length > 0) {
-				visibleKeys = cols;
-			}
-		} catch {
-			// ignore malformed JSON
-		}
 	}
 
 	function toggleCategory(catId: number) {
@@ -447,20 +403,6 @@
 					onSearchChange={(v) => (search = v)}
 					onCategoryChange={(id) => (filterCategoryId = id)}
 				/>
-				{#if displayRules.length > 0}
-					<div class="rule-select">
-						<label for="rule-select">规则</label>
-						<select id="rule-select" value={selectedRuleId ?? ''} onchange={(e) => {
-							const v = e.currentTarget.value;
-							applyRule(v ? Number(v) : null);
-						}}>
-							<option value="">无</option>
-							{#each displayRules as rule (rule.id)}
-								<option value={rule.id}>{rule.name}</option>
-							{/each}
-						</select>
-					</div>
-				{/if}
 				<div class="group-by-select">
 					<label for="group-by-select">分组</label>
 					<select id="group-by-select" value={groupByKey ?? ''} onchange={(e) => (groupByKey = e.currentTarget.value || null)}>
@@ -488,36 +430,7 @@
 			onBatchDelete={handleBatchDelete}
 			onBatchUpdateAttr={handleBatchUpdateAttr}
 		/>
-		{#if ruleConfig?.mode === 'summary' && groupBy && groupByKey}
-			{@const summaryFields = ruleConfig.summary_fields ?? []}
-			<div class="summary-view">
-				{#each [...(groupedData?.entries() ?? [])] as [catId, { groups, ungrouped }] (catId)}
-					{@const cat = categories.find(c => c.id === catId)}
-					<div class="summary-category">
-						<h3 class="summary-cat-header">{cat?.icon ?? ''} {cat?.name ?? '未分类'}</h3>
-						<div class="summary-grid">
-							{#each groups as group (group.value)}
-								<div class="summary-card card">
-									<div class="summary-card-header">
-										<span class="summary-group-key">{group.label || '(无)'}</span>
-										<span class="summary-count">{group.items.length} 件</span>
-									</div>
-									<div class="summary-fields">
-										{#each summaryFields as field}
-											{@const values = [...new Set(group.items.map(i => String(i.attrs?.[field] ?? '')).filter(Boolean))]}
-											{#if values.length > 0}
-												<span class="summary-chip" title={field}>{values.join(', ')}</span>
-											{/if}
-										{/each}
-									</div>
-								</div>
-							{/each}
-						</div>
-					</div>
-				{/each}
-			</div>
-		{:else}
-			<ItemListTable
+		<ItemListTable
 				items={sortedItems}
 				{categories}
 				{tags}
@@ -536,7 +449,6 @@
 				onFilterChange={handleFilterChange}
 				onToggleSelect={toggleSelectItem}
 			/>
-		{/if}
 	</div>
 
 	<div class="right-panel">
@@ -660,22 +572,6 @@
 		flex: 1;
 		margin-bottom: 0;
 	}
-	.rule-select {
-		display: flex;
-		align-items: center;
-		gap: 4px;
-		font-size: 12px;
-		color: var(--text-secondary);
-		flex-shrink: 0;
-	}
-	.rule-select select {
-		font-size: 12px;
-		padding: 2px 6px;
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		background: var(--surface);
-		color: var(--text);
-	}
 	.group-by-select {
 		display: flex;
 		align-items: center;
@@ -746,55 +642,6 @@
 		margin-top: 12px;
 	}
 
-	.summary-view {
-		overflow-y: auto;
-		flex: 1;
-		min-height: 0;
-	}
-	.summary-category {
-		margin-bottom: 16px;
-	}
-	.summary-cat-header {
-		font-size: 14px;
-		font-weight: 600;
-		padding: 4px 0;
-		margin-bottom: 8px;
-		border-bottom: 1px solid var(--border);
-	}
-	.summary-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-		gap: 8px;
-	}
-	.summary-card {
-		padding: 10px 12px;
-	}
-	.summary-card-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 6px;
-	}
-	.summary-group-key {
-		font-weight: 600;
-		font-size: 13px;
-	}
-	.summary-count {
-		font-size: 11px;
-		color: var(--text-secondary);
-	}
-	.summary-fields {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px;
-	}
-	.summary-chip {
-		font-size: 11px;
-		background: var(--primary);
-		color: white;
-		padding: 2px 8px;
-		border-radius: 10px;
-	}
 	@media (max-width: 768px) {
 		.page-container {
 			height: auto;

@@ -6,6 +6,7 @@
 	const nav = [
 		{ href: '/', label: '首页', icon: '🏠' },
 		{ href: '/items', label: '物品库', icon: '📦' },
+		{ href: '/views', label: '规则视图', icon: '🔍' },
 		{ href: '/activities', label: '活动模板', icon: '🏔️' },
 		{ href: '/trips', label: '行程', icon: '🗺️' },
 		{ href: '/settings', label: '设置', icon: '⚙️' }
