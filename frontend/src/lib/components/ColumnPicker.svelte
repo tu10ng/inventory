@@ -90,6 +90,8 @@
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 		padding: 8px 0;
 		min-width: 150px;
+		max-height: 70vh;
+		overflow-y: auto;
 		z-index: 100;
 	}
 	.picker-title {

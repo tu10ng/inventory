@@ -51,7 +51,7 @@
 	let sortKey = $state<string | null>(null);
 	let sortDir = $state<'asc' | 'desc'>('asc');
 	let columnFilters = $state<Map<string, Set<string>>>(new Map());
-	let groupByKey = $state<string | null>(null);
+	let groupByKey = $state<string | null>(localStorage.getItem('inventory-group-by') ?? null);
 	let displayRules = $state<DisplayRule[]>([]);
 	let selectedRuleId = $state<number | null>(null);
 	let ruleConfig = $state<DisplayRuleConfig | null>(null);
@@ -313,6 +313,15 @@
 		if (selectedItem) {
 			const fresh = items.find(i => i.id === selectedItem!.id);
 			if (fresh) selectedItem = fresh;
+		}
+	});
+
+	// Persist group-by selection across sessions
+	$effect(() => {
+		if (groupByKey) {
+			localStorage.setItem('inventory-group-by', groupByKey);
+		} else {
+			localStorage.removeItem('inventory-group-by');
 		}
 	});
 
