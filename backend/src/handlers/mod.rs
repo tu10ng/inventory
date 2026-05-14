@@ -3,6 +3,7 @@ pub mod ai;
 pub mod attributes;
 pub mod categories;
 pub mod display_rules;
+pub mod excel;
 pub mod items;
 pub mod ocr;
 pub mod people;
@@ -24,6 +25,8 @@ pub fn router() -> Router<SqlitePool> {
         // Tags
         .route("/api/tags", get(tags::list).post(tags::create))
         .route("/api/tags/{id}", put(tags::update).delete(tags::delete))
+        // Excel import
+        .route("/api/import/excel-preview", post(excel::excel_preview))
         // Items — literal paths BEFORE {id}
         .route("/api/items/export", get(items::export_items))
         .route("/api/items/import-preview", post(items::import_preview))

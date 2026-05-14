@@ -322,6 +322,17 @@ export interface BatchItemsResponse {
 	deleted: number;
 }
 
+// ── Excel Import ──
+
+export interface ExcelPreviewResponse {
+	file_name: string;
+	sheet_names: string[];
+	active_sheet: string;
+	headers: string[];
+	rows: string[][];
+	total_rows: number;
+}
+
 // ── Import / Export ──
 
 export interface ExportData {

@@ -48,7 +48,7 @@ struct ChatMessageOut {
 
 // ── Shared helpers ──
 
-fn resolve_category_id(cat_name: &str, categories: &[Category]) -> i64 {
+pub(crate) fn resolve_category_id(cat_name: &str, categories: &[Category]) -> i64 {
     let cat_name_lower = cat_name.to_lowercase();
     let matched = categories.iter().find(|c| {
         c.name.to_lowercase() == cat_name_lower
@@ -65,7 +65,7 @@ fn resolve_category_id(cat_name: &str, categories: &[Category]) -> i64 {
     })
 }
 
-fn resolve_tag_id(tag_name: &str, cat_id: Option<i64>, tags: &[Tag]) -> Option<i64> {
+pub(crate) fn resolve_tag_id(tag_name: &str, cat_id: Option<i64>, tags: &[Tag]) -> Option<i64> {
     let tag_name_lower = tag_name.to_lowercase();
     let matched = tags.iter().find(|t| {
         let name_match = t.name.to_lowercase() == tag_name_lower
@@ -88,7 +88,7 @@ fn resolve_tag_id(tag_name: &str, cat_id: Option<i64>, tags: &[Tag]) -> Option<i
     matched.map(|t| t.id)
 }
 
-fn resolve_parsed_item(item: &mut AiParsedItem, categories: &[Category], tags: &[Tag]) {
+pub(crate) fn resolve_parsed_item(item: &mut AiParsedItem, categories: &[Category], tags: &[Tag]) {
     if let Some(ref cat_name) = item.category_name {
         item.category_id = Some(resolve_category_id(cat_name, categories));
     }
@@ -99,7 +99,7 @@ fn resolve_parsed_item(item: &mut AiParsedItem, categories: &[Category], tags: &
 
 /// Collect unique (tag_name, category_id) pairs that need creation,
 /// insert them, back-fill tag_id, and return the new tags.
-async fn auto_create_tags_for_items(
+pub(crate) async fn auto_create_tags_for_items(
     items: &mut [AiParsedItem],
     pool: &SqlitePool,
 ) -> Result<Vec<Tag>, AppError> {
@@ -256,7 +256,7 @@ fn build_system_prompt(
     }
 
     format!(
-        r#"你是一个装备管理助手。用户可能用自然语言描述物品，也可能粘贴订单/购物小票的 OCR 识别文本。你需要解析出每个物品的结构化信息。
+        r#"你是一个装备管理助手。用户可能用自然语言描述物品，也可能粘贴订单/购物小票的 OCR 识别文本，或者提供 Excel 表格数据（每行格式为"列名: 值 | 列名: 值"）。你需要解析出每个物品的结构化信息。
 
 ## 品牌识别规则（重要）
 - 品牌指的是母公司，不是子品牌或产品线
@@ -308,6 +308,28 @@ fn build_system_prompt(
 - **数量**: 订单中的 "X1"、"X2" 对应 default_qty
 - 一个订单行 = 一个物品。同货号但不同颜色/尺码的，应拆分为独立物品
 - 从 OCR 文本中识别列标题模式（如"品名 颜色 尺码 数量 单价"）
+
+## Excel 表格数据处理规则
+如果输入是"列名: 值 | 列名: 值"格式的多行数据，按表格处理：
+
+- **列语义分析**：阅读列名和每列的数据内容，判断该列的语义：
+  - "商品名称"/"品名"/"产品"/"名称" → name
+  - "品牌"/"牌子"/"商标" → brand
+  - "型号"/"规格"/"款式" → model
+  - "价格"/"金额"/"售价"/"单价" → price（number，去掉￥等符号，如"分"为单位则转换为元）
+  - "数量"/"个数" → default_qty
+  - "颜色"/"颜色分类" → color
+  - "尺码"/"规格"/"大小" → size
+  - "备注"/"说明"/"描述" → notes
+  - "货号"/"商品编码" → product_code
+  - 其他列 → 映射到已有属性或放入 attrs 自由字段
+
+- **保留所有原始信息**：每列的数据都要有去处，不要丢弃任何信息
+- **name 保持完整**：保留商品/物品的完整原始名称，包括子品牌、产品线名
+- **品牌推断**：先查有无品牌列，没有则根据 name 和其他信息推断（运用你的商品知识）
+- **无法映射的列**：放入 attrs 作为自定义 key
+- **在 new_attrs 中提议新建属性**：对于 attrs 中新增的自定义 key，在 new_attrs 中提议创建对应的属性定义
+- 空行跳过，完全重复的行只保留一条
 
 ## 通用规则
 1. 尽量根据品牌和型号推断物品属性
@@ -844,13 +866,13 @@ fn build_streaming_system_prompt(
     attr_defs: &[AttributeDefinition],
 ) -> String {
     let mut base = build_system_prompt(categories, tags, attr_defs);
-    base.push_str("\n\n请先简要说明你的解析思路和判断依据（2-5句话），然后单独一行输出 `---JSON---`，之后输出纯 JSON 对象（不要用 markdown 代码块包裹）。");
+    base.push_str("\n\n## 输出格式要求\n请先简要说明你的解析思路和判断依据（2-5句话），然后单独一行输出 `---JSON---`，之后输出纯 JSON 对象（不要用 markdown 代码块包裹）。\n\nJSON 格式：{\"items\": [...], \"new_attrs\": [...]}\n- items: 解析出的物品列表\n- new_attrs: 如果需要新建属性定义，列出新建的属性（key/label/attr_type/config），已有属性不要重复");
     base
 }
 
 /// Call LLM with streaming enabled. Sends `Thinking` events via `tx` as tokens arrive.
 /// Returns the full accumulated response text.
-async fn call_llm_stream(
+pub(crate) async fn call_llm_stream(
     system_prompt: &str,
     user_prompt: &str,
     tx: &tokio::sync::mpsc::UnboundedSender<SseEvent>,
@@ -946,7 +968,7 @@ async fn call_llm_stream(
 }
 
 /// Extract items JSON from the LLM response text.
-fn extract_items_from_text(full_text: &str) -> Result<Vec<AiParsedItem>, String> {
+pub(crate) fn extract_items_from_text(full_text: &str) -> Result<Vec<AiParsedItem>, String> {
     // Try to find JSON after ---JSON--- marker
     let json_str = if let Some(pos) = full_text.find("---JSON---") {
         let after = &full_text[pos + "---JSON---".len()..];
@@ -982,6 +1004,94 @@ fn extract_items_from_text(full_text: &str) -> Result<Vec<AiParsedItem>, String>
         .map_err(|e| format!("解析物品列表失败: {}. Raw: {}", e, items_val))?;
 
     Ok(items)
+}
+
+/// Extract new attribute definitions from the AI response text.
+fn extract_new_attr_defs_from_text(full_text: &str) -> Vec<AttributeDefinition> {
+    let json_str = if let Some(pos) = full_text.find("---JSON---") {
+        let after = &full_text[pos + "---JSON---".len()..];
+        after.trim().to_string()
+    } else if let Some(pos) = full_text.find('{') {
+        full_text[pos..].to_string()
+    } else {
+        return Vec::new();
+    };
+
+    let json_str = json_str.trim();
+    let json_str = json_str
+        .strip_prefix("```json")
+        .or_else(|| json_str.strip_prefix("```"))
+        .map(|s| s.trim())
+        .unwrap_or(json_str);
+    let json_str = json_str
+        .strip_suffix("```")
+        .map(|s| s.trim())
+        .unwrap_or(json_str);
+
+    let parsed: serde_json::Value = match serde_json::from_str(json_str) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    let new_attrs_val = match parsed.get("new_attrs") {
+        Some(v) => v,
+        None => return Vec::new(),
+    };
+
+    let new_attrs: Vec<serde_json::Value> = match new_attrs_val.as_array() {
+        Some(a) => a.clone(),
+        None => return Vec::new(),
+    };
+
+    let mut result: Vec<AttributeDefinition> = Vec::new();
+    for attr in new_attrs {
+        let key = attr
+            .get("key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let label = attr
+            .get("label")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let attr_type = attr
+            .get("attr_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("text")
+            .to_string();
+        let config = attr
+            .get("config")
+            .map(|v| {
+                if v.is_string() {
+                    v.as_str().unwrap_or("{}").to_string()
+                } else {
+                    v.to_string()
+                }
+            })
+            .unwrap_or_else(|| "{}".to_string());
+
+        if key.is_empty() || label.is_empty() {
+            continue;
+        }
+
+        result.push(AttributeDefinition {
+            id: 0,
+            key,
+            label,
+            attr_type,
+            config,
+            category_scope: "[]".to_string(),
+            tag_scope: "[]".to_string(),
+            sort_order: 0,
+            is_identity: false,
+            is_required: false,
+            default_value: String::new(),
+            search_weight: 0,
+        });
+    }
+
+    result
 }
 
 // ── Streaming Parse Items Handler ──
@@ -1080,7 +1190,48 @@ pub async fn parse_items_stream(
             }
         };
 
-        let _ = tx.send(SseEvent::Result { items, new_tags });
+        // Extract new attribute definitions from AI response
+        let new_attr_defs = extract_new_attr_defs_from_text(&full_text);
+
+        // Insert or ignore new attr defs into DB
+        let mut saved_attr_defs: Vec<AttributeDefinition> = Vec::new();
+        for attr in &new_attr_defs {
+            match sqlx::query_as::<_, AttributeDefinition>(
+                "INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, category_scope, tag_scope, sort_order, is_identity, is_required, default_value, search_weight) \
+                 VALUES (?, ?, ?, ?, '[]', '[]', COALESCE((SELECT MAX(sort_order) FROM attribute_definitions), 0) + 1, 0, 0, '', 0) \
+                 RETURNING *",
+            )
+            .bind(&attr.key)
+            .bind(&attr.label)
+            .bind(&attr.attr_type)
+            .bind(&attr.config)
+            .fetch_optional(&pool)
+            .await
+            {
+                Ok(Some(a)) => saved_attr_defs.push(a),
+                Ok(None) => {
+                    // Already exists, fetch existing
+                    if let Ok(Some(existing)) = sqlx::query_as::<_, AttributeDefinition>(
+                        "SELECT * FROM attribute_definitions WHERE key = ?",
+                    )
+                    .bind(&attr.key)
+                    .fetch_optional(&pool)
+                    .await
+                    {
+                        saved_attr_defs.push(existing);
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(SseEvent::Error {
+                        message: format!("保存属性定义失败: {:#?}", e),
+                    });
+                    drop(tx);
+                    return;
+                }
+            }
+        }
+
+        let _ = tx.send(SseEvent::Result { items, new_tags, new_attr_defs: saved_attr_defs });
         drop(tx);
     });
 

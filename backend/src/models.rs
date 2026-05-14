@@ -473,7 +473,7 @@ pub struct TripItemEnriched {
 
 // ── Attribute Definitions ──
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct AttributeDefinition {
     pub id: i64,
     pub key: String,
@@ -835,6 +835,19 @@ pub struct ImportResult {
     pub display_rules_created: u64,
 }
 
+// ── Excel Import ──
+
+/// 后端解析 xlsx 后的原始数据（无业务逻辑）
+#[derive(Debug, Serialize)]
+pub struct ExcelPreviewResponse {
+    pub file_name: String,
+    pub sheet_names: Vec<String>,
+    pub active_sheet: String,
+    pub headers: Vec<String>,       // 第一行作为列名，空白列用 "列{N}"
+    pub rows: Vec<Vec<String>>,     // 所有数据行，每行长度与 headers 对齐
+    pub total_rows: usize,
+}
+
 // ── SSE Events (for streaming AI parse) ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -848,6 +861,8 @@ pub enum SseEvent {
     Result {
         items: Vec<AiParsedItem>,
         new_tags: Vec<Tag>,
+        #[serde(default)]
+        new_attr_defs: Vec<AttributeDefinition>,
     },
     #[serde(rename = "error")]
     Error { message: String },

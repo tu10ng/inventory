@@ -317,4 +317,61 @@ cd frontend && pnpm test       # 48 个前端测试，< 2s
 
 2. **Svelte 5 `bind:` 与 `unknown` 类型不兼容**：`editingValue: unknown` 作为状态变量，不能直接用 `bind:value` 或 `bind:checked`，需要改用 `value`/`checked` + `oninput`/`onchange` 显式 event handler 并做类型断言。
 
-3. **可选回调函数调用前需判空**：`onBatchDelete` 和 `onBatchUpdateAttr` 在 props 中是可选类型（`?: () => Promise<void>`），调用前需要 `if (!onBatchDelete) return;` 守卫。
+## 2026-05-14 通用 Excel 导入功能实施复盘
+
+### 实施内容
+
+后端新增 `handlers/excel.rs`，提供两个端点：
+1. `POST /api/import/excel-preview` — 接收 multipart xlsx 文件，用 calamine 解析，返回 `ExcelPreviewResponse`（headers + rows，无业务逻辑）
+2. `POST /api/import/excel-ai-stream` — 接收 headers + rows，动态构建 prompt，流式调用 LLM 解析为 `AiParsedItem[]` + `new_attr_defs`
+
+前端新增 `ExcelImportModal.svelte` 组件，8 阶段流程：
+- **AI 路径**: upload → parsing → preview-raw → ai-streaming → ai-preview → importing → done
+- **手动映射路径**: upload → parsing → preview-raw → manual-mapping → importing → done
+
+### 关键设计决策
+
+1. **后端不做业务判断**：calamine 只做 xlsx → `{headers, rows}` 原样返回，列语义理解完全交给 LLM 或用户。这保证了系统对任意格式 Excel 的通用性。
+2. **Prompt 动态构建**：分类体系、标签列表、属性定义都从 DB 实时查询后嵌入 prompt，而非硬编码。
+3. **两种导入路径共存**：AI 智能模式（适合列名不规范）和手动映射模式（适合列名已规范），用户可选择。
+4. **人工可在 AI 预览阶段修正**：AI 解析结果以可编辑表格形式展示，支持 InlineEdit 修改 name/brand/model/default_qty，以及下拉选择 category/tag。
+
+### 反思
+
+1. **calamine 的 trait bound 需要显式导入**：`open_workbook_from_rs` 返回泛型 `Xlsx<RS>`，必须 `use calamine::Reader;` 才能调用 `sheet_names()` 和 `worksheet_range()`。教训：**第三方 crate 使用时先确认 trait 是否需要手动导入**。
+
+2. **calamine 的行迭代器类型无法推断**：`range.rows()` 返回的迭代器 item 类型是 `&[Data]`，但编译器无法自动推断，需要显式 `let first_row: Option<&[calamine::Data]>` 标注。教训：**当第三方库的迭代器类型推断失败时，直接给变量标注具体类型**。
+
+3. **SSE 事件类型需要考虑前端 switch**：新增了 `ExcelResult` SseEvent 变体（含 `new_attr_defs` 字段），与现有 `Result` 变体（无 `new_attr_defs`）区分。**但前端的 SSE switch-case 没有 `excel_result` 分支**，导致 `ExcelResult` 事件被静默丢弃——Excel AI 流式解析的实际结果从未到达前端（反思中才发现）。教训：**新增 SSE 事件类型时必须同时检查前端 switch-case 是否覆盖了新类型，不能假设"新增类型会自动被处理"**。
+
+4. **InlineEdit oncommit 类型是 `(val: string | number) => void`**：不管 type 是 text 还是 number，oncommit 都接受 `string | number`。对于 text 类型需要显式 `String(v)` 转换。
+
+5. **items 行级逐个 POST 导入是保守选择**：目前采用逐行 POST `/api/items`，对大批量（500+）较慢但可见进度。后续可优化为 `POST /api/items/batch` 批量创建。
+
+6. **可选回调函数调用前需判空**：`onBatchDelete` 和 `onBatchUpdateAttr` 在 props 中是可选类型（`?: () => Promise<void>`），调用前需要 `if (!onBatchDelete) return;` 守卫。
+
+## 2026-05-14 统一 AI 解析流程复盘
+
+### 实施内容
+
+将 Excel AI 解析路径统一到文本 AI 端点：
+- `SseEvent::Result` 增加 `new_attr_defs` 字段（`#[serde(default)]`），删除 `ExcelResult` 变体
+- `parse_items_stream` 增加 `extract_new_attr_defs_from_text()` + INSERT OR IGNORE 到 attribute_definitions 表
+- `build_system_prompt()` 增加 Excel 表格数据（"列名: 值 | 列名: 值" 格式）处理规则
+- 删除 `excel.rs` 的 `build_excel_prompt()`、`excel_ai_stream()`、`extract_new_attr_defs_from_text()`
+- 前端 `ExcelImportModal` 删除 AI 阶段（ai-streaming/ai-preview），AI 路径改为格式化 Excel 为文本 → 调用 `onOpenAiModal` → 复用 `AiAddModal`
+- `AiAddModal` 新增 `onNewAttrs` prop
+
+### 改造后流程
+```
+Excel:  上传 xlsx → 预览表格 ─┬─ [AI 解析] → 转文本 → AiAddModal → 确认 → 逐行创建
+                              └─ [手动映射] → 列映射 → 预览 → 导入
+OCR:    上传图片 → OCR 文本 ───→ AiAddModal → 确认 → 逐行创建
+文本:   输入文字 ────────────→ AiAddModal → 确认 → 逐行创建
+```
+
+### 反思
+
+1. **SSE 事件类型遗漏导致功能静默失败**：最初实现 Excel AI 流式解析时，新增了 `ExcelResult` SseEvent 变体，但前端 SSE client 的 switch-case 只匹配了 `result`，没有 `excel_result`。`ExcelResult` 事件被静默丢弃，`onResult` 回调从未触发。这次统一到 `Result` 变体后，前端无需修改即可正确处理。教训：**新增任何事件类型/枚举变体时，必须全链路检查所有消费者的匹配逻辑**。
+
+2. **两套 prompt 维护成本高**：`build_excel_prompt()` 和 `build_system_prompt()` 有大量重复内容（分类描述、标签描述、属性描述、品牌识别规则），修改一处时另一处容易遗漏。统一到 `build_system_prompt()` + 增加表格处理 section 后，维护成本降低。教训：**当发现两个 prompt/模板有超过 50% 内容重复时，应该合并而非继续维护两个副本**。

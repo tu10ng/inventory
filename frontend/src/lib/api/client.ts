@@ -1,3 +1,5 @@
+import type { ExcelPreviewResponse } from '$lib/types';
+
 const BASE = '/api';
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -124,6 +126,27 @@ export const api = {
 	patch: <T>(path: string, body: unknown) =>
 		request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
 	del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+
+	async uploadExcelPreview(file: File): Promise<ExcelPreviewResponse> {
+		const formData = new FormData();
+		formData.append('file', file);
+		const res = await fetch(`${BASE}/import/excel-preview`, {
+			method: 'POST',
+			body: formData
+		});
+		if (!res.ok) {
+			let message: string;
+			try {
+				const body = await res.json();
+				message = body.error || `${res.status}: ${JSON.stringify(body)}`;
+			} catch {
+				const text = await res.text();
+				message = text || `请求失败 (${res.status})`;
+			}
+			throw new Error(message);
+		}
+		return res.json();
+	},
 
 	async downloadExport(path: string): Promise<void> {
 		const res = await fetch(`${BASE}${path}`);

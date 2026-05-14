@@ -13,6 +13,7 @@
 	import AiOrganizeModal from '$lib/components/AiOrganizeModal.svelte';
 	import ImportModal from '$lib/components/ImportModal.svelte';
 	import OrderImportModal from '$lib/components/OrderImportModal.svelte';
+	import ExcelImportModal from '$lib/components/ExcelImportModal.svelte';
 	import BulkActionBar from '$lib/components/BulkActionBar.svelte';
 	import type { BatchAttrOption } from '$lib/components/BulkActionBar.svelte';
 	import { loadAllColumns, getAllColumns, loadVisibleColumns } from '$lib/utils/columns';
@@ -44,6 +45,7 @@
 	let showOrganizeModal = $state(false);
 	let showImportModal = $state(false);
 	let showOcrModal = $state(false);
+	let showExcelModal = $state(false);
 	let prefillAiText = $state('');
 
 	let sortKey = $state<string | null>(null);
@@ -467,6 +469,7 @@
 				<button class="primary" onclick={startCreate}>+ 添加物品</button>
 				<button onclick={() => showAiModal = true}>AI 添加</button>
 				<button onclick={() => showOcrModal = true}>OCR 导入</button>
+				<button onclick={() => showExcelModal = true}>Excel 导入</button>
 				<button onclick={() => showOrganizeModal = true}>AI 整理</button>
 			</div>
 		</div>
@@ -574,6 +577,10 @@
 			const existingIds = new Set(tags.map(t => t.id));
 			tags = [...tags, ...newTags.filter(t => !existingIds.has(t.id))];
 		}}
+		onNewAttrs={(newAttrs) => {
+			const existingKeys = new Set(attrDefs.map(a => a.key));
+			attrDefs = [...attrDefs, ...newAttrs.filter(a => !existingKeys.has(a.key))];
+		}}
 	/>
 {/if}
 
@@ -602,6 +609,19 @@
 	<ImportModal
 		onClose={() => showImportModal = false}
 		onDone={() => load()}
+	/>
+{/if}
+
+{#if showExcelModal}
+	<ExcelImportModal
+		{categories}
+		{tags}
+		{attrDefs}
+		onDone={(created: number) => {
+			if (created > 0) load();
+		}}
+		onClose={() => showExcelModal = false}
+		onOpenAiModal={(text) => { prefillAiText = text; showAiModal = true; }}
 	/>
 {/if}
 {/if}

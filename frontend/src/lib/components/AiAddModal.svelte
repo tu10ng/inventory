@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Category, Tag, AiParsedItem } from '$lib/types';
+	import type { Category, Tag, AiParsedItem, AttributeDefinition } from '$lib/types';
 	import { aiPostStream } from '$lib/api/client';
 
 	let {
@@ -8,6 +8,7 @@
 		onConfirm,
 		onClose,
 		onNewTags,
+		onNewAttrs,
 		prefillAiText = ''
 	}: {
 		categories: Category[];
@@ -15,6 +16,7 @@
 		onConfirm: (items: AiParsedItem[]) => void;
 		onClose: () => void;
 		onNewTags?: (tags: Tag[]) => void;
+		onNewAttrs?: (attrs: AttributeDefinition[]) => void;
 		prefillAiText?: string;
 	} = $props();
 
@@ -50,13 +52,16 @@
 				onProgress(msg: string) {
 					progressMsg = msg;
 				},
-				onResult(data: { items: AiParsedItem[]; new_tags: Tag[] }) {
+				onResult(data: { items: AiParsedItem[]; new_tags: Tag[]; new_attr_defs?: AttributeDefinition[] }) {
 					parsedItems = data.items.map(item => ({
 						...item,
 						attrs: item.attrs || {}
 					}));
 					if (data.new_tags && data.new_tags.length > 0) {
 						onNewTags?.(data.new_tags);
+					}
+					if (data.new_attr_defs && data.new_attr_defs.length > 0) {
+						onNewAttrs?.(data.new_attr_defs);
 					}
 					stage = 'preview';
 				},
