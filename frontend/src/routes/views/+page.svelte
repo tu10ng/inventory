@@ -125,7 +125,7 @@
 		for (const cat of categories) {
 			const catItems = sortedItems.filter(i => i.category_id === cat.id);
 			if (catItems.length > 0) {
-				map.set(cat.id, groupItems(catItems, groupByKey, allColumns));
+				map.set(cat.id, groupItems(catItems, groupByKey, allColumns, tags));
 			}
 		}
 		return map;

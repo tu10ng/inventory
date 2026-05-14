@@ -88,7 +88,8 @@ export function sortItems(
 export function groupItems(
 	items: Item[],
 	groupByKey: string,
-	columns: ItemColumnDef[]
+	columns: ItemColumnDef[],
+	tags: Tag[]
 ): { groups: ItemGroup[]; ungrouped: Item[] } {
 	const col = columns.find(c => c.key === groupByKey);
 	const label = col?.label ?? groupByKey;
@@ -97,7 +98,13 @@ export function groupItems(
 	const ungrouped: Item[] = [];
 
 	for (const item of items) {
-		const value = item.attrs?.[groupByKey];
+		let value: unknown;
+		if (groupByKey === 'tag') {
+			const t = item.tag_id ? tags.find(tg => tg.id === item.tag_id) : null;
+			value = t?.name ?? null;
+		} else {
+			value = item.attrs?.[groupByKey];
+		}
 		if (value != null && String(value).trim() !== '') {
 			const key = String(value).trim();
 			if (!groupsMap.has(key)) {

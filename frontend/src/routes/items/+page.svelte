@@ -241,7 +241,7 @@
 
 	// Group-by options: registered text-type attributes (for grouping by attribute values)
 	const groupByOptions = $derived(
-		allColumns.filter(c => c.key !== 'tag' && c.key !== 'brand' && c.type === 'text')
+		allColumns.filter(c => c.key !== 'brand' && (c.type === 'text' || c.type === 'tag'))
 	);
 
 	// Group-by data: pre-computed per-category groups when groupByKey is set
@@ -252,7 +252,7 @@
 		for (const cat of categories) {
 			const catItems = sortedItems.filter(i => i.category_id === cat.id);
 			if (catItems.length > 0) {
-				map.set(cat.id, groupItems(catItems, groupByKey, allColumns));
+				map.set(cat.id, groupItems(catItems, groupByKey, allColumns, tags));
 			}
 		}
 		return map;

@@ -105,14 +105,25 @@ describe('groupItems', () => {
 	it('groups by brand', () => {
 		const { groups, ungrouped } = groupItems(items, 'brand', [
 			{ key: 'brand', label: '品牌', type: 'text' }
-		]);
+		], []);
 		expect(groups.length).toBe(3); // 始祖鸟, Black Diamond, Petzl
 		expect(ungrouped.length).toBe(0);
 	});
 
 	it('leaves items with missing key in ungrouped', () => {
-		const result = groupItems(items, 'nonexistent', []);
+		const result = groupItems(items, 'nonexistent', [], []);
 		expect(result.groups.length).toBe(0);
 		expect(result.ungrouped.length).toBe(3);
+	});
+
+	it('groups by tag using tag_id lookup', () => {
+		const { groups, ungrouped } = groupItems(items, 'tag', [
+			{ key: 'tag', label: '标签', type: 'tag' }
+		], tags);
+		expect(groups.length).toBe(1); // 头灯 group
+		expect(groups[0].value).toBe('头灯');
+		expect(groups[0].items.length).toBe(1);
+		expect(groups[0].items[0].id).toBe(3);
+		expect(ungrouped.length).toBe(2); // 冲锋衣 and 登山杖 have no tag
 	});
 });
