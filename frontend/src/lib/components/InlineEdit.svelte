@@ -1,11 +1,12 @@
 <script lang="ts">
-	let { value, type = 'text', oncommit, min, placeholder = '', suffix = '' }: {
+	let { value, type = 'text', oncommit, min, placeholder = '', suffix = '', wide = false }: {
 		value: string | number;
 		type?: 'text' | 'number';
 		oncommit: (val: string | number) => void;
 		min?: number;
 		placeholder?: string;
 		suffix?: string;
+		wide?: boolean;
 	} = $props();
 
 	let editing = $state(false);
@@ -33,7 +34,7 @@
 {#if editing}
 	<!-- svelte-ignore a11y_autofocus -->
 	<input
-		class="inline-input"
+		class="inline-input" class:wide
 		{type}
 		bind:value={draft}
 		{min}
@@ -66,6 +67,9 @@
 	}
 	.inline-input[type='number'] {
 		width: 50px;
+	}
+	.inline-input.wide {
+		width: 100%;
 	}
 	.inline-display {
 		cursor: pointer;

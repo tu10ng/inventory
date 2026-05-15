@@ -4,6 +4,7 @@ mod handlers;
 mod models;
 
 use std::net::SocketAddr;
+use axum::extract::DefaultBodyLimit;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 
@@ -28,6 +29,7 @@ async fn main() {
 
     let app = handlers::router()
         .with_state(pool)
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .layer(CorsLayer::permissive())
         .fallback_service(ServeDir::new("../frontend/build").append_index_html_on_directories(true));
 

@@ -249,9 +249,26 @@ fn build_system_prompt(
             "text" => "文本".to_string(),
             _ => ad.attr_type.clone(),
         };
+        let scope_info = if ad.category_scope.is_empty() {
+            "全局".to_string()
+        } else {
+            let ids: Vec<&str> = ad.category_scope.split(',').collect();
+            let names: Vec<String> = ids
+                .iter()
+                .filter_map(|id| {
+                    let id_num: i64 = id.trim().parse().ok()?;
+                    categories.iter().find(|c| c.id == id_num).map(|c| c.name.clone())
+                })
+                .collect();
+            if names.is_empty() {
+                "全局".to_string()
+            } else {
+                names.join("/")
+            }
+        };
         attrs_desc.push_str(&format!(
-            "- {}: {} ({})\n",
-            ad.key, ad.label, type_hint
+            "- {}: {} ({}, 适用分类: {})\n",
+            ad.key, ad.label, type_hint, scope_info
         ));
     }
 
@@ -338,6 +355,7 @@ fn build_system_prompt(
 4. tag_name 从标签列表中选择最合适的；如果没有匹配的，请给出一个合理的简短标签名（2-4字，如"手表"、"头灯"）
 5. 数值属性不确定时给出合理估计值，而不是全填 0
 6. 品牌规则优先：子品牌 ≠ 品牌，请根据品牌识别规则正确填写 brand 字段
+7. **属性适用范围**：每个属性都有"适用分类"标注（如"服装"、"服装/装备"、"全局"）。只填充该物品分类对应的属性值，不适用该分类的属性不要填写（留空或不包含在 attrs 中）。例如：食品类物品不需要填写保暖、防水、身体部位等服装属性
 
 请以 JSON 格式输出，格式为：{{"items": [...]}}"#
     )
@@ -1169,8 +1187,8 @@ fn extract_new_attr_defs_from_text(full_text: &str) -> Vec<AttributeDefinition> 
             label,
             attr_type,
             config,
-            category_scope: "[]".to_string(),
-            tag_scope: "[]".to_string(),
+            category_scope: String::new(),
+            tag_scope: String::new(),
             sort_order: 0,
             is_identity: false,
             is_required: false,
@@ -1286,7 +1304,7 @@ pub async fn parse_items_stream(
         for attr in &new_attr_defs {
             match sqlx::query_as::<_, AttributeDefinition>(
                 "INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, category_scope, tag_scope, sort_order, is_identity, is_required, default_value, search_weight) \
-                 VALUES (?, ?, ?, ?, '[]', '[]', COALESCE((SELECT MAX(sort_order) FROM attribute_definitions), 0) + 1, 0, 0, '', 0) \
+                 VALUES (?, ?, ?, ?, '', '', COALESCE((SELECT MAX(sort_order) FROM attribute_definitions), 0) + 1, 0, 0, '', 0) \
                  RETURNING *",
             )
             .bind(&attr.key)

@@ -36,15 +36,32 @@
 		if (input.files) addFiles(input.files);
 		input.value = '';
 	}
+	const MAX_SIZE = 50 * 1024 * 1024; // 50MB per image
+	const MAX_TOTAL = 100 * 1024 * 1024; // 100MB total
+
+	function formatSize(bytes: number): string {
+		if (bytes < 1024) return bytes + ' B';
+		if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+		return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+	}
+
 	function addFiles(fileList: FileList) {
 		for (let i = 0; i < fileList.length; i++) {
 			const file = fileList[i];
 			if (!file.type.startsWith('image/')) continue;
+			if (file.size > MAX_SIZE) {
+				errorMsg = `"${file.name}" 大小 ${formatSize(file.size)}，超过单张限制 50MB`;
+				continue;
+			}
 			files = [...files, {
 				name: file.name,
 				url: URL.createObjectURL(file),
 				file
 			}];
+		}
+		const totalSize = files.reduce((sum, f) => sum + f.file.size, 0);
+		if (totalSize > MAX_TOTAL) {
+			errorMsg = `总大小 ${formatSize(totalSize)}，超过限制 100MB，请减少图片数量`;
 		}
 	}
 	function removeFile(index: number) {
@@ -97,7 +114,12 @@
 			ocrText = data.ocr_text;
 			stage = 'ocr-result';
 		} catch (e) {
-			errorMsg = (e as Error).message;
+			const msg = (e as Error).message;
+			if (msg.includes('write EPIPE') || msg.includes('Failed to fetch') || msg.includes('413')) {
+				errorMsg = '图片太大，服务器拒绝接收（单次上传总大小不超过 50MB）。请压缩图片或分批上传。';
+			} else {
+				errorMsg = msg;
+			}
 			stage = 'upload';
 		}
 	}
@@ -137,7 +159,7 @@
 
 		{#if stage === 'upload'}
 			<div class="modal-body">
-				<p class="hint">上传订单截图（支持多张，长订单可分屏截图后一起上传）</p>
+				<p class="hint">上传订单截图（支持多张，长订单可分屏截图后一起上传，单张最大 50MB）</p>
 
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
@@ -161,6 +183,7 @@
 							<div class="image-item">
 								<img src={f.url} alt={f.name} />
 								<span class="image-name">{f.name}</span>
+								<span class="image-size">{formatSize(f.file.size)}</span>
 								<button class="remove-btn" onclick={() => removeFile(i)}>&times;</button>
 							</div>
 						{/each}
@@ -350,6 +373,12 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.image-size {
+		display: block;
+		font-size: 10px;
+		color: var(--text-secondary);
+		opacity: 0.7;
 	}
 	.remove-btn {
 		position: absolute;

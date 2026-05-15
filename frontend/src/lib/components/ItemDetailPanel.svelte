@@ -111,7 +111,7 @@
 			<span class="cat-icon">{category?.icon ?? '📦'}</span>
 			<div class="header-info">
 				<h2 class="item-name">
-					<InlineEdit value={itemName} oncommit={(v) => updateAttr('name', v)} placeholder="物品名称" />
+					<InlineEdit value={itemName} oncommit={(v) => updateAttr('name', v)} placeholder="物品名称" wide={true} />
 				</h2>
 				<div class="item-meta">
 					{#if tag}

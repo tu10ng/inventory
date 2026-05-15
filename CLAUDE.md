@@ -457,4 +457,44 @@ OCR:    上传图片 → OCR 文本 ───→ AiAddModal → 确认 → 逐�
 | 2 | 改模板注释 + 正面规则 8/9 | `tag_name` 字段还在模板里——AI 看到可用字段就想用，文字禁止指令不够强 |
 | 3 | **从模板删除 tag_name** | 标签操作降级为规则中描述的"特殊情况"，AI 不会在每次 update 时想到它 |
 
-**Prompt 工程核心原则：结构（模板/字段）比文字（规则/注释）强一个数量级。要禁止某种行为，最有效的方式是从结构中移除触发该行为的入口，而不是在文字中说"不要做 X"。**"
+**Prompt 工程核心原则：结构（模板/字段）比文字（规则/注释）强一个数量级。要禁止某种行为，最有效的方式是从结构中移除触发该行为的入口，而不是在文字中说"不要做 X"。**
+
+## 2026-05-15 物品库属性优化复盘
+
+### 实施内容
+
+1. **Migration 010**: 修正 14 个属性定义的 `category_scope`（服装专属/服装+装备/电子专属），修复 AI 创建属性时 `"[]"` 误写为合法 scope 的 bug
+2. **db.rs `clean_out_of_scope_attrs()`**: 移除每个物品 attrs 中不在 scope 内的属性 key，幂等（通过 `_migrations` 表 `011_clean_attrs_done` 标记）
+3. **ai.rs**: 修复两处 `"[]"` bug（`extract_new_attr_defs_from_text` 构造和 SQL INSERT），prompt 中增加 scope 信息 + 规则 7（只填充物品对应分类的属性值）
+4. **Migration 012**: 拆分"其他"品类——标签/物品/槽位迁移 + 品类重命名（洗漱→家居、证件→服务）
+
+### 反思
+
+1. **Migration 文件占位符与 `_migrations` 追踪的时序冲突**：最初计划创建 `011_clean_attrs.sql` 占位文件，让 `clean_out_of_scope_attrs()` 检查 `_migrations` 是否已有 011 记录来判断是否已执行。但 `run_all_setup()` 中 `run_migrations()` 先执行，会自动记录 011 文件到 `_migrations`，导致 `clean_out_of_scope_attrs()` 看到记录后跳过，清理永远不会执行。教训：**当 Rust 代码需要在 migration 之后执行副作用，且需要幂等标记时，不要用同名的 migration 文件做标记——用自定义标记名（如 `011_clean_attrs_done`）或独立追踪表**。
+
+2. **`unwrap_or_else` 闭包返回类型必须匹配**：`tracing::warn!()` 返回 `()`，但 `unwrap_or_else` 期望闭包返回 `SqliteQueryResult`。改用 `if let Err(e) = ... { tracing::warn!(...) }` 模式避免类型不匹配。
+
+3. **前端零改动**：因为 `attrMatchesScope()` 已正确实现逗号分隔 scope 解析（`split(',').filter(Boolean).map(Number)`），且 `ItemForm`/`ItemDetailPanel` 已通过它过滤属性。数据库 scope 数据修正后前端自动生效。教训：**好的抽象层能让数据层的修正对 UI 层透明**。
+
+## 2026-05-16 enrich 联网搜索+LLM 属性补全复盘
+
+### 实施内容
+
+1. **db-manage SKILL.md**：新增命令 7 `enrich`，allowed-tools 增加 `WebSearch`
+2. **首次运行 `--limit 5`**：扫描 61 个物品的 292 个缺失属性，选取 5 个物品进行搜索→提取→预览→写入
+
+### 流程验证
+
+- 5 个物品共 36 个缺失属性，高置信度 29 个已写入，剩余 7 个确属语义不匹配（body_parts 对水壶/驱蚊液无意义）
+- VAN RYSEL Racer 骑行服和 RCR PRO 背带裤两个物品属性已全部补全（14/14）
+- 搜索策略有效：迪卡侬子品牌补"迪卡侬"前缀提高召回率，专业评测站（road.cc/biketo.com）有详细规格
+
+### 反思
+
+1. **属性 scope 语义不精确**：`body_parts`/`body_parts_secondary`/`waterproof` 的 `category_scope` 设为 `1,2`（服装+装备），但水壶和驱蚊液是装备，这些属性对它们无意义。scope 只能表达"品类级别"的适用性，无法表达"品类内子类型的适用性"。教训：**当属性在品类内只有部分物品适用时，用 scope 过滤会误伤。应接受这类属性可能为空的合理性，而非强制补全**。
+
+2. **WebSearch 的搜索词设计影响结果质量**：迪卡侬子品牌名（QUECHUA/FORCLAZ/VAN RYSEL 等）搜索结果较少，但补"迪卡侬"后召回率显著提高。教训：**品牌别名/从属关系需要在搜索词中显式补充，不能假设搜索引擎知道子品牌=母品牌**。
+
+3. **enrich 的预览→确认模式是正确的设计**：计划中的 preview → confirm 模式让用户可以在写入前看到每个推断值的来源和置信度。这与之前 resync preview 的教训一致——**批量修改操作必须先展示将发生的变化**。
+
+4. **属性写入后未同步 legacy 列**：当前 enrich 只更新 `attrs` JSON 列，未像 Rust handler 那样同步更新 legacy 列（name/brand/model）。但当前 items 表的 legacy 列已被 item attrs 系统替代，所以这不是问题。但如果未来有其他系统直接读 legacy 列，就会不一致。教训：**JSON 列更新时，如果存在对应的 shadow legacy 列，确认是否需要同步**。
