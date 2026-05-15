@@ -729,6 +729,12 @@ pub struct AiParseResponse {
 
 // ── AI Organize ──
 
+#[derive(Debug, Deserialize)]
+pub struct OrganizePreviewRequest {
+    #[serde(default)]
+    pub item_ids: Option<Vec<i64>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action_type")]
 pub enum OrganizeAction {

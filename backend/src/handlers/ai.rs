@@ -9,8 +9,8 @@ use tokio_stream::StreamExt as _;
 use crate::error::AppError;
 use crate::models::{
     AiParseRequest, AiParseResponse, AiParsedItem, AttributeDefinition, Category, Item,
-    OrganizeAction, OrganizeApplyRequest, OrganizeApplyResponse, OrganizePreviewResponse,
-    OrganizeUpdateFields, SseEvent, Tag,
+    OrganizeAction, OrganizeApplyRequest, OrganizeApplyResponse, OrganizePreviewRequest,
+    OrganizePreviewResponse, OrganizeUpdateFields, SseEvent, Tag,
 };
 
 #[derive(serde::Serialize)]
@@ -384,7 +384,12 @@ pub async fn parse_items(
 
 // ── Organize ──
 
-fn build_organize_prompt(categories: &[Category], tags: &[Tag], items: &[Item]) -> String {
+fn build_organize_prompt(
+    categories: &[Category],
+    tags: &[Tag],
+    items: &[Item],
+    attr_defs: &[AttributeDefinition],
+) -> String {
     let mut cats_desc = String::new();
     for c in categories {
         cats_desc.push_str(&format!("- id:{} {} (icon: {})\n", c.id, c.name, c.icon));
@@ -397,10 +402,25 @@ fn build_organize_prompt(categories: &[Category], tags: &[Tag], items: &[Item]) 
         tags_desc.push_str(&format!("- id:{} {} (分类: {})\n", t.id, t.name, cat_name));
     }
 
+    let mut attrs_desc = String::new();
+    for ad in attr_defs {
+        attrs_desc.push_str(&format!(
+            "- key:{} label:{} type:{} category_scope:{}\n",
+            ad.key,
+            ad.label,
+            ad.attr_type,
+            if ad.category_scope.is_empty() { "全局" } else { &ad.category_scope }
+        ));
+    }
+
+    // Basic fields already displayed in item line; don't repeat in attrs section
+    let basic_keys: &[&str] = &["name", "brand", "model", "notes", "default_qty"];
+
     let mut items_desc = String::new();
     for item in items {
         let cat = categories.iter().find(|c| c.id == item.category_id);
         let cat_name = cat.map(|c| c.name.as_str()).unwrap_or("?");
+        let cat_id = item.category_id;
         let tag = item
             .tag_id
             .and_then(|tid| tags.iter().find(|t| t.id == tid));
@@ -410,9 +430,41 @@ fn build_organize_prompt(categories: &[Category], tags: &[Tag], items: &[Item]) 
         let model = item.attr_str("model");
         let notes = item.attr_str("notes");
         items_desc.push_str(&format!(
-            "- id:{} name:\"{}\" brand:\"{}\" model:\"{}\" category:\"{}\" tag:\"{}\" notes:\"{}\"\n",
-            item.id, item_name, brand, model, cat_name, tag_name, notes
+            "- id:{} cat_id:{} name:\"{}\" brand:\"{}\" model:\"{}\" category:\"{}\" tag:\"{}\" notes:\"{}\"",
+            item.id, cat_id, item_name, brand, model, cat_name, tag_name, notes
         ));
+
+        // Append non-basic attrs values that are set
+        if let Some(obj) = item.attrs.as_object() {
+            let mut extra_parts: Vec<String> = Vec::new();
+            for (k, v) in obj {
+                if basic_keys.contains(&k.as_str()) {
+                    continue;
+                }
+                if v.is_null() {
+                    continue;
+                }
+                let val_str = if v.is_string() {
+                    v.as_str().unwrap_or("").to_string()
+                } else {
+                    v.to_string()
+                };
+                if val_str.is_empty() {
+                    continue;
+                }
+                // Find label for this key
+                let label = attr_defs
+                    .iter()
+                    .find(|ad| ad.key == *k)
+                    .map(|ad| ad.label.as_str())
+                    .unwrap_or(k.as_str());
+                extra_parts.push(format!("{}={}", label, val_str));
+            }
+            if !extra_parts.is_empty() {
+                items_desc.push_str(&format!(" | {}", extra_parts.join(", ")));
+            }
+        }
+        items_desc.push('\n');
     }
 
     format!(
@@ -424,18 +476,25 @@ fn build_organize_prompt(categories: &[Category], tags: &[Tag], items: &[Item]) 
 ## 可用标签（物品子类型）
 {tags_desc}
 
-## 当前物品列表
+## 可用属性定义
+{attrs_desc}
+
+## 当前物品列表（含已设置的属性值）
 {items_desc}
 
 ## 检查项目
 1. **合并物品需拆分**：名称中包含"和"、"+"等连接词的物品，应拆分为独立物品（如"墨镜和眼镜布"→"墨镜"+"眼镜布"）
-2. **字段错位**：信息放在了错误的字段中，请根据每条记录的具体情况判断最合理的修复方式。常见现象：
-   - model（型号）字段填了材质/类型等非型号信息（如 model="羊毛"）
-   - tag（标签）和名称之间的信息分配不合理
-   - 名称中包含了本应作为标签的信息，或反之
-3. **缺少标签**：物品没有标签但应该有（根据名称可以推断出合适的子类型标签）
+2. **字段错位**：信息放在了错误的字段中。常见现象：
+   - model（型号）字段填了材质/类型等非型号信息（如 model="羊毛"），应移至 notes 或 attrs 字段
+3. **缺少标签**：物品当前没有标签但应该有（根据名称可推断子类型标签）。
+   此时在 fields 中增加 "tag_name": "标签名"。这是 fields 中出现 tag_name 的唯一场景——已有标签的物品不要修改 tag_name。
 4. **分类错误**：物品的分类明显不正确
 5. **重复物品**：名称/品牌/型号完全相同的物品
+6. **品类特有属性缺失**（重要）：检查物品是否缺少该分类的关键属性
+   - 服装/装备（分类id=1或2）：缺少 body_parts（主覆盖部位）的，根据名称和类型推断补充；同时可补充 body_parts_secondary（副覆盖部位，逗号分隔0~多个）。覆盖部位选项：头/眼/口/颈/躯干/手臂/手/腿/脚/腰/臀/全身
+   - 营养（分类id=3）：缺少 food_type（食品类型）的，根据名称推断。选项：能量胶/能量棒/巧克力/果泥/威化/饼干/坚果/肉干/饮品/补剂/其他
+   - 电子（分类id=4）：缺少 electronics_type（电子类型）的，根据名称推断。选项：照明/通讯/导航/摄影/电源/穿戴/其他
+   - 补充属性时，通过 update action 的 fields.attrs 设置对应的 key 值（如 "body_parts": "躯干", "food_type": "能量胶"）
 
 ## 输出格式
 请以 JSON 格式输出，格式为：
@@ -452,9 +511,8 @@ fn build_organize_prompt(categories: &[Category], tags: &[Tag], items: &[Item]) 
   "item_id": 123,
   "reason": "说明修改原因",
   "fields": {{
-    "attrs": {{"name": "新名称（不改则不包含此字段）", "brand": "新品牌", ...}},
-    "category_name": "新分类名（不改则不包含此字段）",
-    "tag_name": "新标签名（不改则不包含此字段，设为 null 表示清除标签）"
+    "attrs": {{"name": "新名称（不改则不包含此字段）", "brand": "新品牌", "body_parts": "躯干", ...}},
+    "category_name": "新分类名（不改则不包含此字段）"
   }}
 }}
 ```
@@ -466,7 +524,7 @@ fn build_organize_prompt(categories: &[Category], tags: &[Tag], items: &[Item]) 
   "item_id": 123,
   "reason": "说明拆分原因",
   "new_items": [
-    {{"category_name": "分类", "tag_name": "标签或null", "attrs": {{"name": "物品1", "brand": "", "model": "", "notes": "", "default_qty": 1}}}},
+    {{"category_name": "分类", "tag_name": "标签名", "attrs": {{"name": "物品1", "brand": "", "model": "", "notes": "", "default_qty": 1}}}},
     {{"category_name": "分类", "attrs": {{"name": "物品2", ...}}}}
   ]
 }}
@@ -488,12 +546,18 @@ fn build_organize_prompt(categories: &[Category], tags: &[Tag], items: &[Item]) 
 4. split 的 new_items 中的 category_name 和 tag_name 必须从上面的分类/标签列表中选择
 5. 如果没有发现任何问题，返回 {{"actions": []}}
 6. 保守一些，只提出明显的问题，不要过度修改
-7. **不要精简名称**：名称中包含品牌名（如"迪卡侬SIMOND软壳"）是用户的命名习惯，不是问题，不要建议移除"#
+7. **不要精简名称**：名称中包含品牌名（如"迪卡侬SIMOND软壳"）是用户的命名习惯，不是问题，不要建议移除
+8. **标签与名称是独立维度**：
+   - 标签用于分组筛选、模板匹配和分类浏览；名称用于唯一识别具体物品
+   - 标签词出现在名称中是正常且正确的（如"VAN RYSEL 骑行头盔"标签"骑行头盔"），两者功能不同，不构成冗余
+   - **禁止删除正确标签**（即不要将 tag_name 设为 null 或空），除非标签分类归属完全错误（如服装标了食品）；仅因名称中含相同词而清除标签是错误操作
+9. **每次 update 只解决一个问题**：不要在 update 中同时修改不相关的字段。例如补充 body_parts 时只改 attrs 中的 body_parts，不要顺带修改 tag_name、category_name 或 name。如有多个独立问题，拆分为独立的 update action。"#
     )
 }
 
 pub async fn organize_preview(
     State(pool): State<SqlitePool>,
+    Json(body): Json<OrganizePreviewRequest>,
 ) -> Result<Json<OrganizePreviewResponse>, AppError> {
     let categories =
         sqlx::query_as::<_, Category>("SELECT * FROM categories ORDER BY sort_order")
@@ -502,11 +566,35 @@ pub async fn organize_preview(
     let tags = sqlx::query_as::<_, Tag>("SELECT * FROM tags ORDER BY sort_order")
         .fetch_all(&pool)
         .await?;
-    let items = sqlx::query_as::<_, Item>("SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items ORDER BY category_id, name")
-        .fetch_all(&pool)
-        .await?;
 
-    let system_prompt = build_organize_prompt(&categories, &tags, &items);
+    let items: Vec<Item> = match &body.item_ids {
+        Some(ids) if !ids.is_empty() => {
+            // Build dynamic IN query with placeholders
+            let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+            let sql = format!(
+                "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE id IN ({}) ORDER BY category_id, name",
+                placeholders.join(", ")
+            );
+            let mut query = sqlx::query_as::<_, Item>(&sql);
+            for id in ids {
+                query = query.bind(id);
+            }
+            query.fetch_all(&pool).await?
+        }
+        _ => {
+            sqlx::query_as::<_, Item>("SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items ORDER BY category_id, name")
+                .fetch_all(&pool)
+                .await?
+        }
+    };
+
+    let attr_defs = sqlx::query_as::<_, AttributeDefinition>(
+        "SELECT * FROM attribute_definitions ORDER BY sort_order",
+    )
+    .fetch_all(&pool)
+    .await?;
+
+    let system_prompt = build_organize_prompt(&categories, &tags, &items, &attr_defs);
     let content = call_llm(&system_prompt, "请分析以上物品列表，输出整理建议。").await?;
 
     let parsed: serde_json::Value = serde_json::from_str(&content)

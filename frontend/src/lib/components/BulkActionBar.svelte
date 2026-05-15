@@ -19,12 +19,14 @@
 		actions = [],
 		onBatchDelete,
 		onBatchUpdateAttr,
+		onAiOrganize,
 	}: {
 		selectedCount: number;
 		attrOptions?: BatchAttrOption[];
 		actions?: BulkAction[];
 		onBatchDelete?: () => Promise<void>;
 		onBatchUpdateAttr?: (attrKey: string, value: unknown) => Promise<void>;
+		onAiOrganize?: () => void;
 	} = $props();
 
 	// Legacy mode: use `actions` prop
@@ -161,6 +163,12 @@
 
 				<button class="small primary" onclick={apply} disabled={processing}>
 					{processing ? '...' : '应用'}
+				</button>
+			{/if}
+
+			{#if onAiOrganize}
+				<button class="small" onclick={() => onAiOrganize()}>
+					AI 整理选中
 				</button>
 			{/if}
 

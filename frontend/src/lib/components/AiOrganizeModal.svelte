@@ -5,7 +5,8 @@
 		Item,
 		OrganizeAction,
 		OrganizePreviewResponse,
-		OrganizeApplyResponse
+		OrganizeApplyResponse,
+		AttributeDefinition
 	} from '$lib/types';
 	import { api } from '$lib/api/client';
 
@@ -13,6 +14,8 @@
 		items,
 		categories,
 		tags,
+		attrDefs = [],
+		itemIds = undefined,
 		onDone,
 		onClose,
 		onNewTags
@@ -20,10 +23,15 @@
 		items: Item[];
 		categories: Category[];
 		tags: Tag[];
+		attrDefs?: AttributeDefinition[];
+		itemIds?: number[];
 		onDone: () => void;
 		onClose: () => void;
 		onNewTags?: (tags: Tag[]) => void;
 	} = $props();
+
+	const isSelectiveMode = $derived(itemIds != null && itemIds.length > 0);
+	const modalTitle = $derived(isSelectiveMode ? 'AI 整理选中项' : 'AI 智能整理');
 
 	type Stage = 'loading' | 'preview' | 'applying';
 	let stage = $state<Stage>('loading');
@@ -55,7 +63,8 @@
 		stage = 'loading';
 		errorMsg = '';
 		try {
-			const resp = await api.post<OrganizePreviewResponse>('/ai/organize-preview');
+			const body = isSelectiveMode ? { item_ids: itemIds } : {};
+			const resp = await api.post<OrganizePreviewResponse>('/ai/organize-preview', body);
 			actions = resp.actions;
 			if (resp.new_tags.length > 0) {
 				onNewTags?.(resp.new_tags);
@@ -122,7 +131,7 @@
 	<div class="modal" onclick={(e) => e.stopPropagation()}>
 		{#if stage === 'loading'}
 			<div class="modal-header">
-				<h2>AI 智能整理</h2>
+				<h2>{modalTitle}</h2>
 			</div>
 			<div class="modal-body loading-body">
 				<div class="spinner"></div>
@@ -131,7 +140,7 @@
 			</div>
 		{:else if stage === 'applying'}
 			<div class="modal-header">
-				<h2>AI 智能整理</h2>
+				<h2>{modalTitle}</h2>
 			</div>
 			<div class="modal-body loading-body">
 				<div class="spinner"></div>
@@ -154,7 +163,7 @@
 			</div>
 		{:else}
 			<div class="modal-header">
-				<h2>AI 整理建议</h2>
+				<h2>{modalTitle}</h2>
 				<button class="close-btn" onclick={onClose}>&times;</button>
 			</div>
 			<div class="modal-body preview-body">
@@ -260,6 +269,20 @@
 													<span class="diff-arrow">→</span>
 													<span class="diff-new">{String(action.fields.attrs?.notes ?? '')}</span>
 												</div>
+											{/if}
+											{#if action.fields.attrs}
+												{#each Object.entries(action.fields.attrs) as [key, value]}
+													{#if key !== 'name' && key !== 'brand' && key !== 'model' && key !== 'notes'}
+														{@const def = attrDefs.find((d) => d.key === key)}
+														{@const label = def?.label ?? key}
+														<div class="diff-row">
+															<span class="diff-label">{label}</span>
+															<span class="diff-old">{String(item?.attrs?.[key] ?? '')}</span>
+															<span class="diff-arrow">→</span>
+															<span class="diff-new">{String(value ?? '')}</span>
+														</div>
+													{/if}
+												{/each}
 											{/if}
 										</div>
 									{:else if action.action_type === 'split'}

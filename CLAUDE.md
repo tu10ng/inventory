@@ -6,6 +6,8 @@
 
 ## *** 每次修改问题后, 都要增加一个"反思"的步骤, 反思为什么之前会做错, 并且一定要把复盘原因写入CLAUDE.md, 避免下次重犯 ***
 
+## *** 不要删除数据库, 要测试请写测试用例 ***
+
 ## 项目结构
 
 pnpm monorepo，前后端分离。
@@ -397,3 +399,62 @@ OCR:    上传图片 → OCR 文本 ───→ AiAddModal → 确认 → 逐�
 3. **`+page.ts` 不是必须的**：由于根 `+layout.ts` 已设置 `ssr = false` 和 `prerender = true`，views 路由无需单独的 `+page.ts`。只有需要覆盖这些设置的路由（如 `trips/[id]` 设置 `prerender = false`）才需要。
 
 4. **summary 视图的搬运是纯复制**：summary 渲染模板和 CSS 从 items 页面完整搬运到 views 页面，无需修改逻辑。搬运后 items 页面删除了对应的渲染分支和 CSS。
+
+## 2026-05-15 AI 整理 — 品类特有属性补充复盘
+
+### 实施内容
+
+1. **新建 migration `009_category_attrs.sql`**：新增 `food_type`（食品类型）、`electronics_type`（电子类型）、`body_parts_secondary`（副覆盖）属性定义，更新 `body_parts` 的 options 为 CDDA 风格（头/眼/口/颈/躯干/手臂/手/腿/脚/全身）
+2. **`build_organize_prompt()` 增强**：签名新增 `attr_defs: &[AttributeDefinition]`，prompt 插入属性定义列表，物品描述追加非基础 attrs 值，新增第 6 项检查（品类特有属性缺失）
+3. **`organize_preview()` handler**：从 DB 加载 `attr_defs` 传入 `build_organize_prompt()`
+4. **`AiOrganizeModal` 动态 attrs diff**：新增 `attrDefs` prop，在 update diff 列表中动态渲染非基础属性的键值变化（通过 `attrDefs.find()` 查找中文 label）
+5. **`items/+page.svelte`**：将 `attrDefs` 传递给 `<AiOrganizeModal>`
+
+### 反思
+
+1. **`AttributeDefinition.category_scope` 是 `String` 非 `Option<String>`**：最初写了 `.as_deref().unwrap_or("全局")`，编译器报错"no method `as_deref` on `String`"。空字符串表示全局，用 `.is_empty()` 判断即可。教训：**修改模型字段前先确认其确切类型，尤其是 `String` vs `Option<String>` 的区别**。
+
+2. **`build_organize_prompt()` 签名变更后编译器自动找到所有调用方**：Rust 的类型检查确保了 `organize_preview()` 必须更新参数。如果是 Python/JS 这样的动态语言，遗漏调用方会是运行时错误。教训：**静态类型语言的好处——函数签名变更后编译器帮你找到所有遗漏的调用点**。
+
+3. **migration 模式选择**：`food_type`/`electronics_type`/`body_parts_secondary` 用 `INSERT OR IGNORE`（幂等），`body_parts` 用 `UPDATE`（因为 `001_initial.sql` 已 seed，需要覆盖 options）。如果 `body_parts` 行不存在（极不可能），UPDATE 是静默 no-op，不会出问题。
+
+4. **前端 attrs diff 中 `attrDefs.find()` 是 O(n²)**：每个 attrs key 都遍历 `attrDefs` 查找 label。当前 attrDefs 数量 < 20，每个 action 的 attrs 变化通常 < 5 个 key，性能可忽略。但如果 attrDefs 数量增长到数百，应考虑预建 Map。教训：**O(n²) 在数据量小时不是问题，但要意识到并在数据增长时重构**。
+
+5. **物品描述中"非基础属性"的定义**：basic_keys 定义为 `["name", "brand", "model", "notes", "default_qty"]`，这些已在前面的固定格式中展示。其余 attrs（如 body_parts/food_type/electronics_type/waterproof/season 等）作为额外信息追加，帮助 LLM 判断是否需要补充。这个定义需要与 prompt 中第 6 项检查的 key 名保持一致。
+
+## 2026-05-15 AI 整理误删标签修复复盘
+
+### Bug: AI 整理建议删除所有标签
+
+**现象**：加了规则 8（不要删除已有的正确标签）后，AI 仍然建议删除所有物品的标签。
+
+**根因**：规则 2（字段错位）的后两个要点存在歧义：
+```
+- tag（标签）和名称之间的信息分配不合理
+- 名称中包含了本应作为标签的信息，或反之
+```
+"或反之"告诉 LLM：名称已含标签信息 → 标签是"名称中本应作为标签的信息"的反面 → 标签多余应删除。这两个要点与规则 3（缺少标签→加标签）的正确方向冲突，且给了 LLM 删除标签的理由。
+
+**修复**：规则 2 缩减为只保留 model 错位一个要点，删除两个 tag 相关要点。正确的"加标签"方向由规则 3 覆盖，"不删标签"由规则 8 兜底。
+
+### 教训
+
+1. **Prompt 中的"或反之"是危险表述**：给 LLM 一个正确的方向和一个反向的可能性，LLM 可能选择误解的方向。教训：**prompt 中只描述正确的操作方向，不要提供反向可能性——给 LLM 两个选择，它可能选错的**。
+
+2. **多个规则覆盖同一主题会产生冲突**：规则 2（字段错位→tag 可能多余）和规则 3（缺少标签→加标签）从不同角度涉及 tag，规则 8（不要删除标签）是后来的防御补丁。三个规则互相角力，LLM 不知道哪个优先级更高。教训：**当一个主题被多个规则交叉覆盖时，应该合并为一条明确的规则，而非用多条规则互相补充/制衡**。
+
+### 第三轮：从模板结构中移除 tag_name（最终根治）
+
+第二轮修改后 AI 仍删标签。根因更深层：**模板结构 > 文字规则**。只要 `tag_name` 字段出现在 update 模板中，AI 就认为它是每次 update 都可以操作的字段。AI 进入"修改此物品"模式后，看到模板中所有可用字段，倾向于"顺便都修好"。
+
+**修复**：从 update 模板的 `fields` 中完全移除 `tag_name` 字段。标签操作降级为规则 3 中描述的"特殊情况"（仅在物品缺少标签时补充），AI 不会在每次 update 时想到它。同时 split 模板中的 `"标签或null"` 改为 `"标签名"`，消除 null 是合法选项的暗示。
+
+### 终极教训
+
+| 轮次 | 做了什么 | 为什么不够 |
+|------|---------|-----------|
+| 1 | 删除规则 2 歧义要点 | 模板还在教"设为 null 表示清除标签"——主动教学 > 被动省略 |
+| 2 | 改模板注释 + 正面规则 8/9 | `tag_name` 字段还在模板里——AI 看到可用字段就想用，文字禁止指令不够强 |
+| 3 | **从模板删除 tag_name** | 标签操作降级为规则中描述的"特殊情况"，AI 不会在每次 update 时想到它 |
+
+**Prompt 工程核心原则：结构（模板/字段）比文字（规则/注释）强一个数量级。要禁止某种行为，最有效的方式是从结构中移除触发该行为的入口，而不是在文字中说"不要做 X"。**"

@@ -42,6 +42,7 @@
 
 	let showAiModal = $state(false);
 	let showOrganizeModal = $state(false);
+	let organizeSelectedItemIds: number[] | null = $state(null);
 	let showImportModal = $state(false);
 	let showOcrModal = $state(false);
 	let showExcelModal = $state(false);
@@ -429,6 +430,10 @@
 			attrOptions={batchAttrOptions}
 			onBatchDelete={handleBatchDelete}
 			onBatchUpdateAttr={handleBatchUpdateAttr}
+			onAiOrganize={() => {
+				organizeSelectedItemIds = [...selectedItemIds];
+				showOrganizeModal = true;
+			}}
 		/>
 		<ItemListTable
 				items={sortedItems}
@@ -517,8 +522,13 @@
 		{items}
 		{categories}
 		{tags}
+		{attrDefs}
+		itemIds={organizeSelectedItemIds ?? undefined}
 		onDone={() => load()}
-		onClose={() => showOrganizeModal = false}
+		onClose={() => {
+			showOrganizeModal = false;
+			organizeSelectedItemIds = null;
+		}}
 		onNewTags={(newTags) => {
 			const existingIds = new Set(tags.map(t => t.id));
 			tags = [...tags, ...newTags.filter(t => !existingIds.has(t.id))];
