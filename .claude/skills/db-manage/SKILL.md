@@ -6,7 +6,7 @@ description: >
   数据检查、迁移、migration、scope、清理、数据质量等关键词时触发。
 user-invocable: true
 disable-model-invocable: false
-argument-hint: "[health|scope|migrations|quality|cleanup|query|enrich]"
+argument-hint: "[health|scope|migrations|quality|tree|cleanup|query|enrich]"
 allowed-tools:
   - "Bash(sqlite3 *)"
   - "Bash(cat *)"
@@ -48,7 +48,7 @@ backend/migrations/           # 迁移 SQL 文件
 ```bash
 sqlite3 backend/inventory.db "
 SELECT 'categories' AS 表, COUNT(*) AS 行数 FROM categories UNION ALL
-SELECT 'tags', COUNT(*) FROM tags UNION ALL
+SELECT 'types', COUNT(*) FROM types UNION ALL
 SELECT 'items', COUNT(*) FROM items UNION ALL
 SELECT 'attribute_definitions', COUNT(*) FROM attribute_definitions UNION ALL
 SELECT 'status_definitions', COUNT(*) FROM status_definitions UNION ALL
@@ -57,7 +57,7 @@ SELECT 'relation_types', COUNT(*) FROM relation_types UNION ALL
 SELECT 'item_relations', COUNT(*) FROM item_relations UNION ALL
 SELECT 'activities', COUNT(*) FROM activities UNION ALL
 SELECT 'activity_slots', COUNT(*) FROM activity_slots UNION ALL
-SELECT 'activity_slot_tags', COUNT(*) FROM activity_slot_tags UNION ALL
+SELECT 'activity_slot_types', COUNT(*) FROM activity_slot_types UNION ALL
 SELECT 'tips', COUNT(*) FROM tips UNION ALL
 SELECT 'people', COUNT(*) FROM people UNION ALL
 SELECT 'trips', COUNT(*) FROM trips UNION ALL
@@ -79,19 +79,45 @@ sqlite3 backend/inventory.db "SELECT filename FROM _migrations ORDER BY filename
 ls -lh backend/inventory.db*
 ```
 
+4. 类型树统计（层级深度、父子关系）：
+
+```bash
+sqlite3 backend/inventory.db "
+SELECT
+  COUNT(*) AS 总类型数,
+  COUNT(DISTINCT CASE WHEN parent_id IS NULL THEN id END) AS 根类型数,
+  COUNT(DISTINCT CASE WHEN parent_id IS NOT NULL THEN id END) AS 子类型数,
+  COUNT(DISTINCT parent_id) AS 有子节点的类型数,
+  MAX(depth) AS 最大深度
+FROM (
+  WITH RECURSIVE depth_calc AS (
+    SELECT id, parent_id, 1 AS depth FROM types WHERE parent_id IS NULL
+    UNION ALL
+    SELECT t.id, t.parent_id, dc.depth + 1
+    FROM types t JOIN depth_calc dc ON dc.id = t.parent_id
+  )
+  SELECT id, parent_id, depth FROM depth_calc
+);
+"
+```
+
 ### 输出格式
 
-用表格展示各表行数，标注异常（如空表、行数异常多/少）。
+用表格展示各表行数，标注异常（如空表、行数异常多/少）。类型树统计显示层级结构和深度是否合理。
 
 ---
 
 ## 命令 2: 属性 Scope 检查 (`scope`)
 
-检查 `attribute_definitions` 的 `category_scope` 设置是否合理，以及物品 attrs 中是否有越界属性。
+检查 `attribute_definitions` 的 `category_scope` 和 `type_scope` 设置是否合理，以及物品 attrs 中是否有越界属性。
+
+Scope 有两个维度：
+- **category_scope**：限制属性适用于哪些分类（空=全局，逗号分隔的分类 ID）
+- **type_scope**：限制属性适用于哪些类型（空=全局，逗号分隔的类型 ID。支持层级：scope 到父类型时子类型物品也适用）
 
 ### 执行步骤
 
-1. 属性 scope 概览：
+1. 属性 category_scope 概览：
 
 ```bash
 sqlite3 backend/inventory.db "
@@ -106,18 +132,46 @@ ORDER BY scope;
 "
 ```
 
-2. 检查 `category_scope = '[]'` 的残留（AI 创建的 bug 数据）：
+2. 属性 type_scope 概览：
 
 ```bash
 sqlite3 backend/inventory.db "
-SELECT key, label, category_scope
+SELECT
+  CASE WHEN type_scope = '' OR type_scope IS NULL THEN '全局'
+       ELSE type_scope END AS scope,
+  COUNT(*) AS 数量,
+  GROUP_CONCAT(key, ', ') AS 属性
 FROM attribute_definitions
-WHERE category_scope = '[]';
+GROUP BY type_scope
+ORDER BY scope;
+"
+```
+
+3. 带 scope 属性的完整视图（同时展示 category_scope 和 type_scope）：
+
+```bash
+sqlite3 backend/inventory.db "
+SELECT key, label, attr_type,
+  CASE WHEN category_scope = '' THEN '全局' ELSE category_scope END AS cat_scope,
+  CASE WHEN type_scope = '' THEN '全局' ELSE type_scope END AS type_scope
+FROM attribute_definitions
+WHERE category_scope != '' OR type_scope != ''
+ORDER BY category_scope, type_scope, sort_order;
+"
+```
+
+4. 检查 `category_scope = '[]'` 或 `type_scope = '[]'` 的残留（AI 创建的 bug 数据）：
+
+```bash
+sqlite3 backend/inventory.db "
+SELECT key, label, category_scope, type_scope
+FROM attribute_definitions
+WHERE category_scope = '[]' OR type_scope = '[]';
 "
 ```
 预期：0 行。如果有结果，说明 scope 修正迁移未覆盖或 AI 后续又创建了有 bug 的属性。
 
-3. 检查物品有无越界属性（原理：scope 非空的属性，物品 category_id 必须在 scope 内）：
+5. 检查物品有无越界 category_scope（scope 非空的属性，物品 category_id 必须在 scope 内）：
 
 ```bash
 sqlite3 backend/inventory.db "
@@ -134,11 +188,33 @@ GROUP BY i.id
 ORDER BY i.category_id, i.id;
 ```
 
+6. 检查物品有无越界 type_scope（scope 非空的属性，物品 type_id 必须在 scope 内）：
+
+```bash
+sqlite3 backend/inventory.db "
+SELECT i.id, json_extract(i.attrs, '$.name') AS item_name,
+       i.type_id, COALESCE(t.name, '无类型') AS type_name, c.name AS cat_name,
+       ad.key AS attr_key, ad.type_scope
+FROM items i
+JOIN categories c ON c.id = i.category_id
+LEFT JOIN types t ON t.id = i.type_id
+JOIN attribute_definitions ad ON ad.type_scope != '' AND ad.type_scope != '[]'
+WHERE json_extract(i.attrs, '$.' || ad.key) IS NOT NULL
+  AND json_extract(i.attrs, '$.' || ad.key) != ''
+  AND json_extract(i.attrs, '$.' || ad.key) != '0'
+  AND ',' || ad.type_scope || ',' NOT LIKE '%,' || COALESCE(i.type_id, 0) || ',%'
+ORDER BY i.category_id, i.id;
+"
+```
+
 ### 输出
 
-- Scope 分布表
+- Category scope 分布表
+- Type scope 分布表
+- 完整 scope 视图（同时展示两个维度）
 - `'[]'` 检查结果（有/无）
-- 越界物品列表（如果有）：物品名、当前分类、越界属性名
+- Category scope 越界物品列表（如果有）
+- Type scope 越界物品列表（如果有）
 
 ---
 
@@ -148,22 +224,22 @@ ORDER BY i.category_id, i.id;
 
 ### 检查项
 
-1. **孤儿 tag**（tag 的 category_id 指向不存在的分类）：
+1. **孤儿 type**（type 的 category_id / parent_id 指向不存在的记录）：
 
 ```bash
 sqlite3 backend/inventory.db "
 SELECT t.id, t.name, t.category_id
-FROM tags t LEFT JOIN categories c ON c.id = t.category_id
+FROM types t LEFT JOIN categories c ON c.id = t.category_id
 WHERE c.id IS NULL;
 "
 ```
 
-2. **孤儿 item**（item 的 category_id/tag_id 指向不存在的记录）：
+2. **孤儿 item**（item 的 category_id/type_id 指向不存在的记录）：
 
 ```bash
 sqlite3 backend/inventory.db "
 SELECT i.id, json_extract(i.attrs, '$.name') AS name,
-       i.category_id, i.tag_id
+       i.category_id, i.type_id
 FROM items i
 LEFT JOIN categories c ON c.id = i.category_id
 WHERE c.id IS NULL;
@@ -200,27 +276,87 @@ ORDER BY c.sort_order;
 "
 ```
 
-5. **无标签物品**：
+5. **无类型物品**：
 
 ```bash
 sqlite3 backend/inventory.db "
 SELECT i.id, json_extract(i.attrs, '$.name') AS name, c.name AS cat_name
 FROM items i
 JOIN categories c ON c.id = i.category_id
-WHERE i.tag_id IS NULL;
+WHERE i.type_id IS NULL;
 "
 ```
 
-6. **标签分布**（每个 tag 有多少物品）：
+6. **类型分布**（每个 type 有多少物品，含子类型递归统计）：
 
 ```bash
 sqlite3 backend/inventory.db "
-SELECT t.name AS tag, c.name AS category, COUNT(i.id) AS items
-FROM tags t
-LEFT JOIN items i ON i.tag_id = t.id
+SELECT t.name AS type, c.name AS category, COUNT(i.id) AS items
+FROM types t
+LEFT JOIN items i ON i.type_id = t.id
 JOIN categories c ON c.id = t.category_id
 GROUP BY t.id
 ORDER BY items DESC;
+"
+```
+
+7. **类型树完整性 — 孤儿 parent_id**（parent_id 指向不存在的类型）：
+
+```bash
+sqlite3 backend/inventory.db "
+SELECT t.id, t.name, t.parent_id
+FROM types t
+WHERE t.parent_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM types p WHERE p.id = t.parent_id);
+"
+```
+
+8. **类型树完整性 — 跨分类父子关系**（子类型的 category_id 与父类型不一致）：
+
+```bash
+sqlite3 backend/inventory.db "
+SELECT c.id AS child_id, c.name AS child_name, c.category_id AS child_cat,
+       p.id AS parent_id, p.name AS parent_name, p.category_id AS parent_cat
+FROM types c
+JOIN types p ON p.id = c.parent_id
+WHERE c.category_id != p.category_id;
+"
+```
+
+9. **物品挂在父类型而非子类型**（有子类型的父类型上挂了物品，应移到具体子类型）：
+
+```bash
+sqlite3 backend/inventory.db "
+SELECT i.id, json_extract(i.attrs, '$.name') AS item_name,
+       t.name AS type_name, c.name AS cat_name
+FROM items i
+JOIN types t ON t.id = i.type_id
+JOIN categories c ON c.id = i.category_id
+WHERE EXISTS (SELECT 1 FROM types child WHERE child.parent_id = t.id);
+"
+```
+
+11. **类型递归物品统计**（含子类型后代物品，对比平面统计）：
+
+```bash
+sqlite3 backend/inventory.db "
+WITH RECURSIVE type_tree AS (
+  SELECT id, name, category_id, parent_id, id AS root_id, name AS root_name
+  FROM types
+  UNION ALL
+  SELECT t.id, t.name, t.category_id, t.parent_id, tt.root_id, tt.root_name
+  FROM types t
+  JOIN type_tree tt ON tt.id = t.parent_id
+)
+SELECT tt.root_name AS type, c.name AS category,
+       COUNT(DISTINCT i.id) AS total_items,  -- 含子类型后代
+       (SELECT COUNT(*) FROM items WHERE type_id = tt.root_id) AS direct_items  -- 仅直接
+FROM type_tree tt
+JOIN categories c ON c.id = tt.category_id
+LEFT JOIN items i ON i.type_id = tt.id
+WHERE tt.root_id = tt.id  -- 只输出根节点
+GROUP BY tt.root_id
+ORDER BY total_items DESC;
 "
 ```
 
@@ -230,9 +366,78 @@ ORDER BY items DESC;
 
 ---
 
-## 命令 4: 清理越界属性 (`cleanup`)
+## 命令 4: 类型树健康检查 (`tree`)
 
-移除物品 attrs 中不属于该分类的属性值（如营养品有 `body_parts`、`warmth_rating`）。
+专门检查类型树形层级的完整性。
+
+### 执行步骤
+
+1. **类型层级概览**（每层数量）：
+
+```bash
+sqlite3 backend/inventory.db "
+SELECT
+  CASE WHEN parent_id IS NULL THEN '根类型'
+       WHEN id IN (SELECT DISTINCT parent_id FROM types WHERE parent_id IS NOT NULL) THEN '中间类型'
+       ELSE '叶子类型' END AS 层级,
+  COUNT(*) AS 数量
+FROM types
+GROUP BY 层级
+ORDER BY 层级;
+"
+```
+
+2. **最大深度检查**（检测是否有过深嵌套）：
+
+```bash
+sqlite3 backend/inventory.db "
+WITH RECURSIVE depth_calc AS (
+  SELECT id, name, parent_id, 1 AS depth
+  FROM types WHERE parent_id IS NULL
+  UNION ALL
+  SELECT t.id, t.name, t.parent_id, dc.depth + 1
+  FROM types t JOIN depth_calc dc ON dc.id = t.parent_id
+)
+SELECT id, name, depth
+FROM depth_calc
+WHERE depth > 3
+ORDER BY depth DESC, id;
+"
+```
+预期：0 行。如果深度 > 3（如 服装 > 外套 > 冲锋衣 > 硬壳），需人工确认是否合理。
+
+3. **循环引用检测**（parent_id 链是否形成环，需要用脚本）：
+
+```bash
+sqlite3 backend/inventory.db "
+SELECT id, name, parent_id FROM types WHERE parent_id IS NOT NULL;
+"
+```
+
+用脚本遍历所有 parent_id 链：从每个节点出发向上追溯，如果回到已访问节点则存在循环。
+
+4. **各分类类型树结构一览**：
+
+```bash
+sqlite3 backend/inventory.db "
+SELECT c.name AS category,
+       GROUP_CONCAT(
+         CASE WHEN t.parent_id IS NULL THEN t.name || '(根)'
+              ELSE t.name END,
+         ', '
+       ) AS types
+FROM types t
+JOIN categories c ON c.id = t.category_id
+GROUP BY t.category_id
+ORDER BY c.sort_order;
+"
+```
+
+---
+
+## 命令 5: 清理越界属性 (`cleanup`)
+
+移除物品 attrs 中不属于该分类或类型的属性值（如营养品有 `body_parts`、`warmth_rating`，或属性 type_scope 不匹配）。
 
 ### 前置条件
 
@@ -241,14 +446,15 @@ ORDER BY items DESC;
 
 ### 执行步骤
 
-1. 先预览将要清理的内容（dry-run）：
+1. 先预览将要清理的内容 — category_scope 越界（dry-run）：
 
 ```bash
 sqlite3 backend/inventory.db "
 SELECT i.id, i.category_id, c.name AS cat_name,
        json_extract(i.attrs, '$.name') AS item_name,
        ad.key AS attr_key,
-       json_extract(i.attrs, '$.' || ad.key) AS attr_value
+       json_extract(i.attrs, '$.' || ad.key) AS attr_value,
+       'category_scope 越界' AS reason
 FROM items i
 JOIN categories c ON c.id = i.category_id
 JOIN attribute_definitions ad ON ad.category_scope != '' AND ad.category_scope != '[]'
@@ -260,9 +466,33 @@ ORDER BY i.category_id, i.id;
 "
 ```
 
-2. 展示统计摘要：每个分类有多少物品、多少越界属性。
-3. **必须询问用户确认**后再执行实际清理。
-4. 执行清理：删除 `clean_out_of_scope_attrs_done` 标记并重启后端（触发 `clean_out_of_scope_attrs()` 函数），或直接运行 SQLite JSON 操作逐物品清理。
+2. 预览 type_scope 越界（dry-run）：
+
+```bash
+sqlite3 backend/inventory.db "
+SELECT i.id, i.category_id, c.name AS cat_name,
+       json_extract(i.attrs, '$.name') AS item_name,
+       COALESCE(t.name, '无类型') AS type_name,
+       ad.key AS attr_key,
+       json_extract(i.attrs, '$.' || ad.key) AS attr_value,
+       'type_scope 越界' AS reason
+FROM items i
+JOIN categories c ON c.id = i.category_id
+LEFT JOIN types t ON t.id = i.type_id
+JOIN attribute_definitions ad ON ad.type_scope != '' AND ad.type_scope != '[]'
+WHERE json_extract(i.attrs, '$.' || ad.key) IS NOT NULL
+  AND json_extract(i.attrs, '$.' || ad.key) != ''
+  AND json_extract(i.attrs, '$.' || ad.key) != '0'
+  AND ',' || ad.type_scope || ',' NOT LIKE '%,' || COALESCE(i.type_id, 0) || ',%'
+ORDER BY i.category_id, i.id;
+"
+```
+
+3. 展示统计摘要：每个分类有多少物品、多少越界属性（category_scope + type_scope 分别统计）。
+4. **必须询问用户确认**后再执行实际清理。
+3. 展示统计摘要：每个分类有多少物品、多少越界属性（category_scope + type_scope 分别统计）。
+4. **必须询问用户确认**后再执行实际清理。
+5. 执行清理：删除 `clean_out_of_scope_attrs_done` 标记并重启后端（触发 `clean_out_of_scope_attrs()` 函数），或直接运行 SQLite JSON 操作逐物品清理。
 
 ```bash
 # 方案 A: 重启触发（推荐，使用已有的 Rust 清理函数）
@@ -276,7 +506,7 @@ sqlite3 backend/inventory.db "DELETE FROM _migrations WHERE filename = '011_clea
 
 ---
 
-## 命令 5: 迁移状态 (`migrations`)
+## 命令 6: 迁移状态 (`migrations`)
 
 查看迁移历史和文件对应关系。
 
@@ -292,7 +522,7 @@ ls -1 backend/migrations/*.sql
 
 ---
 
-## 命令 6: 自定义查询 (`query`)
+## 命令 7: 自定义查询 (`query`)
 
 执行自定义 SQL 查询。
 
@@ -314,8 +544,8 @@ sqlite3 backend/inventory.db "$ARGUMENTS"
 
 ```bash
 sqlite3 backend/inventory.db "
-SELECT t.name AS tag, COUNT(i.id) AS items
-FROM items i JOIN tags t ON t.id = i.tag_id
+SELECT t.name AS type, COUNT(i.id) AS items
+FROM items i JOIN types t ON t.id = i.type_id
 WHERE i.category_id = 8
 GROUP BY t.name ORDER BY items DESC;
 "
@@ -351,7 +581,7 @@ ORDER BY
 
 ---
 
-## 命令 7: 物品属性智能补全 (`enrich`)
+## 命令 8: 物品属性智能补全 (`enrich`)
 
 通过联网搜索产品规格 + LLM 提取属性值，批量补全物品库中缺失的属性。
 
