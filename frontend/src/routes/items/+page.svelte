@@ -17,8 +17,8 @@
 	import type { BatchAttrOption } from '$lib/components/BulkActionBar.svelte';
 	import { loadAllColumns, getAllColumns, loadVisibleColumns } from '$lib/utils/columns';
 	import type { ItemColumnDef } from '$lib/utils/columns';
-	import { filterItems, sortItems, groupItems } from '$lib/utils/itemFilters';
-	import type { ItemGroup } from '$lib/utils/itemFilters';
+	import { filterItems, sortItems, groupItems, groupItemsByTypeTree } from '$lib/utils/itemFilters';
+	import type { ItemGroup, TypeTreeGroup } from '$lib/utils/itemFilters';
 
 	let items = $state<Item[]>([]);
 	let categories = $state<Category[]>([]);
@@ -248,12 +248,25 @@
 	// Group-by data: pre-computed per-category groups when groupByKey is set
 	const groupedData = $derived.by(() => {
 		if (!groupByKey) return null;
-		const map = new Map<number, { groups: ItemGroup[]; ungrouped: Item[] }>();
-		// Group within each category
-		for (const cat of categories) {
-			const catItems = sortedItems.filter(i => i.category_id === cat.id);
-			if (catItems.length > 0) {
-				map.set(cat.id, groupItems(catItems, groupByKey, allColumns, types));
+		const map = new Map<number, { groups: ItemGroup[]; tree?: TypeTreeGroup[]; ungrouped: Item[] }>();
+		if (groupByKey === 'type') {
+			// Tree grouping: build per-category type trees
+			for (const cat of categories) {
+				const catItems = sortedItems.filter(i => i.category_id === cat.id);
+				if (catItems.length > 0) {
+					const catTypes = types.filter(t => t.category_id === cat.id);
+					const { tree, ungrouped } = groupItemsByTypeTree(catItems, catTypes);
+					map.set(cat.id, { groups: [], tree, ungrouped });
+				}
+			}
+		} else {
+			// Flat grouping for other keys
+			for (const cat of categories) {
+				const catItems = sortedItems.filter(i => i.category_id === cat.id);
+				if (catItems.length > 0) {
+					const { groups, ungrouped } = groupItems(catItems, groupByKey, allColumns, types);
+					map.set(cat.id, { groups, ungrouped });
+				}
 			}
 		}
 		return map;

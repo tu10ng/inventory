@@ -3,7 +3,7 @@
 	import { itemName, itemBrand, itemModel } from '$lib/types';
 	import type { ItemColumnDef } from '$lib/utils/columns';
 	import { buildTypePath } from '$lib/utils/columns';
-	import type { ItemGroup } from '$lib/utils/itemFilters';
+	import type { ItemGroup, TypeTreeGroup } from '$lib/utils/itemFilters';
 	import { getCellValue } from '$lib/utils/cellValue';
 	import CellRenderer from './CellRenderer.svelte';
 	import ItemGroupBlock from './ItemGroupBlock.svelte';
@@ -38,7 +38,7 @@
 		sortDir?: 'asc' | 'desc';
 		columnFilters?: Map<string, Set<string>>;
 		groupBy?: { key: string; label: string } | null;
-		groupedData?: Map<number, { groups: ItemGroup[]; ungrouped: Item[] }> | null;
+		groupedData?: Map<number, { groups: ItemGroup[]; tree?: TypeTreeGroup[]; ungrouped: Item[] }> | null;
 		selectable?: boolean;
 		selectedIds?: Set<number>;
 		onSelect: (item: Item) => void;
@@ -200,19 +200,37 @@
 			{#if groupBy && groupedData}
 				{@const catData = groupedData.get(group.category.id)}
 				{#if catData}
-					{#each catData.groups as grp (grp.value)}
-						<ItemGroupBlock
-							label={grp.label}
-							value={grp.value}
-							items={grp.items}
-							{visibleColumns}
-							{selectedItemId}
-							{types}
-							{selectedIds}
-							{onSelect}
-							{onToggleSelect}
-						/>
-					{/each}
+					{#if groupBy.key === 'type' && catData.tree}
+						{#each catData.tree as treeGroup}
+							<ItemGroupBlock
+								label={treeGroup.type.name}
+								value={String(treeGroup.type.id)}
+								items={treeGroup.items}
+								children={treeGroup.children}
+								depth={0}
+								{visibleColumns}
+								{selectedItemId}
+								{types}
+								{selectedIds}
+								{onSelect}
+								{onToggleSelect}
+							/>
+						{/each}
+					{:else}
+						{#each catData.groups as grp (grp.value)}
+							<ItemGroupBlock
+								label={grp.label}
+								value={grp.value}
+								items={grp.items}
+								{visibleColumns}
+								{selectedItemId}
+								{types}
+								{selectedIds}
+								{onSelect}
+								{onToggleSelect}
+							/>
+						{/each}
+					{/if}
 					{#if catData.ungrouped.length > 0}
 						<div class="ungrouped-header">
 							<span class="check-col"></span>

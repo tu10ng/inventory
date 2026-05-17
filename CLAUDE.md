@@ -529,3 +529,28 @@ OCR:    上传图片 → OCR 文本 ───→ AiAddModal → 确认 → 逐�
 7. **itemFilters 递归匹配缺少 `return true`**：为类型筛选加了 `getDescendantTypeIds` 递归匹配逻辑后，if 块末尾缺少显式 `return true`，导致匹配成功时隐式返回 `undefined`（falsy），所有物品被误筛掉。教训：**在回调函数中用 if-else 链做多分支判断时，每个分支末尾必须有显式 return，不能依赖 fallthrough**。
 
 8. **前后端同改的并行策略**：本次使用两个 Agent 并行修改前后端，后端约 2 分钟完成，前端约 26 分钟。前后端的改名互不依赖（只需约定好新命名），可以完全并行。但 Agent 的逐文件 Edit 模式对大规模改名效率低——后端用 sed 只花了十几秒。教训：**大规模机械改名优先用 sed 批量处理，Agent 只处理需要理解上下文的结构性改动**。
+
+## 2026-05-17 物品库类型树形多级分组实施复盘
+
+### 实施内容
+
+物品库按类型分组从扁平改为树形多级嵌套（利用 `parent_id` 字段），UI 从虚线 fieldset 改为可折叠块状。
+
+### 涉及文件
+
+| 文件 | 改动 |
+|------|------|
+| `itemFilters.ts` | 新增 `TypeTreeGroup` 接口 + `groupItemsByTypeTree()` |
+| `ItemGroupBlock.svelte` | fieldset→可折叠块，`children`/`depth` props，递归 self-import |
+| `ItemListTable.svelte` | `groupedData` 类型扩展 `tree?` 字段，树形渲染分支 |
+| `items/+page.svelte` | `groupByKey === 'type'` 时调用 `groupItemsByTypeTree` |
+
+### 反思
+
+1. **`<svelte:self>` 在 Svelte 5 已废弃**：Svelte 5 要求改用 self-import（`import ItemGroupBlock from './ItemGroupBlock.svelte'`），然后用 `<ItemGroupBlock>` 递归调用自身。**教训：使用 Svelte 5 时应关注 deprecated API 变化，`<svelte:self>` → self-import 是 Svelte 5 的明确废弃**。
+
+2. **`groupedData` 类型扩展用了可选 `tree` 字段向后兼容**：`tree?: TypeTreeGroup[]` 只在 `groupByKey === 'type'` 时有值，其他分组模式不变。ItemListTable 用 `{#if groupBy.key === 'type' && catData.tree}` 做条件分支，`{:else}` 保持原有扁平路径。这种"可选字段 + 运行时判断"的模式比 Union 类型更简单，不需要修改所有调用方。
+
+3. **树形分组函数需处理 3 种 edge case**：正常 `parent_id` 链、父类型在另一品类（视为根）、不在树中的孤立类型有物品（作为独立根节点追加）。这些情况在数据不规范时会出现，不能假设 `parent_id` 链完整。
+
+4. **`groupItems` 被调用了两次**：初始实现中非 type 分组时 `groupItems` 被调用了两次——一次取 `.groups`、一次取 `.ungrouped`。已修正为解构赋值一次调用。教训：**解构赋值可以避免重复计算，尤其是在 `$derived.by` 中频繁执行的代码**。

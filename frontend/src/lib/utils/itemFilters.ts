@@ -8,6 +8,12 @@ export interface ItemGroup {
 	items: Item[];
 }
 
+export interface TypeTreeGroup {
+	type: Type;
+	items: Item[];
+	children: TypeTreeGroup[];
+}
+
 export function filterItems(
 	items: Item[],
 	search: string,
@@ -141,4 +147,76 @@ export function groupItems(
 	groups.sort((a, b) => a.label.localeCompare(b.label, 'zh'));
 
 	return { groups, ungrouped };
+}
+
+/** Build a tree of TypeTreeGroup from items and types within a single category.
+ *  Handles: normal parent_id chains, types whose parent is in another category (treated as root),
+ *  and orphaned types with items (added as standalone roots).
+ *  Items with no type_id go to ungrouped. */
+export function groupItemsByTypeTree(
+	catItems: Item[],
+	catTypes: Type[]
+): { tree: TypeTreeGroup[]; ungrouped: Item[] } {
+	const typeMap = new Map<number, Type>();
+	for (const t of catTypes) {
+		typeMap.set(t.id, t);
+	}
+
+	// Map type_id → items
+	const typeItems = new Map<number, Item[]>();
+	const ungrouped: Item[] = [];
+
+	for (const item of catItems) {
+		if (item.type_id != null && typeMap.has(item.type_id)) {
+			if (!typeItems.has(item.type_id)) {
+				typeItems.set(item.type_id, []);
+			}
+			typeItems.get(item.type_id)!.push(item);
+		} else {
+			ungrouped.push(item);
+		}
+	}
+
+	// Track which types are already included in the tree to catch orphans later
+	const inTree = new Set<number>();
+
+	function buildNode(type: Type): TypeTreeGroup {
+		inTree.add(type.id);
+		const node: TypeTreeGroup = {
+			type,
+			items: typeItems.get(type.id) ?? [],
+			children: [],
+		};
+		const childTypes = catTypes.filter(t => t.parent_id === type.id);
+		for (const child of childTypes) {
+			const childNode = buildNode(child);
+			// Only include child if it has items (direct or via descendants)
+			if (childNode.items.length > 0 || childNode.children.length > 0) {
+				node.children.push(childNode);
+			}
+		}
+		return node;
+	}
+
+	// Root types: parent_id === null, or parent not in this category's types
+	const rootTypes = catTypes.filter(
+		t => t.parent_id === null || !typeMap.has(t.parent_id)
+	);
+
+	const tree = rootTypes
+		.map(buildNode)
+		.filter(n => n.items.length > 0 || n.children.length > 0);
+
+	// Handle orphaned types with items that weren't reachable from roots
+	for (const [typeId, its] of typeItems) {
+		if (!inTree.has(typeId) && its.length > 0) {
+			const type = typeMap.get(typeId)!;
+			tree.push({ type, items: its, children: [] });
+		}
+	}
+
+	// Sort tree by type sort_order
+	tree.sort((a, b) => a.type.sort_order - b.type.sort_order);
+
+	return { tree, ungrouped };
 }
