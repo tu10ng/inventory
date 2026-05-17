@@ -35,11 +35,11 @@
 		return currentItem.category_id !== tripItem.slot.category_id;
 	});
 
-	// Whether all candidates share the same tag (single-type slot)
+	// Whether all candidates share the same type (single-type slot)
 	const isSingleType = $derived.by(() => {
 		if (tripItem.candidates.length <= 1) return true;
-		const tags = new Set(tripItem.candidates.map(c => c.tag_id));
-		return tags.size === 1;
+		const types = new Set(tripItem.candidates.map(c => c.type_id));
+		return types.size === 1;
 	});
 
 	let dragOver = $state(false);

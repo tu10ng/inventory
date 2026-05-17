@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { Item, Category, Tag, AttributeDefinition, ItemRelationEnriched, RelationType, CreateItemRelation } from '$lib/types';
+	import type { Item, Category, Type, AttributeDefinition, ItemRelationEnriched, RelationType, CreateItemRelation } from '$lib/types';
 	import { getAttrConfig } from '$lib/utils/attrs';
-	import { attrMatchesScope } from '$lib/utils/columns';
+	import { attrMatchesScope, buildTypePath } from '$lib/utils/columns';
 	import InlineEdit from './InlineEdit.svelte';
 	import InlineEditSelect from './InlineEditSelect.svelte';
 	import InlineEditToggle from './InlineEditToggle.svelte';
@@ -9,10 +9,10 @@
 	import InlineEditStars from './InlineEditStars.svelte';
 	import InlineEditBar from './InlineEditBar.svelte';
 
-	let { item, categories, tags, attrDefs = [], usageCount = 0, relations = [], relationTypes = [], onUpdate, onDelete, onAddRelation, onRemoveRelation }: {
+	let { item, categories, types, attrDefs = [], usageCount = 0, relations = [], relationTypes = [], onUpdate, onDelete, onAddRelation, onRemoveRelation }: {
 		item: Item;
 		categories: Category[];
-		tags: Tag[];
+		types: Type[];
 		attrDefs?: AttributeDefinition[];
 		usageCount?: number;
 		relations?: ItemRelationEnriched[];
@@ -24,14 +24,24 @@
 	} = $props();
 
 	const category = $derived(categories.find(c => c.id === item.category_id));
-	const tag = $derived(item.tag_id ? tags.find(t => t.id === item.tag_id) : null);
+	const typeObj = $derived(item.type_id ? types.find(t => t.id === item.type_id) : null);
+
+	const typePath = $derived(item.type_id ? buildTypePath(item.type_id, types) : '');
 
 	const categoryOptions = $derived(categories.map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })));
-	const tagOptionsList = $derived.by(() => {
-		const filtered = tags.filter(t => t.category_id === item.category_id);
+	const typeOptionsList = $derived.by(() => {
+		const filtered = types.filter(t => t.category_id === item.category_id);
+		// Build depth map for tree indentation
+		const depthMap = new Map<number, number>();
+		for (const t of types) {
+			let d = 0;
+			let pid: number | null = t.parent_id;
+			while (pid != null) { d++; pid = types.find(p => p.id === pid)?.parent_id ?? null; }
+			depthMap.set(t.id, d);
+		}
 		return [
-			{ value: null as number | null, label: '-' },
-			...filtered.map(t => ({ value: t.id as number | null, label: t.name }))
+			{ value: null as number | null, label: '无类型' },
+			...filtered.map(t => ({ value: t.id as number | null, label: '--'.repeat(depthMap.get(t.id) ?? 0) + t.name }))
 		];
 	});
 
@@ -45,10 +55,10 @@
 	// Current item_type value
 	const itemType = $derived(String(item.attrs?.item_type ?? '') || '实体');
 
-	// Scoped attribute definitions — filter by category/tag scope, then by item_type visibility
+	// Scoped attribute definitions — filter by category/type scope, then by item_type visibility
 	const scopedAttrDefs = $derived(
 		attrDefs
-			.filter(ad => attrMatchesScope(ad, item.category_id, item.tag_id))
+			.filter(ad => attrMatchesScope(ad, item.category_id, item.type_id))
 			.filter(ad => {
 				// Virtual-item-specific attributes only show when item_type is '虚拟'
 				if (ad.key === 'expiry_date' || ad.key === 'file_url') {
@@ -114,8 +124,8 @@
 					<InlineEdit value={itemName} oncommit={(v) => updateAttr('name', v)} placeholder="物品名称" wide={true} />
 				</h2>
 				<div class="item-meta">
-					{#if tag}
-						<span class="tag-pill">{tag.name}</span>
+					{#if typeObj}
+						<span class="type-pill">{typePath}</span>
 					{/if}
 				</div>
 			</div>
@@ -132,9 +142,9 @@
 			</span>
 		</div>
 		<div class="field-row">
-			<span class="field-label">标签</span>
+			<span class="field-label">类型</span>
 			<span class="field-value">
-				<InlineEditSelect value={item.tag_id} options={tagOptionsList} oncommit={(v) => onUpdate('tag_id', v)} />
+				<InlineEditSelect value={item.type_id} options={typeOptionsList} oncommit={(v) => onUpdate('type_id', v)} />
 			</span>
 		</div>
 		<div class="field-row">
@@ -298,7 +308,7 @@
 		flex-wrap: wrap;
 		margin-top: 2px;
 	}
-	.tag-pill {
+	.type-pill {
 		font-size: 11px;
 		background: #eef2ff;
 		color: var(--primary);

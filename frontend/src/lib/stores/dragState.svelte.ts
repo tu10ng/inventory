@@ -2,7 +2,7 @@ import type { TripItemEnriched } from '$lib/types';
 
 export interface DragData {
 	itemId: number;
-	tagId: number | null;
+	typeId: number | null;
 }
 
 let draggingItem = $state<DragData | null>(null);

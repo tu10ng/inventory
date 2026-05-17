@@ -10,7 +10,7 @@ use crate::error::AppError;
 use crate::models::{
     AiParseRequest, AiParseResponse, AiParsedItem, AttributeDefinition, Category, Item,
     OrganizeAction, OrganizeApplyRequest, OrganizeApplyResponse, OrganizePreviewRequest,
-    OrganizePreviewResponse, OrganizeUpdateFields, SseEvent, Tag,
+    OrganizePreviewResponse, OrganizeUpdateFields, SseEvent, Type,
 };
 
 #[derive(serde::Serialize)]
@@ -65,12 +65,12 @@ pub(crate) fn resolve_category_id(cat_name: &str, categories: &[Category]) -> i6
     })
 }
 
-pub(crate) fn resolve_tag_id(tag_name: &str, cat_id: Option<i64>, tags: &[Tag]) -> Option<i64> {
-    let tag_name_lower = tag_name.to_lowercase();
-    let matched = tags.iter().find(|t| {
-        let name_match = t.name.to_lowercase() == tag_name_lower
-            || t.name.to_lowercase().contains(&tag_name_lower)
-            || tag_name_lower.contains(&t.name.to_lowercase());
+pub(crate) fn resolve_type_id(type_name: &str, cat_id: Option<i64>, types: &[Type]) -> Option<i64> {
+    let type_name_lower = type_name.to_lowercase();
+    let matched = types.iter().find(|t| {
+        let name_match = t.name.to_lowercase() == type_name_lower
+            || t.name.to_lowercase().contains(&type_name_lower)
+            || type_name_lower.contains(&t.name.to_lowercase());
         if let Some(cid) = cat_id {
             name_match && t.category_id == cid
         } else {
@@ -79,36 +79,36 @@ pub(crate) fn resolve_tag_id(tag_name: &str, cat_id: Option<i64>, tags: &[Tag]) 
     });
     // Fallback: try without category constraint
     let matched = matched.or_else(|| {
-        tags.iter().find(|t| {
-            t.name.to_lowercase() == tag_name_lower
-                || t.name.to_lowercase().contains(&tag_name_lower)
-                || tag_name_lower.contains(&t.name.to_lowercase())
+        types.iter().find(|t| {
+            t.name.to_lowercase() == type_name_lower
+                || t.name.to_lowercase().contains(&type_name_lower)
+                || type_name_lower.contains(&t.name.to_lowercase())
         })
     });
     matched.map(|t| t.id)
 }
 
-pub(crate) fn resolve_parsed_item(item: &mut AiParsedItem, categories: &[Category], tags: &[Tag]) {
+pub(crate) fn resolve_parsed_item(item: &mut AiParsedItem, categories: &[Category], types: &[Type]) {
     if let Some(ref cat_name) = item.category_name {
         item.category_id = Some(resolve_category_id(cat_name, categories));
     }
-    if let Some(ref tag_name) = item.tag_name {
-        item.tag_id = resolve_tag_id(tag_name, item.category_id, tags);
+    if let Some(ref type_name) = item.type_name {
+        item.type_id = resolve_type_id(type_name, item.category_id, types);
     }
 }
 
-/// Collect unique (tag_name, category_id) pairs that need creation,
-/// insert them, back-fill tag_id, and return the new tags.
-pub(crate) async fn auto_create_tags_for_items(
+/// Collect unique (type_name, category_id) pairs that need creation,
+/// insert them, back-fill type_id, and return the new tags.
+pub(crate) async fn auto_create_types_for_items(
     items: &mut [AiParsedItem],
     pool: &SqlitePool,
-) -> Result<Vec<Tag>, AppError> {
-    let mut new_tags: Vec<Tag> = Vec::new();
+) -> Result<Vec<Type>, AppError> {
+    let mut new_types: Vec<Type> = Vec::new();
     let mut to_create: std::collections::HashMap<(String, i64), ()> =
         std::collections::HashMap::new();
     for item in items.iter() {
-        if item.tag_name.is_some() && item.tag_id.is_none() {
-            if let (Some(ref tn), Some(cid)) = (&item.tag_name, item.category_id) {
+        if item.type_name.is_some() && item.type_id.is_none() {
+            if let (Some(ref tn), Some(cid)) = (&item.type_name, item.category_id) {
                 to_create.entry((tn.clone(), cid)).or_default();
             }
         }
@@ -116,41 +116,41 @@ pub(crate) async fn auto_create_tags_for_items(
 
     let mut created_map: std::collections::HashMap<(String, i64), i64> =
         std::collections::HashMap::new();
-    for (tag_name, category_id) in to_create.keys() {
+    for (type_name, category_id) in to_create.keys() {
         let max_sort: Option<(i64,)> = sqlx::query_as(
-            "SELECT COALESCE(MAX(sort_order), 0) FROM tags WHERE category_id = ?",
+            "SELECT COALESCE(MAX(sort_order), 0) FROM types WHERE category_id = ?",
         )
         .bind(category_id)
         .fetch_optional(pool)
         .await?;
         let sort_order = max_sort.map(|r| r.0).unwrap_or(0) + 1;
 
-        let tag = sqlx::query_as::<_, Tag>(
-            "INSERT INTO tags (name, category_id, sort_order) VALUES (?, ?, ?) \
+        let tag = sqlx::query_as::<_, Type>(
+            "INSERT INTO types (name, category_id, sort_order) VALUES (?, ?, ?) \
              ON CONFLICT(name) DO UPDATE SET name=name \
              RETURNING *",
         )
-        .bind(tag_name)
+        .bind(type_name)
         .bind(category_id)
         .bind(sort_order)
         .fetch_one(pool)
         .await?;
 
-        created_map.insert((tag_name.clone(), *category_id), tag.id);
-        new_tags.push(tag);
+        created_map.insert((type_name.clone(), *category_id), tag.id);
+        new_types.push(tag);
     }
 
     for item in items.iter_mut() {
-        if item.tag_name.is_some() && item.tag_id.is_none() {
-            if let (Some(ref tn), Some(cid)) = (&item.tag_name, item.category_id) {
+        if item.type_name.is_some() && item.type_id.is_none() {
+            if let (Some(ref tn), Some(cid)) = (&item.type_name, item.category_id) {
                 if let Some(&tid) = created_map.get(&(tn.clone(), cid)) {
-                    item.tag_id = Some(tid);
+                    item.type_id = Some(tid);
                 }
             }
         }
     }
 
-    Ok(new_tags)
+    Ok(new_types)
 }
 
 async fn call_llm(system_prompt: &str, user_prompt: &str) -> Result<String, AppError> {
@@ -213,7 +213,7 @@ async fn call_llm(system_prompt: &str, user_prompt: &str) -> Result<String, AppE
 
 fn build_system_prompt(
     categories: &[Category],
-    tags: &[Tag],
+    types: &[Type],
     attr_defs: &[AttributeDefinition],
 ) -> String {
     let mut cats_desc = String::new();
@@ -221,11 +221,34 @@ fn build_system_prompt(
         cats_desc.push_str(&format!("- {} (icon: {})\n", c.name, c.icon));
     }
 
-    let mut tags_desc = String::new();
-    for t in tags {
-        let cat = categories.iter().find(|c| c.id == t.category_id);
-        let cat_name = cat.map(|c| c.name.as_str()).unwrap_or("?");
-        tags_desc.push_str(&format!("- {} (分类: {})\n", t.name, cat_name));
+    let mut types_desc = String::from("## 类型列表（支持层级，优先选择最具体的子类型）\n");
+    // Build tree-structured output
+    let mut type_map: std::collections::HashMap<i64, &Type> = std::collections::HashMap::new();
+    for t in types {
+        type_map.insert(t.id, t);
+    }
+    // Group by category, show tree
+    for c in categories {
+        let cat_types: Vec<&Type> = types.iter().filter(|t| t.category_id == c.id).collect();
+        if cat_types.is_empty() { continue; }
+        types_desc.push_str(&format!("  {}:\n", c.name));
+        for t in &cat_types {
+            if t.parent_id.is_none() {
+                let depth = 0;
+                let indent = "  ".repeat(depth + 2);
+                types_desc.push_str(&format!("{}- id:{} {} (分类: {})\n", indent, t.id, t.name, c.name));
+                // Print children recursively
+                for child in cat_types.iter().filter(|ct| ct.parent_id == Some(t.id)) {
+                    let indent2 = "  ".repeat(3);
+                    types_desc.push_str(&format!("{}- id:{} {} (分类: {}, 父级: {})\n", indent2, child.id, child.name, c.name, t.name));
+                    // Grandchildren
+                    for grandchild in cat_types.iter().filter(|ct| ct.parent_id == Some(child.id)) {
+                        let indent3 = "  ".repeat(4);
+                        types_desc.push_str(&format!("{}- id:{} {} (分类: {}, 父级: {})\n", indent3, grandchild.id, grandchild.name, c.name, child.name));
+                    }
+                }
+            }
+        }
     }
 
     let mut attrs_desc = String::new();
@@ -286,13 +309,13 @@ fn build_system_prompt(
 ## 可用分类
 {cats_desc}
 
-## 可用标签（物品子类型）
-{tags_desc}
+## 可用类型（物品子类型）
+{types_desc}
 
 ## 输出字段说明
 对于每个物品，输出以下字段：
 - category_name: 从上面的分类列表中选择最合适的分类名称
-- tag_name: 从上面的标签列表中选择最合适的标签名称，没有合适的留 null
+- type_name: 从上面的类型列表中选择最合适的类型名称，没有合适的留 null
 - attrs: 物品属性对象，必须包含以下基础属性：
   - name: 物品名称（简洁，如"冲锋衣"、"登山杖"）
   - brand: 品牌（母公司名，如"迪卡侬"、"始祖鸟"，未知留空字符串）
@@ -352,7 +375,7 @@ fn build_system_prompt(
 1. 尽量根据品牌和型号推断物品属性
 2. 如果用户只说了一个概括性的描述，拆分成独立物品（如"登山装备：冲锋衣、登山杖"→ 两个物品）
 3. category_name 必须从上面的分类列表中选择
-4. tag_name 从标签列表中选择最合适的；如果没有匹配的，请给出一个合理的简短标签名（2-4字，如"手表"、"头灯"）
+4. type_name 从类型列表中选择最合适的；如果没有匹配的，请给出一个合理的简短类型名（2-4字，如"手表"、"头灯"）
 5. 数值属性不确定时给出合理估计值，而不是全填 0
 6. 品牌规则优先：子品牌 ≠ 品牌，请根据品牌识别规则正确填写 brand 字段
 7. **属性适用范围**：每个属性都有"适用分类"标注（如"服装"、"服装/装备"、"全局"）。只填充该物品分类对应的属性值，不适用该分类的属性不要填写（留空或不包含在 attrs 中）。例如：食品类物品不需要填写保暖、防水、身体部位等服装属性
@@ -369,7 +392,7 @@ pub async fn parse_items(
         sqlx::query_as::<_, Category>("SELECT * FROM categories ORDER BY sort_order")
             .fetch_all(&pool)
             .await?;
-    let tags = sqlx::query_as::<_, Tag>("SELECT * FROM tags ORDER BY sort_order")
+    let types = sqlx::query_as::<_, Type>("SELECT * FROM types ORDER BY sort_order")
         .fetch_all(&pool)
         .await?;
     let attr_defs = sqlx::query_as::<_, AttributeDefinition>(
@@ -378,7 +401,7 @@ pub async fn parse_items(
     .fetch_all(&pool)
     .await?;
 
-    let system_prompt = build_system_prompt(&categories, &tags, &attr_defs);
+    let system_prompt = build_system_prompt(&categories, &types, &attr_defs);
     let content = call_llm(&system_prompt, &body.text).await?;
 
     let parsed: serde_json::Value = serde_json::from_str(&content)
@@ -392,19 +415,19 @@ pub async fn parse_items(
         .map_err(|e| anyhow::anyhow!("Failed to deserialize items: {}. Raw: {}", e, items_val))?;
 
     for item in &mut items {
-        resolve_parsed_item(item, &categories, &tags);
+        resolve_parsed_item(item, &categories, &types);
     }
 
-    let new_tags = auto_create_tags_for_items(&mut items, &pool).await?;
+    let new_types = auto_create_types_for_items(&mut items, &pool).await?;
 
-    Ok(Json(AiParseResponse { items, new_tags }))
+    Ok(Json(AiParseResponse { items, new_types }))
 }
 
 // ── Organize ──
 
 fn build_organize_prompt(
     categories: &[Category],
-    tags: &[Tag],
+    types: &[Type],
     items: &[Item],
     attr_defs: &[AttributeDefinition],
 ) -> String {
@@ -413,11 +436,11 @@ fn build_organize_prompt(
         cats_desc.push_str(&format!("- id:{} {} (icon: {})\n", c.id, c.name, c.icon));
     }
 
-    let mut tags_desc = String::new();
-    for t in tags {
+    let mut types_desc = String::new();
+    for t in types {
         let cat = categories.iter().find(|c| c.id == t.category_id);
         let cat_name = cat.map(|c| c.name.as_str()).unwrap_or("?");
-        tags_desc.push_str(&format!("- id:{} {} (分类: {})\n", t.id, t.name, cat_name));
+        types_desc.push_str(&format!("- id:{} {} (分类: {})\n", t.id, t.name, cat_name));
     }
 
     let mut attrs_desc = String::new();
@@ -440,16 +463,16 @@ fn build_organize_prompt(
         let cat_name = cat.map(|c| c.name.as_str()).unwrap_or("?");
         let cat_id = item.category_id;
         let tag = item
-            .tag_id
-            .and_then(|tid| tags.iter().find(|t| t.id == tid));
-        let tag_name = tag.map(|t| t.name.as_str()).unwrap_or("");
+            .type_id
+            .and_then(|tid| types.iter().find(|t| t.id == tid));
+        let type_name = tag.map(|t| t.name.as_str()).unwrap_or("");
         let item_name = item.attr_str("name");
         let brand = item.attr_str("brand");
         let model = item.attr_str("model");
         let notes = item.attr_str("notes");
         items_desc.push_str(&format!(
             "- id:{} cat_id:{} name:\"{}\" brand:\"{}\" model:\"{}\" category:\"{}\" tag:\"{}\" notes:\"{}\"",
-            item.id, cat_id, item_name, brand, model, cat_name, tag_name, notes
+            item.id, cat_id, item_name, brand, model, cat_name, type_name, notes
         ));
 
         // Append non-basic attrs values that are set
@@ -491,8 +514,8 @@ fn build_organize_prompt(
 ## 可用分类
 {cats_desc}
 
-## 可用标签（物品子类型）
-{tags_desc}
+## 可用类型（物品子类型）
+{types_desc}
 
 ## 可用属性定义
 {attrs_desc}
@@ -504,8 +527,8 @@ fn build_organize_prompt(
 1. **合并物品需拆分**：名称中包含"和"、"+"等连接词的物品，应拆分为独立物品（如"墨镜和眼镜布"→"墨镜"+"眼镜布"）
 2. **字段错位**：信息放在了错误的字段中。常见现象：
    - model（型号）字段填了材质/类型等非型号信息（如 model="羊毛"），应移至 notes 或 attrs 字段
-3. **缺少标签**：物品当前没有标签但应该有（根据名称可推断子类型标签）。
-   此时在 fields 中增加 "tag_name": "标签名"。这是 fields 中出现 tag_name 的唯一场景——已有标签的物品不要修改 tag_name。
+3. **缺少类型**：物品当前没有类型但应该有（根据名称可推断子类型类型）。
+   此时在 fields 中增加 "type_name": "类型名"。这是 fields 中出现 type_name 的唯一场景——已有类型的物品不要修改 type_name。
 4. **分类错误**：物品的分类明显不正确
 5. **重复物品**：名称/品牌/型号完全相同的物品
 6. **品类特有属性缺失**（重要）：检查物品是否缺少该分类的关键属性
@@ -542,7 +565,7 @@ fn build_organize_prompt(
   "item_id": 123,
   "reason": "说明拆分原因",
   "new_items": [
-    {{"category_name": "分类", "tag_name": "标签名", "attrs": {{"name": "物品1", "brand": "", "model": "", "notes": "", "default_qty": 1}}}},
+    {{"category_name": "分类", "type_name": "类型名", "attrs": {{"name": "物品1", "brand": "", "model": "", "notes": "", "default_qty": 1}}}},
     {{"category_name": "分类", "attrs": {{"name": "物品2", ...}}}}
   ]
 }}
@@ -561,15 +584,15 @@ fn build_organize_prompt(
 1. 只输出需要修改的物品，没有问题的不要包含
 2. reason 用中文简要说明
 3. update 的 fields 只包含要修改的字段
-4. split 的 new_items 中的 category_name 和 tag_name 必须从上面的分类/标签列表中选择
+4. split 的 new_items 中的 category_name 和 type_name 必须从上面的分类/类型列表中选择
 5. 如果没有发现任何问题，返回 {{"actions": []}}
 6. 保守一些，只提出明显的问题，不要过度修改
 7. **不要精简名称**：名称中包含品牌名（如"迪卡侬SIMOND软壳"）是用户的命名习惯，不是问题，不要建议移除
-8. **标签与名称是独立维度**：
-   - 标签用于分组筛选、模板匹配和分类浏览；名称用于唯一识别具体物品
-   - 标签词出现在名称中是正常且正确的（如"VAN RYSEL 骑行头盔"标签"骑行头盔"），两者功能不同，不构成冗余
-   - **禁止删除正确标签**（即不要将 tag_name 设为 null 或空），除非标签分类归属完全错误（如服装标了食品）；仅因名称中含相同词而清除标签是错误操作
-9. **每次 update 只解决一个问题**：不要在 update 中同时修改不相关的字段。例如补充 body_parts 时只改 attrs 中的 body_parts，不要顺带修改 tag_name、category_name 或 name。如有多个独立问题，拆分为独立的 update action。"#
+8. **类型与名称是独立维度**：
+   - 类型用于分组筛选、模板匹配和分类浏览；名称用于唯一识别具体物品
+   - 类型词出现在名称中是正常且正确的（如"VAN RYSEL 骑行头盔"类型"骑行头盔"），两者功能不同，不构成冗余
+   - **禁止删除正确类型**（即不要将 type_name 设为 null 或空），除非类型分类归属完全错误（如服装标了食品）；仅因名称中含相同词而清除类型是错误操作
+9. **每次 update 只解决一个问题**：不要在 update 中同时修改不相关的字段。例如补充 body_parts 时只改 attrs 中的 body_parts，不要顺带修改 type_name、category_name 或 name。如有多个独立问题，拆分为独立的 update action。"#
     )
 }
 
@@ -581,7 +604,7 @@ pub async fn organize_preview(
         sqlx::query_as::<_, Category>("SELECT * FROM categories ORDER BY sort_order")
             .fetch_all(&pool)
             .await?;
-    let tags = sqlx::query_as::<_, Tag>("SELECT * FROM tags ORDER BY sort_order")
+    let types = sqlx::query_as::<_, Type>("SELECT * FROM types ORDER BY sort_order")
         .fetch_all(&pool)
         .await?;
 
@@ -590,7 +613,7 @@ pub async fn organize_preview(
             // Build dynamic IN query with placeholders
             let placeholders: Vec<String> = ids.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
             let sql = format!(
-                "SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items WHERE id IN ({}) ORDER BY category_id, name",
+                "SELECT id, name, brand, model, category_id, default_qty, notes, type_id, attrs FROM items WHERE id IN ({}) ORDER BY category_id, name",
                 placeholders.join(", ")
             );
             let mut query = sqlx::query_as::<_, Item>(&sql);
@@ -600,7 +623,7 @@ pub async fn organize_preview(
             query.fetch_all(&pool).await?
         }
         _ => {
-            sqlx::query_as::<_, Item>("SELECT id, name, brand, model, category_id, default_qty, notes, tag_id, attrs FROM items ORDER BY category_id, name")
+            sqlx::query_as::<_, Item>("SELECT id, name, brand, model, category_id, default_qty, notes, type_id, attrs FROM items ORDER BY category_id, name")
                 .fetch_all(&pool)
                 .await?
         }
@@ -612,7 +635,7 @@ pub async fn organize_preview(
     .fetch_all(&pool)
     .await?;
 
-    let system_prompt = build_organize_prompt(&categories, &tags, &items, &attr_defs);
+    let system_prompt = build_organize_prompt(&categories, &types, &items, &attr_defs);
     let content = call_llm(&system_prompt, "请分析以上物品列表，输出整理建议。").await?;
 
     let parsed: serde_json::Value = serde_json::from_str(&content)
@@ -627,7 +650,7 @@ pub async fn organize_preview(
             anyhow::anyhow!("Failed to deserialize actions: {}. Raw: {}", e, actions_val)
         })?;
 
-    // Resolve category_name/tag_name to IDs in actions
+    // Resolve category_name/type_name to IDs in actions
     let mut all_new_items: Vec<&mut AiParsedItem> = Vec::new();
     for action in &mut actions {
         match action {
@@ -635,13 +658,13 @@ pub async fn organize_preview(
                 if let Some(ref cat_name) = fields.category_name {
                     fields.category_id = Some(resolve_category_id(cat_name, &categories));
                 }
-                if let Some(ref tag_name) = fields.tag_name {
-                    fields.tag_id = Some(resolve_tag_id(tag_name, fields.category_id, &tags));
+                if let Some(ref type_name) = fields.type_name {
+                    fields.type_id = Some(resolve_type_id(type_name, fields.category_id, &types));
                 }
             }
             OrganizeAction::Split { new_items, .. } => {
                 for item in new_items.iter_mut() {
-                    resolve_parsed_item(item, &categories, &tags);
+                    resolve_parsed_item(item, &categories, &types);
                 }
                 all_new_items.extend(new_items.iter_mut());
             }
@@ -655,25 +678,25 @@ pub async fn organize_preview(
     for action in &actions {
         if let OrganizeAction::Split { new_items, .. } = action {
             for item in new_items {
-                if item.tag_name.is_some() && item.tag_id.is_none() {
+                if item.type_name.is_some() && item.type_id.is_none() {
                     tag_items_to_process.push(item.clone());
                 }
             }
         }
     }
-    let new_tags = auto_create_tags_for_items(&mut tag_items_to_process, &pool).await?;
+    let new_types = auto_create_types_for_items(&mut tag_items_to_process, &pool).await?;
 
-    // Back-fill tag_ids from created tags
+    // Back-fill type_ids from created tags
     for action in &mut actions {
         if let OrganizeAction::Split { new_items, .. } = action {
             for item in new_items.iter_mut() {
-                if item.tag_name.is_some() && item.tag_id.is_none() {
+                if item.type_name.is_some() && item.type_id.is_none() {
                     // Find matching created tag
-                    if let (Some(ref tn), Some(cid)) = (&item.tag_name, item.category_id) {
-                        if let Some(tag) = new_tags.iter().find(|t| {
+                    if let (Some(ref tn), Some(cid)) = (&item.type_name, item.category_id) {
+                        if let Some(tag) = new_types.iter().find(|t| {
                             t.name.to_lowercase() == tn.to_lowercase() && t.category_id == cid
                         }) {
-                            item.tag_id = Some(tag.id);
+                            item.type_id = Some(tag.id);
                         }
                     }
                 }
@@ -681,55 +704,55 @@ pub async fn organize_preview(
         }
     }
 
-    // Also handle update actions with unresolved tag_name → create tags
-    let mut update_new_tags: Vec<Tag> = Vec::new();
+    // Also handle update actions with unresolved type_name → create tags
+    let mut update_new_types: Vec<Type> = Vec::new();
     for action in &mut actions {
         if let OrganizeAction::Update { fields, item_id, .. } = action {
-            if let Some(ref tag_name) = fields.tag_name {
+            if let Some(ref type_name) = fields.type_name {
                 // Need to determine category_id
                 let cat_id = fields.category_id.or_else(|| {
                     items.iter().find(|i| i.id == *item_id).map(|i| i.category_id)
                 });
                 if let Some(cid) = cat_id {
-                    if fields.tag_id == Some(None) || fields.tag_id.is_none() {
+                    if fields.type_id == Some(None) || fields.type_id.is_none() {
                         // Check if tag exists
-                        let existing = resolve_tag_id(tag_name, Some(cid), &tags);
+                        let existing = resolve_type_id(type_name, Some(cid), &types);
                         if let Some(tid) = existing {
-                            fields.tag_id = Some(Some(tid));
+                            fields.type_id = Some(Some(tid));
                         } else {
                             // Also check newly created tags
-                            let from_new = new_tags
+                            let from_new = new_types
                                 .iter()
-                                .chain(update_new_tags.iter())
+                                .chain(update_new_types.iter())
                                 .find(|t| {
-                                    t.name.to_lowercase() == tag_name.to_lowercase()
+                                    t.name.to_lowercase() == type_name.to_lowercase()
                                         && t.category_id == cid
                                 });
                             if let Some(t) = from_new {
-                                fields.tag_id = Some(Some(t.id));
+                                fields.type_id = Some(Some(t.id));
                             } else {
                                 // Create the tag
                                 let max_sort: Option<(i64,)> = sqlx::query_as(
-                                    "SELECT COALESCE(MAX(sort_order), 0) FROM tags WHERE category_id = ?",
+                                    "SELECT COALESCE(MAX(sort_order), 0) FROM types WHERE category_id = ?",
                                 )
                                 .bind(cid)
                                 .fetch_optional(&pool)
                                 .await?;
                                 let sort_order = max_sort.map(|r| r.0).unwrap_or(0) + 1;
 
-                                let tag = sqlx::query_as::<_, Tag>(
-                                    "INSERT INTO tags (name, category_id, sort_order) VALUES (?, ?, ?) \
+                                let tag = sqlx::query_as::<_, Type>(
+                                    "INSERT INTO types (name, category_id, sort_order) VALUES (?, ?, ?) \
                                      ON CONFLICT(name) DO UPDATE SET name=name \
                                      RETURNING *",
                                 )
-                                .bind(tag_name)
+                                .bind(type_name)
                                 .bind(cid)
                                 .bind(sort_order)
                                 .fetch_one(&pool)
                                 .await?;
 
-                                fields.tag_id = Some(Some(tag.id));
-                                update_new_tags.push(tag);
+                                fields.type_id = Some(Some(tag.id));
+                                update_new_types.push(tag);
                             }
                         }
                     }
@@ -738,12 +761,12 @@ pub async fn organize_preview(
         }
     }
 
-    let mut all_new_tags = new_tags;
-    all_new_tags.extend(update_new_tags);
+    let mut all_new_types = new_types;
+    all_new_types.extend(update_new_types);
 
     Ok(Json(OrganizePreviewResponse {
         actions,
-        new_tags: all_new_tags,
+        new_types: all_new_types,
     }))
 }
 
@@ -765,8 +788,8 @@ pub async fn organize_apply(
             .into_iter()
             .map(|r| r.0)
             .collect();
-    let valid_tag_ids: std::collections::HashSet<i64> =
-        sqlx::query_as::<_, (i64,)>("SELECT id FROM tags")
+    let valid_type_ids: std::collections::HashSet<i64> =
+        sqlx::query_as::<_, (i64,)>("SELECT id FROM types")
             .fetch_all(&mut *tx)
             .await?
             .into_iter()
@@ -776,7 +799,7 @@ pub async fn organize_apply(
     for action in &body.actions {
         match action {
             OrganizeAction::Update { item_id, fields, .. } => {
-                apply_update_fields(&mut tx, *item_id, fields, &valid_cat_ids, &valid_tag_ids)
+                apply_update_fields(&mut tx, *item_id, fields, &valid_cat_ids, &valid_type_ids)
                     .await?;
                 updated += 1;
             }
@@ -806,7 +829,7 @@ pub async fn organize_apply(
                 for new_item in new_items {
                     let cat_id = new_item.category_id.unwrap_or(1);
                     let cat_id = if valid_cat_ids.contains(&cat_id) { cat_id } else { 1 };
-                    let tag_id = new_item.tag_id.filter(|id| valid_tag_ids.contains(id));
+                    let type_id = new_item.type_id.filter(|id| valid_type_ids.contains(id));
 
                     let attrs_str = serde_json::to_string(&new_item.attrs).unwrap_or_else(|_| "{}".to_string());
                     let name = new_item.attrs.get("name").and_then(|v| v.as_str()).unwrap_or("");
@@ -815,7 +838,7 @@ pub async fn organize_apply(
                     let default_qty = new_item.attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
                     let notes = new_item.attrs.get("notes").and_then(|v| v.as_str()).unwrap_or("");
                     let result = sqlx::query(
-                        "INSERT INTO items (name, brand, model, category_id, default_qty, notes, tag_id, attrs) \
+                        "INSERT INTO items (name, brand, model, category_id, default_qty, notes, type_id, attrs) \
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     )
                     .bind(name)
@@ -824,7 +847,7 @@ pub async fn organize_apply(
                     .bind(cat_id)
                     .bind(default_qty)
                     .bind(notes)
-                    .bind(tag_id)
+                    .bind(type_id)
                     .bind(attrs_str)
                     .execute(&mut *tx)
                     .await?;
@@ -893,7 +916,7 @@ async fn apply_update_fields(
     item_id: i64,
     fields: &OrganizeUpdateFields,
     valid_cat_ids: &std::collections::HashSet<i64>,
-    valid_tag_ids: &std::collections::HashSet<i64>,
+    valid_type_ids: &std::collections::HashSet<i64>,
 ) -> Result<(), AppError> {
     // Merge attrs JSON if provided
     if let Some(ref new_attrs) = fields.attrs {
@@ -933,14 +956,14 @@ async fn apply_update_fields(
                 .await?;
         }
     }
-    if let Some(ref tag_id_opt) = fields.tag_id {
-        let safe_tag_id = match tag_id_opt {
-            Some(id) if valid_tag_ids.contains(id) => &Some(*id),
+    if let Some(ref type_id_opt) = fields.type_id {
+        let safe_type_id = match type_id_opt {
+            Some(id) if valid_type_ids.contains(id) => &Some(*id),
             Some(_) => &None,
             None => &None,
         };
-        sqlx::query("UPDATE items SET tag_id = ? WHERE id = ?")
-            .bind(safe_tag_id)
+        sqlx::query("UPDATE items SET type_id = ? WHERE id = ?")
+            .bind(safe_type_id)
             .bind(item_id)
             .execute(&mut **tx)
             .await?;
@@ -968,10 +991,10 @@ struct ChatStreamDelta {
 
 fn build_streaming_system_prompt(
     categories: &[Category],
-    tags: &[Tag],
+    types: &[Type],
     attr_defs: &[AttributeDefinition],
 ) -> String {
-    let mut base = build_system_prompt(categories, tags, attr_defs);
+    let mut base = build_system_prompt(categories, types, attr_defs);
     base.push_str("\n\n## 输出格式要求\n请先简要说明你的解析思路和判断依据（2-5句话），然后单独一行输出 `---JSON---`，之后输出纯 JSON 对象（不要用 markdown 代码块包裹）。\n\nJSON 格式：{\"items\": [...], \"new_attrs\": [...]}\n- items: 解析出的物品列表\n- new_attrs: 如果需要新建属性定义，列出新建的属性（key/label/attr_type/config），已有属性不要重复");
     base
 }
@@ -1188,7 +1211,7 @@ fn extract_new_attr_defs_from_text(full_text: &str) -> Vec<AttributeDefinition> 
             attr_type,
             config,
             category_scope: String::new(),
-            tag_scope: String::new(),
+            type_scope: String::new(),
             sort_order: 0,
             is_identity: false,
             is_required: false,
@@ -1210,7 +1233,7 @@ pub async fn parse_items_stream(
 
     // Spawn background task to do the AI call + DB work
     tokio::spawn(async move {
-        // Load categories, tags, attr_defs
+        // Load categories, types, attr_defs
         let categories = match sqlx::query_as::<_, Category>(
             "SELECT * FROM categories ORDER BY sort_order",
         )
@@ -1226,14 +1249,14 @@ pub async fn parse_items_stream(
             }
         };
 
-        let tags = match sqlx::query_as::<_, Tag>("SELECT * FROM tags ORDER BY sort_order")
+        let types = match sqlx::query_as::<_, Type>("SELECT * FROM types ORDER BY sort_order")
             .fetch_all(&pool)
             .await
         {
             Ok(t) => t,
             Err(e) => {
                 let _ = tx.send(SseEvent::Error {
-                    message: format!("加载标签失败: {:#}", e),
+                    message: format!("加载类型失败: {:#}", e),
                 });
                 return;
             }
@@ -1258,7 +1281,7 @@ pub async fn parse_items_stream(
             message: "AI 正在分析...".to_string(),
         });
 
-        let system_prompt = build_streaming_system_prompt(&categories, &tags, &attr_defs);
+        let system_prompt = build_streaming_system_prompt(&categories, &types, &attr_defs);
 
         let full_text = match call_llm_stream(&system_prompt, &body.text, &tx).await {
             Ok(text) => text,
@@ -1281,15 +1304,15 @@ pub async fn parse_items_stream(
 
         // Resolve categories and tags
         for item in &mut items {
-            resolve_parsed_item(item, &categories, &tags);
+            resolve_parsed_item(item, &categories, &types);
         }
 
         // Auto-create tags
-        let new_tags = match auto_create_tags_for_items(&mut items, &pool).await {
+        let new_types = match auto_create_types_for_items(&mut items, &pool).await {
             Ok(t) => t,
             Err(e) => {
                 let _ = tx.send(SseEvent::Error {
-                    message: format!("创建标签失败: {:#?}", e),
+                    message: format!("创建类型失败: {:#?}", e),
                 });
                 drop(tx);
                 return;
@@ -1303,7 +1326,7 @@ pub async fn parse_items_stream(
         let mut saved_attr_defs: Vec<AttributeDefinition> = Vec::new();
         for attr in &new_attr_defs {
             match sqlx::query_as::<_, AttributeDefinition>(
-                "INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, category_scope, tag_scope, sort_order, is_identity, is_required, default_value, search_weight) \
+                "INSERT OR IGNORE INTO attribute_definitions (key, label, attr_type, config, category_scope, type_scope, sort_order, is_identity, is_required, default_value, search_weight) \
                  VALUES (?, ?, ?, ?, '', '', COALESCE((SELECT MAX(sort_order) FROM attribute_definitions), 0) + 1, 0, 0, '', 0) \
                  RETURNING *",
             )
@@ -1337,7 +1360,7 @@ pub async fn parse_items_stream(
             }
         }
 
-        let _ = tx.send(SseEvent::Result { items, new_tags, new_attr_defs: saved_attr_defs });
+        let _ = tx.send(SseEvent::Result { items, new_types, new_attr_defs: saved_attr_defs });
         drop(tx);
     });
 
@@ -1362,11 +1385,11 @@ mod tests {
         ]
     }
 
-    fn sample_tags() -> Vec<Tag> {
+    fn sample_types() -> Vec<Type> {
         vec![
-            Tag { id: 1, name: "冲锋衣".to_string(), category_id: 1, sort_order: 1 },
-            Tag { id: 2, name: "登山杖".to_string(), category_id: 2, sort_order: 1 },
-            Tag { id: 3, name: "头灯".to_string(), category_id: 2, sort_order: 2 },
+            Type { id: 1, name: "冲锋衣".to_string(), category_id: 1, parent_id: None, sort_order: 1 },
+            Type { id: 2, name: "登山杖".to_string(), category_id: 2, parent_id: None, sort_order: 1 },
+            Type { id: 3, name: "头灯".to_string(), category_id: 2, parent_id: None, sort_order: 2 },
         ]
     }
 
@@ -1396,57 +1419,57 @@ mod tests {
 
     #[test]
     fn resolve_tag_exact() {
-        let tags = sample_tags();
-        assert_eq!(resolve_tag_id("冲锋衣", Some(1), &tags), Some(1));
-        assert_eq!(resolve_tag_id("登山杖", Some(2), &tags), Some(2));
+        let types = sample_types();
+        assert_eq!(resolve_type_id("冲锋衣", Some(1), &types), Some(1));
+        assert_eq!(resolve_type_id("登山杖", Some(2), &types), Some(2));
     }
 
     #[test]
     fn resolve_tag_wrong_category() {
-        let tags = sample_tags();
+        let types = sample_types();
         // "冲锋衣" exists but only in category_id=1. If we pass category_id=2, it should fallback
         // to the without-category-constraint match
-        let result = resolve_tag_id("冲锋衣", Some(2), &tags);
+        let result = resolve_type_id("冲锋衣", Some(2), &types);
         // With cat constraint fails, without-cat fallback succeeds
         assert_eq!(result, Some(1));
     }
 
     #[test]
     fn resolve_tag_unknown() {
-        let tags = sample_tags();
-        assert_eq!(resolve_tag_id("不存在的标签", Some(1), &tags), None);
+        let types = sample_types();
+        assert_eq!(resolve_type_id("不存在的类型", Some(1), &types), None);
     }
 
     #[test]
     fn resolve_parsed_item_sets_ids() {
         let cats = sample_categories();
-        let tags = sample_tags();
+        let types = sample_types();
         let mut item = AiParsedItem {
             category_name: Some("服装".to_string()),
-            tag_name: Some("冲锋衣".to_string()),
+            type_name: Some("冲锋衣".to_string()),
             category_id: None,
-            tag_id: None,
+            type_id: None,
             attrs: Default::default(),
         };
-        resolve_parsed_item(&mut item, &cats, &tags);
+        resolve_parsed_item(&mut item, &cats, &types);
         assert_eq!(item.category_id, Some(1));
-        assert_eq!(item.tag_id, Some(1));
+        assert_eq!(item.type_id, Some(1));
     }
 
     #[test]
     fn resolve_parsed_item_no_names() {
         let cats = sample_categories();
-        let tags = sample_tags();
+        let types = sample_types();
         let mut item = AiParsedItem {
             category_name: None,
-            tag_name: None,
+            type_name: None,
             category_id: None,
-            tag_id: None,
+            type_id: None,
             attrs: Default::default(),
         };
-        resolve_parsed_item(&mut item, &cats, &tags);
+        resolve_parsed_item(&mut item, &cats, &types);
         assert_eq!(item.category_id, None);
-        assert_eq!(item.tag_id, None);
+        assert_eq!(item.type_id, None);
     }
 
     // ── extract_items_from_text ──

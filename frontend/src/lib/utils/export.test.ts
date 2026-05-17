@@ -34,8 +34,8 @@ describe('generateTripText', () => {
 	];
 
 	const allItems: Item[] = [
-		{ id: 1, category_id: 1, tag_id: null, attrs: { name: '冲锋衣', brand: '始祖鸟' } },
-		{ id: 2, category_id: 2, tag_id: null, attrs: { name: '头灯', brand: 'Petzl' } }
+		{ id: 1, category_id: 1, type_id: null, attrs: { name: '冲锋衣', brand: '始祖鸟' } },
+		{ id: 2, category_id: 2, type_id: null, attrs: { name: '头灯', brand: 'Petzl' } }
 	];
 
 	const people: Person[] = [

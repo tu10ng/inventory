@@ -17,7 +17,7 @@ afterEach(() => {
 const sampleItem: Item = {
 	id: 1,
 	category_id: 1,
-	tag_id: null,
+	type_id: null,
 	attrs: { name: '冲锋衣', brand: '始祖鸟', model: 'Beta LT', default_qty: 2, warmth_rating: 30 }
 };
 

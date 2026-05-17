@@ -1,17 +1,17 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { ExcelPreviewResponse, Category, Tag, AttributeDefinition, AiParsedItem } from '$lib/types';
+	import type { ExcelPreviewResponse, Category, Type, AttributeDefinition, AiParsedItem } from '$lib/types';
 
 	let {
 		categories,
-		tags,
+		types,
 		attrDefs,
 		onDone,
 		onClose,
 		onOpenAiModal
 	}: {
 		categories: Category[];
-		tags: Tag[];
+		types: Type[];
 		attrDefs: AttributeDefinition[];
 		onDone: (created: number) => void;
 		onClose: () => void;
@@ -48,7 +48,7 @@
 			{ value: '_notes', label: '→ notes (备注)' },
 			{ value: '_default_qty', label: '→ default_qty (默认数量)' },
 			{ value: '_category', label: '→ 分类 (按名称匹配)' },
-			{ value: '_tag', label: '→ 标签 (按名称匹配)' }
+			{ value: '_type', label: '→ 类型 (按名称匹配)' }
 		];
 		for (const ad of attrDefs) {
 			options.push({ value: ad.key, label: `→ ${ad.label} (${ad.key})` });
@@ -147,7 +147,7 @@
 			const row = preview.rows[ri];
 			const attrs: Record<string, unknown> = {};
 			let categoryName: string | null = null;
-			let tagName: string | null = null;
+			let typeName: string | null = null;
 
 			for (let ci = 0; ci < preview.headers.length; ci++) {
 				const mapping = m.get(ci);
@@ -167,8 +167,8 @@
 					attrs.default_qty = isNaN(num) ? 1 : num;
 				} else if (mapping === '_category') {
 					categoryName = val;
-				} else if (mapping === '_tag') {
-					tagName = val;
+				} else if (mapping === '_type') {
+					typeName = val;
 				} else if (mapping === '_new') {
 					// Skip - will need user to create new attr first
 				} else {
@@ -189,9 +189,9 @@
 			// Only include rows that have at least a name
 			if (!attrs.name) continue;
 
-			// Try to match category and tag
+			// Try to match category and type
 			let categoryId: number | null = null;
-			let tagId: number | null = null;
+			let typeId: number | null = null;
 
 			if (categoryName) {
 				const cat = categories.find(c => c.name === categoryName || c.name.includes(categoryName));
@@ -201,16 +201,16 @@
 				categoryId = categories.find(c => c.name === '其他')?.id || categories[0]?.id || null;
 			}
 
-			if (tagName && categoryId) {
-				const tag = tags.find(t => t.name === tagName && t.category_id === categoryId);
-				if (tag) tagId = tag.id;
+			if (typeName && categoryId) {
+				const type = types.find(t => t.name === typeName && t.category_id === categoryId);
+				if (type) typeId = type.id;
 			}
 
 			items.push({
 				category_name: categoryName,
-				tag_name: tagName,
+				type_name: typeName,
 				category_id: categoryId,
-				tag_id: tagId,
+				type_id: typeId,
 				attrs
 			});
 		}
@@ -231,7 +231,7 @@
 		if (value === '_new') {
 			const key = prompt('请输入新属性的 key (英文 snake_case):');
 			if (key) {
-				const label = prompt('请输入新属性的中文标签:');
+				const label = prompt('请输入新属性的中文类型:');
 				if (label) {
 					const newKey = key.trim().toLowerCase().replace(/\s+/g, '_');
 					m.set(colIdx, newKey);
@@ -264,7 +264,7 @@
 				const attrs = { ...item.attrs } as Record<string, unknown>;
 				const body: Record<string, unknown> = {
 					category_id: categoryId,
-					tag_id: item.tag_id || null,
+					type_id: item.type_id || null,
 					attrs
 				};
 				// Ensure name exists
@@ -300,11 +300,11 @@
 		return '—';
 	}
 
-	function getTagName(item: AiParsedItem): string {
-		if (item.tag_name) return item.tag_name;
-		if (item.tag_id) {
-			const tag = tags.find(t => t.id === item.tag_id);
-			return tag ? tag.name : '—';
+	function getTypeName(item: AiParsedItem): string {
+		if (item.type_name) return item.type_name;
+		if (item.type_id) {
+			const type = types.find(t => t.id === item.type_id);
+			return type ? type.name : '—';
 		}
 		return '—';
 	}
@@ -464,7 +464,7 @@
 										<th>品牌</th>
 										<th>型号</th>
 										<th>分类</th>
-										<th>标签</th>
+										<th>类型</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -475,7 +475,7 @@
 											<td>{item.attrs.brand ?? ''}</td>
 											<td>{item.attrs.model ?? ''}</td>
 											<td>{getCategoryName(item)}</td>
-											<td>{getTagName(item)}</td>
+											<td>{getTypeName(item)}</td>
 										</tr>
 									{/each}
 								</tbody>

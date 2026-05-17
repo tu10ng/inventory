@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Item, Category, Tag, ItemUsageCount, AiParsedItem, AttributeDefinition, ItemRelationEnriched, RelationType, CreateItemRelation } from '$lib/types';
+	import type { Item, Category, Type, ItemUsageCount, AiParsedItem, AttributeDefinition, ItemRelationEnriched, RelationType, CreateItemRelation } from '$lib/types';
 	import { itemName } from '$lib/types';
 	import SearchFilter from '$lib/components/SearchFilter.svelte';
 	import ColumnPicker from '$lib/components/ColumnPicker.svelte';
@@ -22,7 +22,7 @@
 
 	let items = $state<Item[]>([]);
 	let categories = $state<Category[]>([]);
-	let tags = $state<Tag[]>([]);
+	let types = $state<Type[]>([]);
 	let attrDefs = $state<AttributeDefinition[]>([]);
 	let usageStats = $state<Map<number, number>>(new Map());
 	let allColumns = $state<ItemColumnDef[]>([]);
@@ -62,16 +62,16 @@
 		try {
 			loading = true;
 			error = null;
-			const [itemsData, cats, tagsData, adefs, cols] = await Promise.all([
+			const [itemsData, cats, typesData, adefs, cols] = await Promise.all([
 				api.get<Item[]>('/items'),
 				api.get<Category[]>('/categories'),
-				api.get<Tag[]>('/tags'),
+				api.get<Type[]>('/types'),
 				api.get<AttributeDefinition[]>('/attribute-definitions'),
 				loadAllColumns()
 			]);
 			items = itemsData;
 			categories = cats;
-			tags = tagsData;
+			types = typesData;
 			attrDefs = adefs;
 			allColumns = cols;
 			try {
@@ -110,15 +110,15 @@
 
 	async function handleFieldUpdate(field: string, value: unknown) {
 		if (!selectedItem) return;
-		const isTopLevel = field === 'category_id' || field === 'tag_id';
+		const isTopLevel = field === 'category_id' || field === 'type_id';
 		let data: Record<string, unknown>;
 		if (isTopLevel) {
 			data = { [field]: value };
-			// When category changes, clear tag if it doesn't belong to new category
+			// When category changes, clear type if it doesn't belong to new category
 			if (field === 'category_id') {
-				const currentTag = tags.find(t => t.id === selectedItem!.tag_id);
-				if (currentTag && currentTag.category_id !== value) {
-					data.tag_id = null;
+				const currentType = types.find(t => t.id === selectedItem!.type_id);
+				if (currentType && currentType.category_id !== value) {
+					data.type_id = null;
 				}
 			}
 		} else if (field === 'attrs') {
@@ -200,7 +200,7 @@
 		for (const item of aiItems) {
 			const payload = {
 				category_id: item.category_id ?? categories[0]?.id ?? 1,
-				tag_id: item.tag_id ?? null,
+				type_id: item.type_id ?? null,
 				attrs: item.attrs ?? {},
 			};
 			try {
@@ -220,7 +220,7 @@
 		collapsedCategories = next;
 	}
 
-	const filteredItems = $derived(filterItems(items, search, filterCategoryId, columnFilters, allColumns, tags));
+	const filteredItems = $derived(filterItems(items, search, filterCategoryId, columnFilters, allColumns, types));
 
 	function handleSort(key: string) {
 		if (sortKey === key) {
@@ -238,11 +238,11 @@
 		columnFilters = next;
 	}
 
-	const sortedItems = $derived(sortItems(filteredItems, sortKey, sortDir, tags));
+	const sortedItems = $derived(sortItems(filteredItems, sortKey, sortDir, types));
 
 	// Group-by options: registered text-type attributes (for grouping by attribute values)
 	const groupByOptions = $derived(
-		allColumns.filter(c => c.key !== 'brand' && (c.type === 'text' || c.type === 'tag'))
+		allColumns.filter(c => c.key !== 'brand' && (c.type === 'text' || c.type === 'type'))
 	);
 
 	// Group-by data: pre-computed per-category groups when groupByKey is set
@@ -253,7 +253,7 @@
 		for (const cat of categories) {
 			const catItems = sortedItems.filter(i => i.category_id === cat.id);
 			if (catItems.length > 0) {
-				map.set(cat.id, groupItems(catItems, groupByKey, allColumns, tags));
+				map.set(cat.id, groupItems(catItems, groupByKey, allColumns, types));
 			}
 		}
 		return map;
@@ -312,8 +312,8 @@
 
 			if (attrKey === 'category_id') {
 				changes = { category_id: value };
-			} else if (attrKey === 'tag_id') {
-				changes = { tag_id: value };
+			} else if (attrKey === 'type_id') {
+				changes = { type_id: value };
 			} else {
 				// attr within attrs JSON
 				changes = { attrs: { [attrKey]: value } };
@@ -330,8 +330,8 @@
 				if (attrKey === 'category_id') {
 					return { ...i, category_id: value as number };
 				}
-				if (attrKey === 'tag_id') {
-					return { ...i, tag_id: value as number | null };
+				if (attrKey === 'type_id') {
+					return { ...i, type_id: value as number | null };
 				}
 				return { ...i, attrs: { ...i.attrs, [attrKey]: value } };
 			});
@@ -349,14 +349,14 @@
 			type: 'select',
 			selectOptions: categories.map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })),
 		},
-		// tag_id as a select option (with null)
+		// type_id as a select option (with null)
 		{
-			key: 'tag_id',
-			label: '标签',
+			key: 'type_id',
+			label: '类型',
 			type: 'select',
 			selectOptions: [
-				{ value: null as unknown as number, label: '(无标签)' },
-				...tags.map(t => ({ value: t.id, label: t.name })),
+				{ value: null as unknown as number, label: '(无类型)' },
+				...types.map(t => ({ value: t.id, label: t.name })),
 			],
 		},
 		// All attribute definitions as their respective types
@@ -438,7 +438,7 @@
 		<ItemListTable
 				items={sortedItems}
 				{categories}
-				{tags}
+				{types}
 				{visibleColumns}
 				selectedItemId={selectedItem?.id ?? null}
 				{collapsedCategories}
@@ -462,7 +462,7 @@
 				<ItemDetailPanel
 					item={selectedItem}
 					{categories}
-					{tags}
+					{types}
 					{attrDefs}
 					usageCount={usageStats.get(selectedItem.id) ?? 0}
 					relations={itemRelations}
@@ -475,7 +475,7 @@
 			{:else if panelMode === 'create'}
 				<ItemForm
 					{categories}
-					{tags}
+					{types}
 					{attrDefs}
 					onSave={handleSave}
 					onCancel={handleCancel}
@@ -495,13 +495,13 @@
 {#if showAiModal}
 	<AiAddModal
 		{categories}
-		{tags}
+		{types}
 		{prefillAiText}
 		onConfirm={handleAiConfirm}
 		onClose={() => { showAiModal = false; prefillAiText = ''; }}
-		onNewTags={(newTags) => {
-			const existingIds = new Set(tags.map(t => t.id));
-			tags = [...tags, ...newTags.filter(t => !existingIds.has(t.id))];
+		onNewTypes={(newTypes) => {
+			const existingIds = new Set(types.map(t => t.id));
+			types = [...types, ...newTypes.filter(t => !existingIds.has(t.id))];
 		}}
 		onNewAttrs={(newAttrs) => {
 			const existingKeys = new Set(attrDefs.map(a => a.key));
@@ -521,7 +521,7 @@
 	<AiOrganizeModal
 		{items}
 		{categories}
-		{tags}
+		{types}
 		{attrDefs}
 		itemIds={organizeSelectedItemIds ?? undefined}
 		onDone={() => load()}
@@ -529,9 +529,9 @@
 			showOrganizeModal = false;
 			organizeSelectedItemIds = null;
 		}}
-		onNewTags={(newTags) => {
-			const existingIds = new Set(tags.map(t => t.id));
-			tags = [...tags, ...newTags.filter(t => !existingIds.has(t.id))];
+		onNewTypes={(newTypes) => {
+			const existingIds = new Set(types.map(t => t.id));
+			types = [...types, ...newTypes.filter(t => !existingIds.has(t.id))];
 		}}
 	/>
 {/if}
@@ -546,7 +546,7 @@
 {#if showExcelModal}
 	<ExcelImportModal
 		{categories}
-		{tags}
+		{types}
 		{attrDefs}
 		onDone={(created: number) => {
 			if (created > 0) load();

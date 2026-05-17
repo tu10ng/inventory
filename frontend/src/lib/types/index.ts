@@ -5,17 +5,27 @@ export interface Category {
 	sort_order: number;
 }
 
-export interface Tag {
+export interface Type {
 	id: number;
 	name: string;
 	category_id: number;
 	sort_order: number;
+	parent_id: number | null;
+}
+
+export interface TypeTreeNode {
+	id: number;
+	name: string;
+	category_id: number;
+	sort_order: number;
+	parent_id: number | null;
+	children: TypeTreeNode[];
 }
 
 export interface Item {
 	id: number;
 	category_id: number;
-	tag_id: number | null;
+	type_id: number | null;
 	attrs: Record<string, unknown>;
 }
 
@@ -37,7 +47,7 @@ export interface AttributeDefinition {
 	attr_type: string;
 	config: string;
 	category_scope: string;
-	tag_scope: string;
+	type_scope: string;
 	sort_order: number;
 }
 
@@ -60,8 +70,8 @@ export interface ActivitySlot {
 	default_item_id: number | null;
 }
 
-export interface ActivitySlotWithTags extends ActivitySlot {
-	tags: Tag[];
+export interface ActivitySlotWithTypes extends ActivitySlot {
+	types: Type[];
 }
 
 export interface Tip {
@@ -178,24 +188,24 @@ export interface DndItem {
 
 export interface AiParsedItem {
 	category_name: string | null;
-	tag_name: string | null;
+	type_name: string | null;
 	category_id: number | null;
-	tag_id: number | null;
+	type_id: number | null;
 	attrs: Record<string, unknown>;
 }
 
 export interface AiParseResponse {
 	items: AiParsedItem[];
-	new_tags: Tag[];
+	new_types: Type[];
 }
 
 // ── AI Organize ──
 
 export interface OrganizeUpdateFields {
 	category_name?: string;
-	tag_name?: string;
+	type_name?: string;
 	category_id?: number;
-	tag_id?: number | null;
+	type_id?: number | null;
 	attrs?: Record<string, unknown>;
 }
 
@@ -206,7 +216,7 @@ export type OrganizeAction =
 
 export interface OrganizePreviewResponse {
 	actions: OrganizeAction[];
-	new_tags: Tag[];
+	new_types: Type[];
 }
 
 export interface OrganizeApplyResponse {
@@ -339,7 +349,7 @@ export interface ExportData {
 	version: number;
 	exported_at: string;
 	categories: Category[];
-	tags: Tag[];
+	types: Type[];
 	attribute_definitions: AttributeDefinition[];
 	items: Item[];
 	display_rules: DisplayRule[];
@@ -360,7 +370,7 @@ export interface ImportItemPreview {
 
 export interface ImportResult {
 	categories_created: number;
-	tags_created: number;
+	types_created: number;
 	attribute_definitions_created: number;
 	items_created: number;
 	items_updated: number;

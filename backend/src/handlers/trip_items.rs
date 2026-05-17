@@ -54,26 +54,26 @@ pub async fn list_enriched(
         }
     }
 
-    // 4. Batch fetch slot_tags → tag_ids per slot
-    let mut slot_tag_ids: HashMap<i64, Vec<i64>> = HashMap::new();
+    // 4. Batch fetch slot_tags → type_ids per slot
+    let mut slot_type_ids: HashMap<i64, Vec<i64>> = HashMap::new();
     if !slot_ids.is_empty() {
         let placeholders = slot_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let q = format!(
-            "SELECT slot_id, tag_id FROM activity_slot_tags WHERE slot_id IN ({})",
+            "SELECT slot_id, type_id FROM activity_slot_types WHERE slot_id IN ({})",
             placeholders
         );
-        let mut query = sqlx::query_as::<_, SlotTagIdRow>(&q);
+        let mut query = sqlx::query_as::<_, SlotTypeIdRow>(&q);
         for id in &slot_ids {
             query = query.bind(id);
         }
         let rows = query.fetch_all(&pool).await?;
         for row in rows {
-            slot_tag_ids.entry(row.slot_id).or_default().push(row.tag_id);
+            slot_type_ids.entry(row.slot_id).or_default().push(row.type_id);
         }
     }
 
-    // 5. Collect all unique tag_ids and batch fetch candidate items
-    let all_tag_ids: Vec<i64> = slot_tag_ids
+    // 5. Collect all unique type_ids and batch fetch candidate items
+    let all_type_ids: Vec<i64> = slot_type_ids
         .values()
         .flatten()
         .copied()
@@ -81,21 +81,21 @@ pub async fn list_enriched(
         .into_iter()
         .collect();
 
-    let mut items_by_tag: HashMap<i64, Vec<Item>> = HashMap::new();
-    if !all_tag_ids.is_empty() {
-        let placeholders = all_tag_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let mut items_by_type: HashMap<i64, Vec<Item>> = HashMap::new();
+    if !all_type_ids.is_empty() {
+        let placeholders = all_type_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let q = format!(
-            "SELECT id, category_id, tag_id, attrs FROM items WHERE tag_id IN ({}) ORDER BY json_extract(attrs, '$.name')",
+            "SELECT id, category_id, type_id, attrs FROM items WHERE type_id IN ({}) ORDER BY json_extract(attrs, '$.name')",
             placeholders
         );
         let mut query = sqlx::query_as::<_, Item>(&q);
-        for id in &all_tag_ids {
+        for id in &all_type_ids {
             query = query.bind(id);
         }
         let items = query.fetch_all(&pool).await?;
         for item in items {
-            if let Some(tag_id) = item.tag_id {
-                items_by_tag.entry(tag_id).or_default().push(item);
+            if let Some(type_id) = item.type_id {
+                items_by_type.entry(type_id).or_default().push(item);
             }
         }
     }
@@ -114,9 +114,9 @@ pub async fn list_enriched(
             // Gather candidates from all tags of this slot
             let mut candidates: Vec<Item> = Vec::new();
             let mut seen_ids = std::collections::HashSet::new();
-            if let Some(tag_ids) = slot_tag_ids.get(&sid) {
-                for tag_id in tag_ids {
-                    if let Some(items) = items_by_tag.get(tag_id) {
+            if let Some(type_ids) = slot_type_ids.get(&sid) {
+                for type_id in type_ids {
+                    if let Some(items) = items_by_type.get(type_id) {
                         for item in items {
                             if seen_ids.insert(item.id) {
                                 candidates.push(item.clone());
@@ -153,9 +153,9 @@ pub async fn list_enriched(
 }
 
 #[derive(Debug, sqlx::FromRow)]
-struct SlotTagIdRow {
+struct SlotTypeIdRow {
     slot_id: i64,
-    tag_id: i64,
+    type_id: i64,
 }
 
 pub async fn create(
@@ -321,8 +321,8 @@ pub async fn save_as_slot(
         AppError::bad_request("该行程物品未关联物品库物品，无法保存为槽位")
     })?;
 
-    // 2. Fetch the item to get category_id and tag_id
-    let item = sqlx::query_as::<_, Item>("SELECT id, category_id, tag_id, attrs FROM items WHERE id = ?")
+    // 2. Fetch the item to get category_id and type_id
+    let item = sqlx::query_as::<_, Item>("SELECT id, category_id, type_id, attrs FROM items WHERE id = ?")
         .bind(item_id)
         .fetch_optional(&pool)
         .await?
@@ -358,10 +358,10 @@ pub async fn save_as_slot(
     .fetch_one(&mut *tx)
     .await?;
 
-    if let Some(tag_id) = item.tag_id {
-        sqlx::query("INSERT OR IGNORE INTO activity_slot_tags (slot_id, tag_id) VALUES (?, ?)")
+    if let Some(type_id) = item.type_id {
+        sqlx::query("INSERT OR IGNORE INTO activity_slot_types (slot_id, type_id) VALUES (?, ?)")
             .bind(slot.id)
-            .bind(tag_id)
+            .bind(type_id)
             .execute(&mut *tx)
             .await?;
     }

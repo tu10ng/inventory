@@ -45,37 +45,51 @@ pub struct UpdateCategory {
     pub sort_order: Option<i64>,
 }
 
-// ── Tags ──
+// ── Types ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Tag {
+pub struct Type {
     pub id: i64,
     pub name: String,
     pub category_id: i64,
     pub sort_order: i64,
+    pub parent_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeTreeNode {
+    pub id: i64,
+    pub name: String,
+    pub category_id: i64,
+    pub sort_order: i64,
+    pub parent_id: Option<i64>,
+    pub children: Vec<TypeTreeNode>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateTag {
+pub struct CreateType {
     pub name: String,
     pub category_id: i64,
+    #[serde(default)]
+    pub parent_id: Option<i64>,
     #[serde(default)]
     pub sort_order: i64,
 }
 
-impl CreateTag {
+impl CreateType {
     pub fn validate(&self) -> Result<(), crate::error::AppError> {
         if self.name.trim().is_empty() {
-            return Err(crate::error::AppError::validation("标签名称不能为空"));
+            return Err(crate::error::AppError::validation("类型名称不能为空"));
         }
         Ok(())
     }
 }
 
 #[derive(Debug, Deserialize)]
-pub struct UpdateTag {
+pub struct UpdateType {
     pub name: Option<String>,
     pub category_id: Option<i64>,
+    pub parent_id: Option<Option<i64>>,
     pub sort_order: Option<i64>,
 }
 
@@ -89,7 +103,7 @@ fn default_qty() -> i64 {
 pub struct Item {
     pub id: i64,
     pub category_id: i64,
-    pub tag_id: Option<i64>,
+    pub type_id: Option<i64>,
     #[sqlx(default)]
     #[serde(default = "default_attrs")]
     pub attrs: serde_json::Value,
@@ -121,7 +135,7 @@ impl Item {
 #[derive(Debug, Deserialize)]
 pub struct CreateItem {
     pub category_id: i64,
-    pub tag_id: Option<i64>,
+    pub type_id: Option<i64>,
     #[serde(default = "default_attrs")]
     pub attrs: serde_json::Value,
 }
@@ -158,7 +172,7 @@ pub struct UpdateItem {
     pub category_id: Option<i64>,
     pub attrs: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "deserialize_some")]
-    pub tag_id: Option<Option<i64>>,
+    pub type_id: Option<Option<i64>>,
 }
 
 // ── Activities ──
@@ -216,7 +230,7 @@ pub struct ActivitySlot {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ActivitySlotWithTags {
+pub struct ActivitySlotWithTypes {
     pub id: i64,
     pub activity_id: i64,
     pub slot_name: String,
@@ -226,7 +240,7 @@ pub struct ActivitySlotWithTags {
     pub notes: String,
     pub sort_order: i64,
     pub default_item_id: Option<i64>,
-    pub tags: Vec<Tag>,
+    pub types: Vec<Type>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -242,7 +256,7 @@ pub struct CreateActivitySlot {
     #[serde(default)]
     pub sort_order: i64,
     #[serde(default)]
-    pub tag_ids: Vec<i64>,
+    pub type_ids: Vec<i64>,
     pub default_item_id: Option<i64>,
 }
 
@@ -266,7 +280,7 @@ pub struct UpdateActivitySlot {
     pub default_qty: Option<i64>,
     pub notes: Option<String>,
     pub sort_order: Option<i64>,
-    pub tag_ids: Option<Vec<i64>>,
+    pub type_ids: Option<Vec<i64>>,
     pub default_item_id: Option<Option<i64>>,
 }
 
@@ -482,7 +496,7 @@ pub struct AttributeDefinition {
     pub attr_type: String,
     pub config: String,
     pub category_scope: String,
-    pub tag_scope: String,
+    pub type_scope: String,
     pub sort_order: i64,
     #[sqlx(default)]
     #[serde(default)]
@@ -509,7 +523,7 @@ pub struct CreateAttributeDefinition {
     #[serde(default)]
     pub category_scope: String,
     #[serde(default)]
-    pub tag_scope: String,
+    pub type_scope: String,
     #[serde(default)]
     pub sort_order: i64,
     #[serde(default)]
@@ -533,7 +547,7 @@ pub struct UpdateAttributeDefinition {
     pub attr_type: Option<String>,
     pub config: Option<String>,
     pub category_scope: Option<String>,
-    pub tag_scope: Option<String>,
+    pub type_scope: Option<String>,
     pub sort_order: Option<i64>,
     pub is_identity: Option<bool>,
     pub is_required: Option<bool>,
@@ -712,11 +726,11 @@ pub struct AiParsedItem {
     #[serde(default)]
     pub category_name: Option<String>,
     #[serde(default)]
-    pub tag_name: Option<String>,
+    pub type_name: Option<String>,
     #[serde(default)]
     pub category_id: Option<i64>,
     #[serde(default)]
-    pub tag_id: Option<i64>,
+    pub type_id: Option<i64>,
     #[serde(default = "default_attrs")]
     pub attrs: serde_json::Value,
 }
@@ -724,7 +738,7 @@ pub struct AiParsedItem {
 #[derive(Debug, Serialize)]
 pub struct AiParseResponse {
     pub items: Vec<AiParsedItem>,
-    pub new_tags: Vec<Tag>,
+    pub new_types: Vec<Type>,
 }
 
 // ── AI Organize ──
@@ -760,16 +774,16 @@ pub enum OrganizeAction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrganizeUpdateFields {
     pub category_name: Option<String>,
-    pub tag_name: Option<String>,
+    pub type_name: Option<String>,
     pub category_id: Option<i64>,
-    pub tag_id: Option<Option<i64>>,
+    pub type_id: Option<Option<i64>>,
     pub attrs: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct OrganizePreviewResponse {
     pub actions: Vec<OrganizeAction>,
-    pub new_tags: Vec<Tag>,
+    pub new_types: Vec<Type>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -791,7 +805,7 @@ pub struct ExportData {
     pub version: i32,
     pub exported_at: String,
     pub categories: Vec<Category>,
-    pub tags: Vec<Tag>,
+    pub types: Vec<Type>,
     pub attribute_definitions: Vec<AttributeDefinition>,
     pub items: Vec<Item>,
     pub display_rules: Vec<DisplayRule>,
@@ -808,7 +822,7 @@ pub enum ImportStrategy {
 pub struct ImportRequest {
     pub version: i32,
     pub categories: Vec<Category>,
-    pub tags: Vec<Tag>,
+    pub types: Vec<Type>,
     pub attribute_definitions: Vec<AttributeDefinition>,
     pub items: Vec<Item>,
     #[serde(default)]
@@ -834,7 +848,7 @@ pub struct ImportItemPreview {
 #[derive(Debug, Serialize)]
 pub struct ImportResult {
     pub categories_created: u64,
-    pub tags_created: u64,
+    pub types_created: u64,
     pub attribute_definitions_created: u64,
     pub items_created: u64,
     pub items_updated: u64,
@@ -867,7 +881,7 @@ pub enum SseEvent {
     #[serde(rename = "result")]
     Result {
         items: Vec<AiParsedItem>,
-        new_tags: Vec<Tag>,
+        new_types: Vec<Type>,
         #[serde(default)]
         new_attr_defs: Vec<AttributeDefinition>,
     },
@@ -1012,7 +1026,7 @@ mod tests {
     fn create_item_empty_name() {
         let item = CreateItem {
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({}),
         };
         assert!(item.validate().is_err());
@@ -1022,7 +1036,7 @@ mod tests {
     fn create_item_whitespace_name() {
         let item = CreateItem {
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({"name": "   "}),
         };
         assert!(item.validate().is_err());
@@ -1033,7 +1047,7 @@ mod tests {
         let long_name = "x".repeat(201);
         let item = CreateItem {
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({"name": long_name}),
         };
         assert!(item.validate().is_err());
@@ -1043,7 +1057,7 @@ mod tests {
     fn create_item_zero_qty() {
         let item = CreateItem {
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({"name": "测试物品", "default_qty": 0}),
         };
         assert!(item.validate().is_ok());
@@ -1053,7 +1067,7 @@ mod tests {
     fn create_item_negative_qty() {
         let item = CreateItem {
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({"name": "测试物品", "default_qty": -1}),
         };
         assert!(item.validate().is_err());
@@ -1063,7 +1077,7 @@ mod tests {
     fn create_item_valid_minimal() {
         let item = CreateItem {
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({"name": "测试物品"}),
         };
         assert!(item.validate().is_ok());
@@ -1073,7 +1087,7 @@ mod tests {
     fn create_item_valid_full() {
         let item = CreateItem {
             category_id: 2,
-            tag_id: Some(1),
+            type_id: Some(1),
             attrs: json!({"name": "冲锋衣", "brand": "始祖鸟", "model": "Beta LT", "default_qty": 2, "warmth_rating": 30}),
         };
         assert!(item.validate().is_ok());
@@ -1084,7 +1098,7 @@ mod tests {
         let name = "x".repeat(200);
         let item = CreateItem {
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({"name": name}),
         };
         assert!(item.validate().is_ok());
@@ -1094,7 +1108,7 @@ mod tests {
     fn create_item_default_qty_not_present() {
         let item = CreateItem {
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({"name": "测试"}),
         };
         // default_qty defaults to 1, which is valid
@@ -1108,7 +1122,7 @@ mod tests {
         let item = Item {
             id: 1,
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({"name": "冲锋衣", "brand": "始祖鸟"}),
         };
         assert_eq!(item.attr_str("name"), "冲锋衣");
@@ -1120,7 +1134,7 @@ mod tests {
         let item = Item {
             id: 1,
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({}),
         };
         assert_eq!(item.attr_str("name"), "");
@@ -1132,7 +1146,7 @@ mod tests {
         let item = Item {
             id: 1,
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({"default_qty": 3, "warmth_rating": 25}),
         };
         assert_eq!(item.attr_i64("default_qty"), 3);
@@ -1144,7 +1158,7 @@ mod tests {
         let item = Item {
             id: 1,
             category_id: 1,
-            tag_id: None,
+            type_id: None,
             attrs: json!({}),
         };
         assert_eq!(item.attr_i64("default_qty"), 0);

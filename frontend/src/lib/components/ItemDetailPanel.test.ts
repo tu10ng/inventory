@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/svelte';
 import ItemDetailPanel from './ItemDetailPanel.svelte';
-import type { Item, Category, Tag, AttributeDefinition } from '$lib/types';
+import type { Item, Category, Type, AttributeDefinition } from '$lib/types';
 
 afterEach(() => {
 	cleanup();
@@ -12,21 +12,21 @@ const categories: Category[] = [
 	{ id: 2, name: '装备', icon: '🎒', sort_order: 2 }
 ];
 
-const tags: Tag[] = [
-	{ id: 1, name: '冲锋衣', category_id: 1, sort_order: 1 }
+const types: Type[] = [
+	{ id: 1, name: '冲锋衣', category_id: 1, sort_order: 1, parent_id: null }
 ];
 
 const attrDefs: AttributeDefinition[] = [
-	{ id: 1, key: 'name', label: '名称', attr_type: 'text', config: '{}', category_scope: '', tag_scope: '', sort_order: 0 },
-	{ id: 2, key: 'brand', label: '品牌', attr_type: 'text', config: '{}', category_scope: '', tag_scope: '', sort_order: 0 },
-	{ id: 3, key: 'model', label: '型号', attr_type: 'text', config: '{}', category_scope: '', tag_scope: '', sort_order: 0 },
-	{ id: 4, key: 'warmth_rating', label: '保暖', attr_type: 'bar', config: '{"max":50}', category_scope: '', tag_scope: '', sort_order: 1 }
+	{ id: 1, key: 'name', label: '名称', attr_type: 'text', config: '{}', category_scope: '', type_scope: '', sort_order: 0 },
+	{ id: 2, key: 'brand', label: '品牌', attr_type: 'text', config: '{}', category_scope: '', type_scope: '', sort_order: 0 },
+	{ id: 3, key: 'model', label: '型号', attr_type: 'text', config: '{}', category_scope: '', type_scope: '', sort_order: 0 },
+	{ id: 4, key: 'warmth_rating', label: '保暖', attr_type: 'bar', config: '{"max":50}', category_scope: '', type_scope: '', sort_order: 1 }
 ];
 
 const sampleItem: Item = {
 	id: 1,
 	category_id: 1,
-	tag_id: 1,
+	type_id: 1,
 	attrs: { name: '冲锋衣', brand: '始祖鸟', model: 'Beta LT', default_qty: 1, warmth_rating: 30, notes: '' }
 };
 
@@ -38,7 +38,7 @@ describe('ItemDetailPanel', () => {
 		render(ItemDetailPanel, {
 			item: sampleItem,
 			categories,
-			tags,
+			types,
 			attrDefs,
 			onUpdate,
 			onDelete
@@ -55,7 +55,7 @@ describe('ItemDetailPanel', () => {
 		render(ItemDetailPanel, {
 			item: sampleItem,
 			categories,
-			tags,
+			types,
 			attrDefs,
 			onUpdate,
 			onDelete
@@ -73,7 +73,7 @@ describe('ItemDetailPanel', () => {
 		render(ItemDetailPanel, {
 			item: sampleItem,
 			categories,
-			tags,
+			types,
 			attrDefs,
 			onUpdate,
 			onDelete
@@ -89,7 +89,7 @@ describe('ItemDetailPanel', () => {
 		render(ItemDetailPanel, {
 			item: sampleItem,
 			categories,
-			tags,
+			types,
 			attrDefs,
 			onUpdate,
 			onDelete
@@ -106,7 +106,7 @@ describe('ItemDetailPanel', () => {
 		render(ItemDetailPanel, {
 			item: sampleItem,
 			categories,
-			tags,
+			types,
 			attrDefs,
 			usageCount: 5,
 			onUpdate,

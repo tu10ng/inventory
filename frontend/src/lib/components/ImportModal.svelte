@@ -43,8 +43,8 @@
 				errorMsg = '无效的导出文件：缺少 categories 字段';
 				return;
 			}
-			if (!data.tags || !Array.isArray(data.tags)) {
-				errorMsg = '无效的导出文件：缺少 tags 字段';
+			if (!data.types || !Array.isArray(data.types)) {
+				errorMsg = '无效的导出文件：缺少 types 字段';
 				return;
 			}
 			if (!data.attribute_definitions || !Array.isArray(data.attribute_definitions)) {
@@ -135,7 +135,7 @@
 				<button class="close-btn" onclick={onClose}>&times;</button>
 			</div>
 			<div class="modal-body">
-				<p class="hint">选择一个之前导出的 JSON 备份文件，导入其中的物品、分类、标签和属性定义。</p>
+				<p class="hint">选择一个之前导出的 JSON 备份文件，导入其中的物品、分类、类型和属性定义。</p>
 
 				<div class="strategy-section">
 					<span class="section-label">冲突处理策略</span>
@@ -261,10 +261,10 @@
 							<span class="result-value">+{result!.categories_created}</span>
 						</div>
 					{/if}
-					{#if result!.tags_created > 0}
+					{#if result!.types_created > 0}
 						<div class="result-item">
-							<span class="result-label">标签</span>
-							<span class="result-value">+{result!.tags_created}</span>
+							<span class="result-label">类型</span>
+							<span class="result-value">+{result!.types_created}</span>
 						</div>
 					{/if}
 					{#if result!.attribute_definitions_created > 0}

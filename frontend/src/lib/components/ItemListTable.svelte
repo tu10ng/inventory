@@ -1,7 +1,8 @@
 <script lang="ts">
-	import type { Item, Category, Tag } from '$lib/types';
+	import type { Item, Category, Type } from '$lib/types';
 	import { itemName, itemBrand, itemModel } from '$lib/types';
 	import type { ItemColumnDef } from '$lib/utils/columns';
+	import { buildTypePath } from '$lib/utils/columns';
 	import type { ItemGroup } from '$lib/utils/itemFilters';
 	import { getCellValue } from '$lib/utils/cellValue';
 	import CellRenderer from './CellRenderer.svelte';
@@ -10,7 +11,7 @@
 	let {
 		items,
 		categories,
-		tags,
+		types,
 		visibleColumns = [],
 		selectedItemId,
 		collapsedCategories,
@@ -29,7 +30,7 @@
 	}: {
 		items: Item[];
 		categories: Category[];
-		tags: Tag[];
+		types: Type[];
 		visibleColumns?: ItemColumnDef[];
 		selectedItemId: number | null;
 		collapsedCategories: Set<number>;
@@ -60,11 +61,16 @@
 		return groups;
 	});
 
-	const tagMap = $derived(new Map(tags.map(t => [t.id, t])));
+	const typeMap = $derived(new Map(types.map(t => [t.id, t])));
 
-	function getTag(item: Item): Tag | undefined {
-		if (!item.tag_id) return undefined;
-		return tagMap.get(item.tag_id);
+	function getType(item: Item): Type | undefined {
+		if (!item.type_id) return undefined;
+		return typeMap.get(item.type_id);
+	}
+
+	function getTypeDisplay(item: Item): string {
+		const t = getType(item);
+		return t ? buildTypePath(t.id, types) : '-';
 	}
 
 	function handleSort(key: string) {
@@ -93,8 +99,8 @@
 	function getUniqueValues(col: ItemColumnDef): string[] {
 		const vals = new Set<string>();
 		for (const item of items) {
-			if (col.type === 'tag') {
-				const t = getTag(item);
+			if (col.type === 'type') {
+				const t = getType(item);
 				vals.add(t ? t.name : '-');
 			} else if (col.type === 'bool') {
 				const v = getCellValue(item, col) as number;
@@ -138,7 +144,7 @@
 							<span class="sort-icon">{sortDir === 'asc' ? '▲' : '▼'}</span>
 						{/if}
 					</button>
-					{#if col.filterable !== false && (col.type === 'text' || col.type === 'tag' || col.type === 'bool')}
+					{#if col.filterable !== false && (col.type === 'text' || col.type === 'type' || col.type === 'bool')}
 						<button
 							class="filter-btn"
 							class:active={columnFilters.has(col.key) && columnFilters.get(col.key)!.size > 0}
@@ -201,7 +207,7 @@
 							items={grp.items}
 							{visibleColumns}
 							{selectedItemId}
-							{tags}
+							{types}
 							{selectedIds}
 							{onSelect}
 							{onToggleSelect}
@@ -243,14 +249,14 @@
 							<span class="check-col"><input type="checkbox" checked={selectedIds.has(item.id)} onclick={(e) => e.stopPropagation()} onchange={() => onToggleSelect?.(item.id)} /></span>
 							<span class="item-name">{itemName(item)}</span>
 							{#each visibleColumns as col (col.key)}
-								<CellRenderer {item} {col} tag={getTag(item)} />
+								<CellRenderer {item} {col} typeDisplay={getTypeDisplay(item)} />
 							{/each}
 						</button>
 					{/each}
 				{/if}
 			{:else}
 				{#each group.items as item (item.id)}
-					{@const itemTag = getTag(item)}
+					{@const itemType = getType(item)}
 					<button
 						class="item-row"
 						class:selected={item.id === selectedItemId}
@@ -259,15 +265,15 @@
 						<span class="check-col"><input type="checkbox" checked={selectedIds.has(item.id)} onclick={(e) => e.stopPropagation()} onchange={() => onToggleSelect?.(item.id)} /></span>
 						<span class="item-name">
 							{itemName(item)}
-							{#if visibleColumns.length === 0 && itemTag}
-								<span class="inline-tag">{itemTag.name}</span>
+							{#if visibleColumns.length === 0 && itemType}
+								<span class="inline-type">{itemType.name}</span>
 							{/if}
 							{#if visibleColumns.length === 0 && (String(item.attrs?.brand ?? '') || String(item.attrs?.model ?? ''))}
 								<span class="inline-brand">{itemBrand(item)}{itemBrand(item) && itemModel(item) ? ' ' : ''}{itemModel(item)}</span>
 							{/if}
 						</span>
 						{#each visibleColumns as col (col.key)}
-							<CellRenderer {item} {col} tag={getTag(item)} />
+							<CellRenderer {item} {col} typeDisplay={getTypeDisplay(item)} />
 						{/each}
 					</button>
 				{/each}
@@ -498,7 +504,7 @@
 		align-items: center;
 		gap: 8px;
 	}
-	.inline-tag {
+	.inline-type {
 		font-size: 11px;
 		background: #eef2ff;
 		color: var(--primary);

@@ -26,7 +26,7 @@ src/
 │   ├── trips/[id]/+page.svelte  行程详情（双栏：清单 + 物品库）
 │   ├── items/+page.svelte     物品库管理
 │   └── activities/+page.svelte  活动模板管理
-│   └── settings/+page.svelte   设置（分类/标签/人员管理）
+│   └── settings/+page.svelte   设置（分类/类型/人员管理）
 ```
 
 ## 开发约定

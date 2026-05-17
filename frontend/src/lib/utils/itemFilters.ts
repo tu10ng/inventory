@@ -1,5 +1,6 @@
-import type { Item, Tag } from '$lib/types';
+import type { Item, Type } from '$lib/types';
 import type { ItemColumnDef } from '$lib/utils/columns';
+import { getDescendantTypeIds } from '$lib/utils/columns';
 
 export interface ItemGroup {
 	label: string;
@@ -13,7 +14,7 @@ export function filterItems(
 	filterCategoryId: number | null,
 	columnFilters: Map<string, Set<string>>,
 	allColumns: ItemColumnDef[],
-	tags: Tag[]
+	types: Type[]
 ): Item[] {
 	let list = items;
 	if (search) {
@@ -35,10 +36,21 @@ export function filterItems(
 		const col = allColumns.find(c => c.key === key);
 		if (!col) continue;
 		list = list.filter((item) => {
-			if (col.type === 'tag') {
-				const t = item.tag_id ? tags.find(tg => tg.id === item.tag_id) : null;
-				const display = t ? t.name : '-';
-				return vals.has(display);
+			if (col.type === 'type') {
+				// For type column, use recursive matching (parent matches children)
+				const descendantIds = new Set<number>();
+				for (const val of vals) {
+					const id = Number(val);
+					if (!isNaN(id)) {
+						for (const did of getDescendantTypeIds(id, types)) {
+							descendantIds.add(did);
+						}
+					}
+				}
+				if (!descendantIds.has(item.type_id ?? 0)) {
+					return false;
+				}
+				return true;
 			} else if (col.type === 'bool') {
 				const v = item.attrs?.[key] as number;
 				return vals.has(v > 0 ? '1' : '0');
@@ -55,16 +67,16 @@ export function sortItems(
 	items: Item[],
 	sortKey: string | null,
 	sortDir: 'asc' | 'desc',
-	tags: Tag[]
+	types: Type[]
 ): Item[] {
 	if (!sortKey) return items;
 	const key = sortKey;
 	const dir = sortDir;
 	return [...items].sort((a, b) => {
 		let va: unknown, vb: unknown;
-		if (key === 'tag') {
-			const ta = a.tag_id ? tags.find(t => t.id === a.tag_id) : null;
-			const tb = b.tag_id ? tags.find(t => t.id === b.tag_id) : null;
+		if (key === 'type') {
+			const ta = a.type_id ? types.find(t => t.id === a.type_id) : null;
+			const tb = b.type_id ? types.find(t => t.id === b.type_id) : null;
 			va = ta?.name ?? '';
 			vb = tb?.name ?? '';
 		} else {
@@ -89,7 +101,7 @@ export function groupItems(
 	items: Item[],
 	groupByKey: string,
 	columns: ItemColumnDef[],
-	tags: Tag[]
+	types: Type[]
 ): { groups: ItemGroup[]; ungrouped: Item[] } {
 	const col = columns.find(c => c.key === groupByKey);
 	const label = col?.label ?? groupByKey;
@@ -99,8 +111,8 @@ export function groupItems(
 
 	for (const item of items) {
 		let value: unknown;
-		if (groupByKey === 'tag') {
-			const t = item.tag_id ? tags.find(tg => tg.id === item.tag_id) : null;
+		if (groupByKey === 'type') {
+			const t = item.type_id ? types.find(tg => tg.id === item.type_id) : null;
 			value = t?.name ?? null;
 		} else {
 			value = item.attrs?.[groupByKey];

@@ -7,7 +7,7 @@ describe('getCellValue', () => {
 	const item: Item = {
 		id: 1,
 		category_id: 1,
-		tag_id: null,
+		type_id: null,
 		attrs: { name: '冲锋衣', brand: '始祖鸟', warmth_rating: 30, waterproof: 1 }
 	};
 
@@ -33,7 +33,7 @@ describe('getCellValue', () => {
 	});
 
 	it('returns null when attrs is empty', () => {
-		const empty: Item = { id: 2, category_id: 1, tag_id: null, attrs: {} };
+		const empty: Item = { id: 2, category_id: 1, type_id: null, attrs: {} };
 		expect(getCellValue(empty, nameCol)).toBeNull();
 	});
 });

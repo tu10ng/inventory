@@ -6,7 +6,7 @@
 	let { item, categoryIcon, alreadyAdded = false,
 		onclick = null,
 		onHover = null,
-		itemId = 0, tagId = null, enrichedItems = []
+		itemId = 0, typeId = null, enrichedItems = []
 	}: {
 		item: Item;
 		categoryIcon: string;
@@ -14,7 +14,7 @@
 		onclick?: (() => void) | null;
 		onHover?: ((itemId: number | null) => void) | null;
 		itemId?: number;
-		tagId?: number | null;
+		typeId?: number | null;
 		enrichedItems?: TripItemEnriched[];
 	} = $props();
 
@@ -29,7 +29,7 @@
 	function handleDragStart(e: DragEvent) {
 		if (!isDraggable) { e.preventDefault(); return; }
 		dragging = true;
-		const data = { itemId, tagId };
+		const data = { itemId, typeId };
 		e.dataTransfer!.setData('application/json', JSON.stringify(data));
 		e.dataTransfer!.effectAllowed = 'copy';
 		startDrag(data, enrichedItems);

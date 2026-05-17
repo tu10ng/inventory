@@ -2,7 +2,8 @@
 	import type { Item } from '$lib/types';
 	import { itemName, itemBrand, itemModel } from '$lib/types';
 	import type { ItemColumnDef } from '$lib/utils/columns';
-	import type { Tag } from '$lib/types';
+	import { buildTypePath } from '$lib/utils/columns';
+	import type { Type } from '$lib/types';
 	import CellRenderer from './CellRenderer.svelte';
 
 	let {
@@ -11,7 +12,7 @@
 		items,
 		visibleColumns = [],
 		selectedItemId,
-		tags = [],
+		types = [],
 		selectedIds = new Set(),
 		onSelect,
 		onToggleSelect,
@@ -21,24 +22,29 @@
 		items: Item[];
 		visibleColumns?: ItemColumnDef[];
 		selectedItemId: number | null;
-		tags?: Tag[];
+		types?: Type[];
 		selectedIds?: Set<number>;
 		onSelect: (item: Item) => void;
 		onToggleSelect?: (id: number) => void;
 	} = $props();
 
-	const tagMap = $derived(new Map(tags.map(t => [t.id, t])));
+	const typeMap = $derived(new Map(types.map(t => [t.id, t])));
 
-	function getTag(item: Item): Tag | undefined {
-		if (!item.tag_id) return undefined;
-		return tagMap.get(item.tag_id);
+	function getType(item: Item): Type | undefined {
+		if (!item.type_id) return undefined;
+		return typeMap.get(item.type_id);
+	}
+
+	function getTypeDisplay(item: Item): string {
+		const t = getType(item);
+		return t ? buildTypePath(t.id, types) : '-';
 	}
 </script>
 
 <fieldset class="group-block">
 	<legend class="group-label">{label}</legend>
 	{#each items as item (item.id)}
-		{@const itemTag = getTag(item)}
+		{@const itemType = getType(item)}
 		<button
 			class="item-row"
 			class:selected={item.id === selectedItemId}
@@ -47,15 +53,15 @@
 			<span class="check-col"><input type="checkbox" checked={selectedIds.has(item.id)} onclick={(e) => e.stopPropagation()} onchange={() => onToggleSelect?.(item.id)} /></span>
 			<span class="item-name">
 				{itemName(item)}
-				{#if visibleColumns.length === 0 && itemTag}
-					<span class="inline-tag">{itemTag.name}</span>
+				{#if visibleColumns.length === 0 && itemType}
+					<span class="inline-type">{itemType.name}</span>
 				{/if}
 				{#if visibleColumns.length === 0 && (String(item.attrs?.brand ?? '') || String(item.attrs?.model ?? ''))}
 					<span class="inline-brand">{itemBrand(item)}{itemBrand(item) && itemModel(item) ? ' ' : ''}{itemModel(item)}</span>
 				{/if}
 			</span>
 			{#each visibleColumns as col (col.key)}
-				<CellRenderer {item} {col} tag={getTag(item)} />
+				<CellRenderer {item} {col} typeDisplay={getTypeDisplay(item)} />
 			{/each}
 		</button>
 	{/each}
@@ -114,7 +120,7 @@
 		align-items: center;
 		gap: 8px;
 	}
-	.inline-tag {
+	.inline-type {
 		font-size: 11px;
 		background: #eef2ff;
 		color: var(--primary);

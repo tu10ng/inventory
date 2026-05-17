@@ -22,13 +22,13 @@ pnpm monorepo，前后端分离。
 │   │   └── handlers/         路由处理（每个资源一个文件）
 │   └── migrations/
 │       ├── 001_initial.sql   建表 + 种子数据
-│       └── 002_tag_scope.sql  tag_scope 列迁移
+│       └── 002_tag_scope.sql  type_scope 列迁移
 ├── frontend/             SvelteKit 2 + Svelte 5 (runes) + TypeScript
 │   └── src/
 │       ├── app.css               全局样式 + 物品栏暗色主题 + 打印样式
 │       ├── lib/api/client.ts     fetch 封装，base path /api
 │       ├── lib/types/index.ts    TS 类型定义
-│       ├── lib/utils/status.ts   状态标签/选项常量（动态 API 加载）
+│       ├── lib/utils/status.ts   状态类型/选项常量（动态 API 加载）
 │       ├── lib/utils/columns.ts   列定义（动态加载）
 │       ├── lib/utils/cellValue.ts  单元格值提取
 │       ├── lib/utils/itemFilters.ts 物品筛选/排序
@@ -67,13 +67,13 @@ cd backend && cargo build         # 后端编译检查
 | 表 | 说明 |
 |---|---|
 | categories | 物品分类（服装/装备/营养/电子/急救/洗漱/证件/其他） |
-| tags | 物品子类型标签，每个 tag 归属一个 category |
-| items | 物品库（name, brand, model, category_id, default_qty, notes, tag_id, attrs） |
-| attribute_definitions | 物品属性定义（key/label/attr_type/config/category_scope/tag_scope） |
+| types | 物品子类型类型，每个 type 归属一个 category |
+| items | 物品库（name, brand, model, category_id, default_qty, notes, type_id, attrs） |
+| attribute_definitions | 物品属性定义（key/label/attr_type/config/category_scope/type_scope） |
 | status_definitions | 状态定义（scope: item/trip） |
 | activities | 活动模板（如"徒步"） |
-| activity_slots | 活动槽位（slot_name, category_id, tags, default_item_id, is_essential） |
-| activity_slot_tags | 槽位↔标签多对多关联 |
+| activity_slots | 活动槽位（slot_name, category_id, types, default_item_id, is_essential） |
+| activity_slot_tags | 槽位↔类型多对多关联 |
 | tips | 活动小贴士 |
 | people | 人员 |
 | trips | 行程（name, activity_id, start/end_date, status） |
@@ -92,8 +92,8 @@ RESTful，前缀 `/api`。
 |------|------|------|
 | GET/POST | `/api/categories` | 分类列表/创建 |
 | PUT/DELETE | `/api/categories/{id}` | 更新/删除分类 |
-| GET/POST | `/api/tags` | 标签列表/创建 |
-| PUT/DELETE | `/api/tags/{id}` | 更新/删除标签 |
+| GET/POST | `/api/types` | 类型列表/创建 |
+| PUT/DELETE | `/api/types/{id}` | 更新/删除类型 |
 | GET/POST | `/api/items` | 物品列表/创建 |
 | GET/PUT/DELETE | `/api/items/{id}` | 物品 CRUD |
 | GET | `/api/item-stats` | 物品使用统计 |
@@ -155,7 +155,7 @@ RESTful，前缀 `/api`。
 ## 流式 AI 解析实现笔记
 
 ### SSE 流式传输架构
-- `SseEvent` enum（`#[serde(tag = "type")]`）区分 thinking/progress/result/error
+- `SseEvent` enum（`#[serde(type = "type")]`）区分 thinking/progress/result/error
 - 后端通过 `tokio::sync::mpsc::unbounded_channel` 在 spawned task 和 SSE stream 之间传递事件
 - `UnboundedReceiverStream`（tokio-stream）将 receiver 转为 futures Stream 供 Axum Sse 使用
 - 前端通过 `fetch()` + `ReadableStream.getReader()` 消费 SSE
@@ -172,13 +172,13 @@ RESTful，前缀 `/api`。
 
 ### P0 Bug 根因
 
-1. **`tag_scope` 列遗漏**：`002_tag_scope.sql` 迁移加了列，但只更新了 `attributes.rs` 的 CRUD handler，export/import 是后来加的功能，被遗漏。教训：**Schema 变更时应该全局 grep 所有引用该表的 SQL**（`grep "attribute_definitions"` 确认所有引用点）。
+1. **`type_scope` 列遗漏**：`002_tag_scope.sql` 迁移加了列，但只更新了 `attributes.rs` 的 CRUD handler，export/import 是后来加的功能，被遗漏。教训：**Schema 变更时应该全局 grep 所有引用该表的 SQL**（`grep "attribute_definitions"` 确认所有引用点）。
 
-2. **`organize_apply` 的 `new_tags` 永远为空**：`OrganizeApplyResponse` 从 `AiParseResponse`（有 `new_tags`）照搬，但 apply 阶段 tag 已在 preview 阶段创建完毕。教训：**复制代码时必须审视每个字段在目标场景下是否还有意义，照搬结构体 ≠ 照搬逻辑**。
+2. **`organize_apply` 的 `new_tags` 永远为空**：`OrganizeApplyResponse` 从 `AiParseResponse`（有 `new_tags`）照搬，但 apply 阶段 type 已在 preview 阶段创建完毕。教训：**复制代码时必须审视每个字段在目标场景下是否还有意义，照搬结构体 ≠ 照搬逻辑**。
 
 ### P1 死代码根因
 
-- `svelte-dnd-action` 是 slot+tag 系统开发时预装的依赖，最终用了原生 HTML5 drag，但没有清理。教训：**依赖不应该"预装"，应该在真正需要时才加，加了不用就要删**。
+- `svelte-dnd-action` 是 slot+type 系统开发时预装的依赖，最终用了原生 HTML5 drag，但没有清理。教训：**依赖不应该"预装"，应该在真正需要时才加，加了不用就要删**。
 
 ### P2 复杂度问题根因
 
@@ -198,7 +198,7 @@ RESTful，前缀 `/api`。
 
 1. **table-rebuild 模式在 items 表上失败**：`rebuild_trip_items_fk` 和 `rebuild_trips_table` 都成功使用 CREATE→INSERT→DROP→RENAME 模式重建表，但 items 表有多个子表（trip_items、activity_slots）的 FK 引用。即使 `PRAGMA foreign_keys = OFF`，SQLite 仍拒绝 DROP TABLE items（错误信息不明确，只说 RENAME 时 items 已存在）。教训：**table-rebuild 模式在父表（被 FK 引用的表）上不可行，应改用 in-place UPDATE 迁移**。
 
-2. **NOT NULL 约束的遗留列**：旧表 `name` 列有 NOT NULL 约束，新的 INSERT 只提供 `(category_id, tag_id, attrs)` 不提供 `name`，导致 INSERT 失败。教训：**Schema 迁移不能只改代码的 SELECT/INSERT，还要检查所有列的约束条件。旧列不清除时，约束仍然生效**。
+2. **NOT NULL 约束的遗留列**：旧表 `name` 列有 NOT NULL 约束，新的 INSERT 只提供 `(category_id, type_id, attrs)` 不提供 `name`，导致 INSERT 失败。教训：**Schema 迁移不能只改代码的 SELECT/INSERT，还要检查所有列的约束条件。旧列不清除时，约束仍然生效**。
 
 3. **UPDATE 的 attrs 替换 vs 合并**：最初的 update handler 直接用 `body.attrs.unwrap_or(existing.attrs)` 替换整个 attrs，导致 partial update 时丢失其他字段。教训：**JSON 列的部分更新语义应该是 merge 而不是 replace，与关系列（category_id）的语义不同**。
 
@@ -218,7 +218,7 @@ RESTful，前缀 `/api`。
 
 ### 测试中发现的问题
 
-- **没有种子 tag 数据**：`update_category_change` 测试使用了 `tag_id: Some(1)`，但 migrations 只 seed 了 categories 和 status_definitions/attribute_definitions，没有 seed tags。测试需要手动插入 tag 或使用不存在的 tag id。教训：**测试数据不能假设生产环境的种子数据完整，要显式准备或检查**。
+- **没有种子 type 数据**：`update_category_change` 测试使用了 `type_id: Some(1)`，但 migrations 只 seed 了 categories 和 status_definitions/attribute_definitions，没有 seed types。测试需要手动插入 type 或使用不存在的 type id。教训：**测试数据不能假设生产环境的种子数据完整，要显式准备或检查**。
 
 ### 前端组件测试的陷阱
 
@@ -238,7 +238,7 @@ cd frontend && pnpm test       # 48 个前端测试，< 2s
 
 ### Bug 1: `handleFieldUpdate` 对 `attrs` 字段双重包裹
 
-**根因**：`handleFieldUpdate` 的原始逻辑只有两个分支：top-level 字段（`category_id`/`tag_id`）直接写入，其他字段都视为 attrs 内的子字段，用 `{ ...attrs, [field]: value }` 包裹。但当 `ItemDetailPanel.updateAttr()` 调用时，`field` 就是 `'attrs'`，`value` 已经是完整的 attrs 对象（在 `updateAttr` 中已做过 `{ ...item.attrs, [key]: value }` 合并）。`handleFieldUpdate` 又做了一次 `{ ...attrs, attrs: value }`，导致后端收到 `{ attrs: { name: "旧", attrs: { name: "新" } } }`，旧值覆盖新值。
+**根因**：`handleFieldUpdate` 的原始逻辑只有两个分支：top-level 字段（`category_id`/`type_id`）直接写入，其他字段都视为 attrs 内的子字段，用 `{ ...attrs, [field]: value }` 包裹。但当 `ItemDetailPanel.updateAttr()` 调用时，`field` 就是 `'attrs'`，`value` 已经是完整的 attrs 对象（在 `updateAttr` 中已做过 `{ ...item.attrs, [key]: value }` 合并）。`handleFieldUpdate` 又做了一次 `{ ...attrs, attrs: value }`，导致后端收到 `{ attrs: { name: "旧", attrs: { name: "新" } } }`，旧值覆盖新值。
 
 **教训**：**当调用方已经做了数据组装（`updateAttr` 构造完整 attrs），接收方不应再二次组装**。函数签名 `handleFieldUpdate(field: string, value: unknown)` 的 `field` 参数有两层语义：它既是"要修改的字段名"，也是"数据已经按什么层级组装好了"的提示。当 `field === 'attrs'` 时，`value` 已经是最终数据，不应再嵌套。这类"透传已组装数据"的模式应该有明确的短路分支。
 
@@ -307,7 +307,7 @@ cd frontend && pnpm test       # 48 个前端测试，< 2s
 
 ### 实施内容
 
-1. 后端 `POST /api/items/batch` 的 `update` action 扩展支持 `tag_id`（含设 null）和 `attrs` merge（逐 item + transaction + legacy 列同步）
+1. 后端 `POST /api/items/batch` 的 `update` action 扩展支持 `type_id`（含设 null）和 `attrs` merge（逐 item + transaction + legacy 列同步）
 2. ItemListTable 复选框始终可见（移除 `{#if selectable}` 条件，prop 默认 `true`）
 3. ItemGroupBlock 新增 `selectedIds`/`onToggleSelect` props，增加 checkbox 列
 4. BulkActionBar 重写为属性驱动批量编辑器：属性下拉 → 按类型渲染值编辑器 → 应用/批量删除，同时保留 `actions` prop 向后兼容 ChecklistPanel
@@ -334,9 +334,9 @@ cd frontend && pnpm test       # 48 个前端测试，< 2s
 ### 关键设计决策
 
 1. **后端不做业务判断**：calamine 只做 xlsx → `{headers, rows}` 原样返回，列语义理解完全交给 LLM 或用户。这保证了系统对任意格式 Excel 的通用性。
-2. **Prompt 动态构建**：分类体系、标签列表、属性定义都从 DB 实时查询后嵌入 prompt，而非硬编码。
+2. **Prompt 动态构建**：分类体系、类型列表、属性定义都从 DB 实时查询后嵌入 prompt，而非硬编码。
 3. **两种导入路径共存**：AI 智能模式（适合列名不规范）和手动映射模式（适合列名已规范），用户可选择。
-4. **人工可在 AI 预览阶段修正**：AI 解析结果以可编辑表格形式展示，支持 InlineEdit 修改 name/brand/model/default_qty，以及下拉选择 category/tag。
+4. **人工可在 AI 预览阶段修正**：AI 解析结果以可编辑表格形式展示，支持 InlineEdit 修改 name/brand/model/default_qty，以及下拉选择 category/type。
 
 ### 反思
 
@@ -376,7 +376,7 @@ OCR:    上传图片 → OCR 文本 ───→ AiAddModal → 确认 → 逐�
 
 1. **SSE 事件类型遗漏导致功能静默失败**：最初实现 Excel AI 流式解析时，新增了 `ExcelResult` SseEvent 变体，但前端 SSE client 的 switch-case 只匹配了 `result`，没有 `excel_result`。`ExcelResult` 事件被静默丢弃，`onResult` 回调从未触发。这次统一到 `Result` 变体后，前端无需修改即可正确处理。教训：**新增任何事件类型/枚举变体时，必须全链路检查所有消费者的匹配逻辑**。
 
-2. **两套 prompt 维护成本高**：`build_excel_prompt()` 和 `build_system_prompt()` 有大量重复内容（分类描述、标签描述、属性描述、品牌识别规则），修改一处时另一处容易遗漏。统一到 `build_system_prompt()` + 增加表格处理 section 后，维护成本降低。教训：**当发现两个 prompt/模板有超过 50% 内容重复时，应该合并而非继续维护两个副本**。
+2. **两套 prompt 维护成本高**：`build_excel_prompt()` 和 `build_system_prompt()` 有大量重复内容（分类描述、类型描述、属性描述、品牌识别规则），修改一处时另一处容易遗漏。统一到 `build_system_prompt()` + 增加表格处理 section 后，维护成本降低。教训：**当发现两个 prompt/模板有超过 50% 内容重复时，应该合并而非继续维护两个副本**。
 
 ## 2026-05-14 展示规则独立页面实施复盘
 
@@ -392,7 +392,7 @@ OCR:    上传图片 → OCR 文本 ───→ AiAddModal → 确认 → 逐�
 
 ### 反思
 
-1. **页面拆分时数据加载是独立的**：新页面 `/views` 和物品库页面各自独立调用 API 加载数据（items/categories/tags/attrDefs/displayRules）。两个页面之间没有共享状态，切换页面时会重新加载。这对于当前规模是合理的，但如果数据量很大，未来可考虑提取共享的数据层。
+1. **页面拆分时数据加载是独立的**：新页面 `/views` 和物品库页面各自独立调用 API 加载数据（items/categories/types/attrDefs/displayRules）。两个页面之间没有共享状态，切换页面时会重新加载。这对于当前规模是合理的，但如果数据量很大，未来可考虑提取共享的数据层。
 
 2. **ItemListTable 的 selectable 和 onSelect 配合**：在纯浏览模式下，`selectable={false}` 隐藏复选框，`onSelect={() => {}}` 传入空函数（因为 onSelect 是必填 prop）。不需要修改 ItemListTable 组件本身。
 
@@ -422,40 +422,40 @@ OCR:    上传图片 → OCR 文本 ───→ AiAddModal → 确认 → 逐�
 
 5. **物品描述中"非基础属性"的定义**：basic_keys 定义为 `["name", "brand", "model", "notes", "default_qty"]`，这些已在前面的固定格式中展示。其余 attrs（如 body_parts/food_type/electronics_type/waterproof/season 等）作为额外信息追加，帮助 LLM 判断是否需要补充。这个定义需要与 prompt 中第 6 项检查的 key 名保持一致。
 
-## 2026-05-15 AI 整理误删标签修复复盘
+## 2026-05-15 AI 整理误删类型修复复盘
 
-### Bug: AI 整理建议删除所有标签
+### Bug: AI 整理建议删除所有类型
 
-**现象**：加了规则 8（不要删除已有的正确标签）后，AI 仍然建议删除所有物品的标签。
+**现象**：加了规则 8（不要删除已有的正确类型）后，AI 仍然建议删除所有物品的类型。
 
 **根因**：规则 2（字段错位）的后两个要点存在歧义：
 ```
-- tag（标签）和名称之间的信息分配不合理
-- 名称中包含了本应作为标签的信息，或反之
+- type（类型）和名称之间的信息分配不合理
+- 名称中包含了本应作为类型的信息，或反之
 ```
-"或反之"告诉 LLM：名称已含标签信息 → 标签是"名称中本应作为标签的信息"的反面 → 标签多余应删除。这两个要点与规则 3（缺少标签→加标签）的正确方向冲突，且给了 LLM 删除标签的理由。
+"或反之"告诉 LLM：名称已含类型信息 → 类型是"名称中本应作为类型的信息"的反面 → 类型多余应删除。这两个要点与规则 3（缺少类型→加类型）的正确方向冲突，且给了 LLM 删除类型的理由。
 
-**修复**：规则 2 缩减为只保留 model 错位一个要点，删除两个 tag 相关要点。正确的"加标签"方向由规则 3 覆盖，"不删标签"由规则 8 兜底。
+**修复**：规则 2 缩减为只保留 model 错位一个要点，删除两个 type 相关要点。正确的"加类型"方向由规则 3 覆盖，"不删类型"由规则 8 兜底。
 
 ### 教训
 
 1. **Prompt 中的"或反之"是危险表述**：给 LLM 一个正确的方向和一个反向的可能性，LLM 可能选择误解的方向。教训：**prompt 中只描述正确的操作方向，不要提供反向可能性——给 LLM 两个选择，它可能选错的**。
 
-2. **多个规则覆盖同一主题会产生冲突**：规则 2（字段错位→tag 可能多余）和规则 3（缺少标签→加标签）从不同角度涉及 tag，规则 8（不要删除标签）是后来的防御补丁。三个规则互相角力，LLM 不知道哪个优先级更高。教训：**当一个主题被多个规则交叉覆盖时，应该合并为一条明确的规则，而非用多条规则互相补充/制衡**。
+2. **多个规则覆盖同一主题会产生冲突**：规则 2（字段错位→type 可能多余）和规则 3（缺少类型→加类型）从不同角度涉及 type，规则 8（不要删除类型）是后来的防御补丁。三个规则互相角力，LLM 不知道哪个优先级更高。教训：**当一个主题被多个规则交叉覆盖时，应该合并为一条明确的规则，而非用多条规则互相补充/制衡**。
 
-### 第三轮：从模板结构中移除 tag_name（最终根治）
+### 第三轮：从模板结构中移除 type_name（最终根治）
 
-第二轮修改后 AI 仍删标签。根因更深层：**模板结构 > 文字规则**。只要 `tag_name` 字段出现在 update 模板中，AI 就认为它是每次 update 都可以操作的字段。AI 进入"修改此物品"模式后，看到模板中所有可用字段，倾向于"顺便都修好"。
+第二轮修改后 AI 仍删类型。根因更深层：**模板结构 > 文字规则**。只要 `type_name` 字段出现在 update 模板中，AI 就认为它是每次 update 都可以操作的字段。AI 进入"修改此物品"模式后，看到模板中所有可用字段，倾向于"顺便都修好"。
 
-**修复**：从 update 模板的 `fields` 中完全移除 `tag_name` 字段。标签操作降级为规则 3 中描述的"特殊情况"（仅在物品缺少标签时补充），AI 不会在每次 update 时想到它。同时 split 模板中的 `"标签或null"` 改为 `"标签名"`，消除 null 是合法选项的暗示。
+**修复**：从 update 模板的 `fields` 中完全移除 `type_name` 字段。类型操作降级为规则 3 中描述的"特殊情况"（仅在物品缺少类型时补充），AI 不会在每次 update 时想到它。同时 split 模板中的 `"类型或null"` 改为 `"类型名"`，消除 null 是合法选项的暗示。
 
 ### 终极教训
 
 | 轮次 | 做了什么 | 为什么不够 |
 |------|---------|-----------|
-| 1 | 删除规则 2 歧义要点 | 模板还在教"设为 null 表示清除标签"——主动教学 > 被动省略 |
-| 2 | 改模板注释 + 正面规则 8/9 | `tag_name` 字段还在模板里——AI 看到可用字段就想用，文字禁止指令不够强 |
-| 3 | **从模板删除 tag_name** | 标签操作降级为规则中描述的"特殊情况"，AI 不会在每次 update 时想到它 |
+| 1 | 删除规则 2 歧义要点 | 模板还在教"设为 null 表示清除类型"——主动教学 > 被动省略 |
+| 2 | 改模板注释 + 正面规则 8/9 | `type_name` 字段还在模板里——AI 看到可用字段就想用，文字禁止指令不够强 |
+| 3 | **从模板删除 type_name** | 类型操作降级为规则中描述的"特殊情况"，AI 不会在每次 update 时想到它 |
 
 **Prompt 工程核心原则：结构（模板/字段）比文字（规则/注释）强一个数量级。要禁止某种行为，最有效的方式是从结构中移除触发该行为的入口，而不是在文字中说"不要做 X"。**
 
@@ -466,7 +466,7 @@ OCR:    上传图片 → OCR 文本 ───→ AiAddModal → 确认 → 逐�
 1. **Migration 010**: 修正 14 个属性定义的 `category_scope`（服装专属/服装+装备/电子专属），修复 AI 创建属性时 `"[]"` 误写为合法 scope 的 bug
 2. **db.rs `clean_out_of_scope_attrs()`**: 移除每个物品 attrs 中不在 scope 内的属性 key，幂等（通过 `_migrations` 表 `011_clean_attrs_done` 标记）
 3. **ai.rs**: 修复两处 `"[]"` bug（`extract_new_attr_defs_from_text` 构造和 SQL INSERT），prompt 中增加 scope 信息 + 规则 7（只填充物品对应分类的属性值）
-4. **Migration 012**: 拆分"其他"品类——标签/物品/槽位迁移 + 品类重命名（洗漱→家居、证件→服务）
+4. **Migration 012**: 拆分"其他"品类——类型/物品/槽位迁移 + 品类重命名（洗漱→家居、证件→服务）
 
 ### 反思
 
@@ -498,3 +498,34 @@ OCR:    上传图片 → OCR 文本 ───→ AiAddModal → 确认 → 逐�
 3. **enrich 的预览→确认模式是正确的设计**：计划中的 preview → confirm 模式让用户可以在写入前看到每个推断值的来源和置信度。这与之前 resync preview 的教训一致——**批量修改操作必须先展示将发生的变化**。
 
 4. **属性写入后未同步 legacy 列**：当前 enrich 只更新 `attrs` JSON 列，未像 Rust handler 那样同步更新 legacy 列（name/brand/model）。但当前 items 表的 legacy 列已被 item attrs 系统替代，所以这不是问题。但如果未来有其他系统直接读 legacy 列，就会不一致。教训：**JSON 列更新时，如果存在对应的 shadow legacy 列，确认是否需要同步**。
+
+## 2026-05-17 标签→类型 全面改名 + 树形层级架构复盘
+
+### 实施内容
+
+全项目范围的重命名（DB/API/前后端代码/文档/测试）+ 类型表新增 `parent_id` 树形层级 + 新增 `/types` 树形浏览页面。
+
+### 验证结果
+
+- `cargo check` 0 错误
+- `cargo test` 53 passed
+- `pnpm check` 0 错误（仅预存 a11y 警告）
+- `pnpm test` 49 passed
+
+### 反思
+
+1. **大规模改名的效率策略**：20+ 文件的跨栈改名不应逐个 Edit 手改。本次采用的模式：**先用 sed 做机械性批量替换（tag_id→type_id、Tag→Type、FROM tags→FROM types 等），再用 Edit 做结构性增改（新增 parent_id、tree handler、types 页面等），最后用静态检查（cargo check / pnpm check）捕获遗漏**。这个"sed 扫射 → 精确修补 → 编译器兜底"的三阶段模式最小化了遗漏风险。
+
+2. **sed 替换的边界问题**：`s/\btag\b/type/g` 会错误替换 `pill-tag` 这类视觉样式 CSS 类名、`added-tag` 等与 DB 概念无关的标识符。教训：**跨文件 sed 批量替换后，必须用 `grep -rn '\bold_word\b'` 残留检查来判断是否需要人工审查**。本次保留了两个视觉样式类（`.pill-tag`、`.added-tag`）不替换。
+
+3. **sed 无法处理的 Rust 语法**：`Type { ... }` 结构体字面量缺少新增字段 `parent_id` 时，sed 无法自动补全。教训：**新增结构体字段后，用 `grep 'StructName {' src/` 全局搜索所有构造点逐一补全**，本次 activities.rs 和 ai.rs 的测试中有 3 处遗漏。
+
+4. **前端测试的 `parent_id` 遗漏**：Type fixture 在 sed 后缺少 `parent_id`，`pnpm check` 报了类型错误才被发现。教训：**接口新增必填字段后，用 `grep 'InterfaceName'` 全局搜索所有 mock/fixture 构造点**。
+
+5. **`$derived(() => {})` 的 TypeScript 类型问题**：在 Svelte 5 runes 中，`let x = $derived(() => { ... })` 被 TypeScript 推断为返回函数类型而非值类型，需要用 `$derived.by(() => { ... })` 或 `$derived(expression)`。本次 types 页面的 `filteredItems` 和 `breadcrumb` 遇到了这个问题。
+
+6. **Svelte 5 `{#snippet}` 不能当组件用**：在 `{#each}` 块中调用递归 snippet 时，不能用 `<SnippetName prop={val} />` 的组件语法，必须用 `{@render SnippetName({ prop: val })}`。这是 Svelte 5 snippet 与 Svelte 4 组件调用的关键差异。
+
+7. **itemFilters 递归匹配缺少 `return true`**：为类型筛选加了 `getDescendantTypeIds` 递归匹配逻辑后，if 块末尾缺少显式 `return true`，导致匹配成功时隐式返回 `undefined`（falsy），所有物品被误筛掉。教训：**在回调函数中用 if-else 链做多分支判断时，每个分支末尾必须有显式 return，不能依赖 fallthrough**。
+
+8. **前后端同改的并行策略**：本次使用两个 Agent 并行修改前后端，后端约 2 分钟完成，前端约 26 分钟。前后端的改名互不依赖（只需约定好新命名），可以完全并行。但 Agent 的逐文件 Edit 模式对大规模改名效率低——后端用 sed 只花了十几秒。教训：**大规模机械改名优先用 sed 批量处理，Agent 只处理需要理解上下文的结构性改动**。

@@ -5,19 +5,19 @@ use sqlx::SqlitePool;
 use crate::error::AppError;
 use crate::models::{AttributeDefinition, CreateAttributeDefinition, UpdateAttributeDefinition};
 
-/// Reserved for future scope-based filtering (category_id / tag_id).
+/// Reserved for future scope-based filtering (category_id / type_id).
 #[derive(serde::Deserialize, Default)]
 #[allow(dead_code)]
 pub struct ListQuery {
     pub category_id: Option<i64>,
-    pub tag_id: Option<i64>,
+    pub type_id: Option<i64>,
 }
 
 pub async fn list(
     State(pool): State<SqlitePool>,
 ) -> Result<Json<Vec<AttributeDefinition>>, AppError> {
     // Returns all definitions; scope filtering is done client-side
-    // because the scope logic (OR match on category_scope/tag_scope, empty=global)
+    // because the scope logic (OR match on category_scope/type_scope, empty=global)
     // is complex to express in a single SQL query
     let rows = sqlx::query_as::<_, AttributeDefinition>(
         "SELECT * FROM attribute_definitions ORDER BY sort_order, id",
@@ -35,17 +35,17 @@ pub async fn create(
         return Err(AppError::validation("属性键不能为空"));
     }
     if body.label.trim().is_empty() {
-        return Err(AppError::validation("属性标签不能为空"));
+        return Err(AppError::validation("属性类型不能为空"));
     }
     let row = sqlx::query_as::<_, AttributeDefinition>(
-        "INSERT INTO attribute_definitions (key, label, attr_type, config, category_scope, tag_scope, sort_order, is_identity, is_required, default_value, search_weight) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO attribute_definitions (key, label, attr_type, config, category_scope, type_scope, sort_order, is_identity, is_required, default_value, search_weight) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
     )
     .bind(&body.key)
     .bind(&body.label)
     .bind(&body.attr_type)
     .bind(&body.config)
     .bind(&body.category_scope)
-    .bind(&body.tag_scope)
+    .bind(&body.type_scope)
     .bind(body.sort_order)
     .bind(body.is_identity)
     .bind(body.is_required)
@@ -72,7 +72,7 @@ pub async fn update(
     let attr_type = body.attr_type.unwrap_or(existing.attr_type);
     let config = body.config.unwrap_or(existing.config);
     let category_scope = body.category_scope.unwrap_or(existing.category_scope);
-    let tag_scope = body.tag_scope.unwrap_or(existing.tag_scope);
+    let type_scope = body.type_scope.unwrap_or(existing.type_scope);
     let sort_order = body.sort_order.unwrap_or(existing.sort_order);
     let is_identity = body.is_identity.unwrap_or(existing.is_identity);
     let is_required = body.is_required.unwrap_or(existing.is_required);
@@ -83,18 +83,18 @@ pub async fn update(
         return Err(AppError::validation("属性键不能为空"));
     }
     if label.trim().is_empty() {
-        return Err(AppError::validation("属性标签不能为空"));
+        return Err(AppError::validation("属性类型不能为空"));
     }
 
     let row = sqlx::query_as::<_, AttributeDefinition>(
-        "UPDATE attribute_definitions SET key = ?, label = ?, attr_type = ?, config = ?, category_scope = ?, tag_scope = ?, sort_order = ?, is_identity = ?, is_required = ?, default_value = ?, search_weight = ? WHERE id = ? RETURNING *",
+        "UPDATE attribute_definitions SET key = ?, label = ?, attr_type = ?, config = ?, category_scope = ?, type_scope = ?, sort_order = ?, is_identity = ?, is_required = ?, default_value = ?, search_weight = ? WHERE id = ? RETURNING *",
     )
     .bind(&key)
     .bind(&label)
     .bind(&attr_type)
     .bind(&config)
     .bind(&category_scope)
-    .bind(&tag_scope)
+    .bind(&type_scope)
     .bind(sort_order)
     .bind(is_identity)
     .bind(is_required)
@@ -168,7 +168,7 @@ mod tests {
             attr_type: "text".to_string(),
             config: "{}".to_string(),
             category_scope: "".to_string(),
-            tag_scope: "".to_string(),
+            type_scope: "".to_string(),
             sort_order: 100,
             is_identity: false,
             is_required: false,
@@ -190,11 +190,11 @@ mod tests {
         // First create a new attr
         let body = CreateAttributeDefinition {
             key: "update_test".to_string(),
-            label: "原始标签".to_string(),
+            label: "原始类型".to_string(),
             attr_type: "text".to_string(),
             config: "{}".to_string(),
             category_scope: "".to_string(),
-            tag_scope: "".to_string(),
+            type_scope: "".to_string(),
             sort_order: 50,
             is_identity: false,
             is_required: false,
@@ -213,7 +213,7 @@ mod tests {
                 attr_type: None,
                 config: None,
                 category_scope: None,
-                tag_scope: None,
+                type_scope: None,
                 sort_order: None,
                 is_identity: None,
                 is_required: None,
@@ -226,7 +226,7 @@ mod tests {
 
         assert_eq!(updated.search_weight, 15);
         // Other fields preserved
-        assert_eq!(updated.label, "原始标签");
+        assert_eq!(updated.label, "原始类型");
     }
 
     #[tokio::test]
@@ -239,7 +239,7 @@ mod tests {
             attr_type: "text".to_string(),
             config: "{}".to_string(),
             category_scope: "".to_string(),
-            tag_scope: "".to_string(),
+            type_scope: "".to_string(),
             sort_order: 200,
             is_identity: false,
             is_required: false,

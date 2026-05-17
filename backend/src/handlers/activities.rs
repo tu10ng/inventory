@@ -90,7 +90,7 @@ pub async fn delete(
 pub async fn list_slots(
     State(pool): State<SqlitePool>,
     Path(activity_id): Path<i64>,
-) -> Result<Json<Vec<ActivitySlotWithTags>>, AppError> {
+) -> Result<Json<Vec<ActivitySlotWithTypes>>, AppError> {
     let slots = sqlx::query_as::<_, ActivitySlot>(
         "SELECT * FROM activity_slots WHERE activity_id = ? ORDER BY sort_order, id",
     )
@@ -108,7 +108,7 @@ pub async fn list_slots(
     // Batch query all slot_tags + tags
     let placeholders = slot_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let query_str = format!(
-        "SELECT ast.slot_id, t.id, t.name, t.category_id, t.sort_order FROM activity_slot_tags ast JOIN tags t ON t.id = ast.tag_id WHERE ast.slot_id IN ({}) ORDER BY t.sort_order, t.id",
+        "SELECT ast.slot_id, t.id, t.name, t.category_id, t.sort_order FROM activity_slot_types ast JOIN tags t ON t.id = ast.type_id WHERE ast.slot_id IN ({}) ORDER BY t.sort_order, t.id",
         placeholders
     );
     let mut query = sqlx::query_as::<_, SlotTagRow>(&query_str);
@@ -118,19 +118,20 @@ pub async fn list_slots(
     let tag_rows = query.fetch_all(&pool).await?;
 
     // Group tags by slot_id
-    let mut tag_map: std::collections::HashMap<i64, Vec<Tag>> = std::collections::HashMap::new();
+    let mut tag_map: std::collections::HashMap<i64, Vec<Type>> = std::collections::HashMap::new();
     for row in tag_rows {
-        tag_map.entry(row.slot_id).or_default().push(Tag {
+        tag_map.entry(row.slot_id).or_default().push(Type {
             id: row.id,
             name: row.name,
             category_id: row.category_id,
             sort_order: row.sort_order,
+            parent_id: None,
         });
     }
 
     for slot in slots {
-        let tags = tag_map.remove(&slot.id).unwrap_or_default();
-        result.push(ActivitySlotWithTags {
+        let types = tag_map.remove(&slot.id).unwrap_or_default();
+        result.push(ActivitySlotWithTypes {
             id: slot.id,
             activity_id: slot.activity_id,
             slot_name: slot.slot_name,
@@ -140,7 +141,7 @@ pub async fn list_slots(
             notes: slot.notes,
             sort_order: slot.sort_order,
             default_item_id: slot.default_item_id,
-            tags,
+            types,
         });
     }
 
@@ -160,7 +161,7 @@ pub async fn create_slot(
     State(pool): State<SqlitePool>,
     Path(activity_id): Path<i64>,
     Json(body): Json<CreateActivitySlot>,
-) -> Result<Json<ActivitySlotWithTags>, AppError> {
+) -> Result<Json<ActivitySlotWithTypes>, AppError> {
     body.validate()?;
 
     let mut tx = pool.begin().await?;
@@ -179,24 +180,24 @@ pub async fn create_slot(
     .fetch_one(&mut *tx)
     .await?;
 
-    let mut tags = Vec::new();
-    for tag_id in &body.tag_ids {
-        sqlx::query("INSERT INTO activity_slot_tags (slot_id, tag_id) VALUES (?, ?)")
+    let mut types = Vec::new();
+    for type_id in &body.type_ids {
+        sqlx::query("INSERT INTO activity_slot_types (slot_id, type_id) VALUES (?, ?)")
             .bind(slot.id)
-            .bind(tag_id)
+            .bind(type_id)
             .execute(&mut *tx)
             .await?;
-        let tag = sqlx::query_as::<_, Tag>("SELECT * FROM tags WHERE id = ?")
-            .bind(tag_id)
+        let tag = sqlx::query_as::<_, Type>("SELECT * FROM types WHERE id = ?")
+            .bind(type_id)
             .fetch_optional(&mut *tx)
             .await?
-            .ok_or_else(|| AppError::not_found("标签", *tag_id))?;
-        tags.push(tag);
+            .ok_or_else(|| AppError::not_found("类型", *type_id))?;
+        types.push(tag);
     }
 
     tx.commit().await?;
 
-    Ok(Json(ActivitySlotWithTags {
+    Ok(Json(ActivitySlotWithTypes {
         id: slot.id,
         activity_id: slot.activity_id,
         slot_name: slot.slot_name,
@@ -206,7 +207,7 @@ pub async fn create_slot(
         notes: slot.notes,
         sort_order: slot.sort_order,
         default_item_id: slot.default_item_id,
-        tags,
+        types,
     }))
 }
 
@@ -214,7 +215,7 @@ pub async fn update_slot(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
     Json(body): Json<UpdateActivitySlot>,
-) -> Result<Json<ActivitySlotWithTags>, AppError> {
+) -> Result<Json<ActivitySlotWithTypes>, AppError> {
     let existing = sqlx::query_as::<_, ActivitySlot>("SELECT * FROM activity_slots WHERE id = ?")
         .bind(id)
         .fetch_optional(&pool)
@@ -249,23 +250,23 @@ pub async fn update_slot(
     .await?;
 
     // Rebuild tag associations if provided
-    if let Some(tag_ids) = &body.tag_ids {
-        sqlx::query("DELETE FROM activity_slot_tags WHERE slot_id = ?")
+    if let Some(type_ids) = &body.type_ids {
+        sqlx::query("DELETE FROM activity_slot_types WHERE slot_id = ?")
             .bind(id)
             .execute(&mut *tx)
             .await?;
-        for tag_id in tag_ids {
-            sqlx::query("INSERT INTO activity_slot_tags (slot_id, tag_id) VALUES (?, ?)")
+        for type_id in type_ids {
+            sqlx::query("INSERT INTO activity_slot_types (slot_id, type_id) VALUES (?, ?)")
                 .bind(id)
-                .bind(tag_id)
+                .bind(type_id)
                 .execute(&mut *tx)
                 .await?;
         }
     }
 
     // Fetch tags
-    let tags = sqlx::query_as::<_, Tag>(
-        "SELECT t.* FROM tags t JOIN activity_slot_tags ast ON ast.tag_id = t.id WHERE ast.slot_id = ? ORDER BY t.sort_order, t.id",
+    let types = sqlx::query_as::<_, Type>(
+        "SELECT t.* FROM types t JOIN activity_slot_types ast ON ast.type_id = t.id WHERE ast.slot_id = ? ORDER BY t.sort_order, t.id",
     )
     .bind(id)
     .fetch_all(&mut *tx)
@@ -273,7 +274,7 @@ pub async fn update_slot(
 
     tx.commit().await?;
 
-    Ok(Json(ActivitySlotWithTags {
+    Ok(Json(ActivitySlotWithTypes {
         id: slot.id,
         activity_id: slot.activity_id,
         slot_name: slot.slot_name,
@@ -283,7 +284,7 @@ pub async fn update_slot(
         notes: slot.notes,
         sort_order: slot.sort_order,
         default_item_id: slot.default_item_id,
-        tags,
+        types,
     }))
 }
 

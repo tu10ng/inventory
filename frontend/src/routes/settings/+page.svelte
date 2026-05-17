@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Category, Tag, Person, DisplayRule, AttributeDefinition, RelationType } from '$lib/types';
+	import type { Category, Type, Person, DisplayRule, AttributeDefinition, RelationType } from '$lib/types';
 
 	// ── Data ──
 	let categories = $state<Category[]>([]);
-	let tags = $state<Tag[]>([]);
+	let types = $state<Type[]>([]);
 	let people = $state<Person[]>([]);
 	let displayRules = $state<DisplayRule[]>([]);
 	let relationTypes = $state<RelationType[]>([]);
@@ -18,10 +18,10 @@
 	let editingCatId = $state<number | null>(null);
 	let catForm = $state({ name: '', icon: '', sort_order: 0 });
 
-	// ── Tag form ──
-	let showTagForm = $state(false);
-	let editingTagId = $state<number | null>(null);
-	let tagForm = $state({ name: '', category_id: 0, sort_order: 0 });
+	// ── Type form ──
+	let showTypeForm = $state(false);
+	let editingTypeId = $state<number | null>(null);
+	let typeForm = $state({ name: '', category_id: 0, parent_id: null as number | null, sort_order: 0 });
 
 	// ── Person form ──
 	let showPersonForm = $state(false);
@@ -60,15 +60,15 @@
 		try {
 			loading = true;
 			error = null;
-			[categories, tags, people, displayRules, relationTypes, attrDefs] = await Promise.all([
+			[categories, types, people, displayRules, relationTypes, attrDefs] = await Promise.all([
 				api.get<Category[]>('/categories'),
-				api.get<Tag[]>('/tags'),
+				api.get<Type[]>('/types'),
 				api.get<Person[]>('/people'),
 				api.get<DisplayRule[]>('/display-rules'),
 				api.get<RelationType[]>('/relation-types'),
 				api.get<AttributeDefinition[]>('/attribute-definitions')
 			]);
-			allColumns = [{ key: 'tag', label: '标签' }, ...attrDefs.map(a => ({ key: a.key, label: a.label }))];
+			allColumns = [{ key: 'type', label: '类型' }, ...attrDefs.map(a => ({ key: a.key, label: a.label }))];
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : '加载失败';
 		} finally {
@@ -101,7 +101,7 @@
 	}
 
 	async function removeCat(id: number) {
-		if (!confirm('删除分类？如果有物品或标签引用此分类，删除会失败。')) return;
+		if (!confirm('删除分类？如果有物品或类型引用此分类，删除会失败。')) return;
 		try {
 			await api.del(`/categories/${id}`);
 			await load();
@@ -110,43 +110,59 @@
 		}
 	}
 
-	// ── Tags ──
+	// ── Types ──
 
-	const tagsByCategory = $derived.by(() => {
-		const map = new Map<number, Tag[]>();
-		for (const t of tags) {
+	const typesByCategory = $derived.by(() => {
+		const map = new Map<number, Type[]>();
+		for (const t of types) {
 			if (!map.has(t.category_id)) map.set(t.category_id, []);
 			map.get(t.category_id)!.push(t);
 		}
 		return map;
 	});
 
-	function resetTagForm() {
-		tagForm = { name: '', category_id: categories[0]?.id ?? 0, sort_order: 0 };
-		editingTagId = null;
-		showTagForm = false;
-	}
-
-	function startEditTag(t: Tag) {
-		tagForm = { name: t.name, category_id: t.category_id, sort_order: t.sort_order };
-		editingTagId = t.id;
-		showTagForm = true;
-	}
-
-	async function saveTag() {
-		if (editingTagId) {
-			await api.put(`/tags/${editingTagId}`, tagForm);
-		} else {
-			await api.post('/tags', tagForm);
+	// Depth helper for tree display
+	function getTypeDepth(typeId: number): number {
+		let depth = 0;
+		let pid: number | null = types.find(t => t.id === typeId)?.parent_id ?? null;
+		while (pid != null) {
+			depth++;
+			pid = types.find(t => t.id === pid)?.parent_id ?? null;
 		}
-		resetTagForm();
+		return depth;
+	}
+
+	function resetTypeForm() {
+		typeForm = { name: '', category_id: categories[0]?.id ?? 0, parent_id: null, sort_order: 0 };
+		editingTypeId = null;
+		showTypeForm = false;
+	}
+
+	function startEditType(t: Type) {
+		typeForm = { name: t.name, category_id: t.category_id, parent_id: t.parent_id, sort_order: t.sort_order };
+		editingTypeId = t.id;
+		showTypeForm = true;
+	}
+
+	async function saveType() {
+		if (editingTypeId) {
+			await api.put(`/types/${editingTypeId}`, typeForm);
+		} else {
+			await api.post('/types', typeForm);
+		}
+		resetTypeForm();
 		await load();
 	}
 
-	async function removeTag(id: number) {
-		if (!confirm('删除标签？如果有物品引用此标签，删除会失败。')) return;
+	async function removeType(id: number) {
+		const children = types.filter(t => t.parent_id === id);
+		if (children.length > 0) {
+			alert(`无法删除：此类型下有 ${children.length} 个子类型（${children.map(c => c.name).join('、')}），请先删除子类型。`);
+			return;
+		}
+		if (!confirm('删除类型？如果有物品引用此类型，删除会失败。')) return;
 		try {
-			await api.del(`/tags/${id}`);
+			await api.del(`/types/${id}`);
 			await load();
 		} catch (e: unknown) {
 			alert('删除失败：' + (e instanceof Error ? e.message : '未知错误'));
@@ -312,51 +328,57 @@
 	{/if}
 </section>
 
-<!-- ── Section: Tags ── -->
+<!-- ── Section: Types ── -->
 <section class="settings-section">
 	<div class="section-header">
-		<h2>标签</h2>
-		<button class="primary small" onclick={() => { if (showTagForm && !editingTagId) resetTagForm(); else { resetTagForm(); showTagForm = true; } }} disabled={categories.length === 0}>
-			{showTagForm && !editingTagId ? '取消' : '+ 新建标签'}
+		<h2>类型</h2>
+		<button class="primary small" onclick={() => { if (showTypeForm && !editingTypeId) resetTypeForm(); else { resetTypeForm(); showTypeForm = true; } }} disabled={categories.length === 0}>
+			{showTypeForm && !editingTypeId ? '取消' : '+ 新建类型'}
 		</button>
 	</div>
 
 	{#if categories.length === 0}
 		<div class="card empty">请先创建分类</div>
 	{:else}
-		{#if showTagForm}
+		{#if showTypeForm}
 			<div class="card inline-form">
-				<input bind:value={tagForm.name} placeholder="标签名称" style="flex: 1;" />
-				<select bind:value={tagForm.category_id}>
+				<input bind:value={typeForm.name} placeholder="类型名称" style="flex: 1;" />
+				<select bind:value={typeForm.category_id}>
 					{#each categories as c}
 						<option value={c.id}>{c.icon} {c.name}</option>
 					{/each}
 				</select>
-				<input type="number" bind:value={tagForm.sort_order} placeholder="排序" style="width: 70px;" title="排序" />
-				<button class="primary" onclick={saveTag} disabled={!tagForm.name}>
-					{editingTagId ? '更新' : '创建'}
+				<select bind:value={typeForm.parent_id}>
+					<option value={null}>无（顶级类型）</option>
+					{#each types.filter(t => t.category_id === typeForm.category_id && t.id !== editingTypeId) as pt (pt.id)}
+						<option value={pt.id}>{'--'.repeat(getTypeDepth(pt.id))}{pt.name}</option>
+					{/each}
+				</select>
+				<input type="number" bind:value={typeForm.sort_order} placeholder="排序" style="width: 70px;" title="排序" />
+				<button class="primary" onclick={saveType} disabled={!typeForm.name}>
+					{editingTypeId ? '更新' : '创建'}
 				</button>
-				{#if editingTagId}
-					<button onclick={resetTagForm}>取消</button>
+				{#if editingTypeId}
+					<button onclick={resetTypeForm}>取消</button>
 				{/if}
 			</div>
 		{/if}
 
-		{#if tags.length === 0}
-			<div class="card empty">还没有标签</div>
+		{#if types.length === 0}
+			<div class="card empty">还没有类型</div>
 		{:else}
 			{#each categories as cat (cat.id)}
-				{@const catTags = tagsByCategory.get(cat.id)}
-				{#if catTags && catTags.length > 0}
-					<div class="tag-group">
-						<div class="tag-group-header">{cat.icon} {cat.name}</div>
-						<div class="tag-group-items">
-							{#each catTags as t (t.id)}
-								<div class="tag-item">
-									<span class="tag-name">{t.name}</span>
+				{@const catTypes = typesByCategory.get(cat.id)}
+				{#if catTypes && catTypes.length > 0}
+					<div class="type-group">
+						<div class="type-group-header">{cat.icon} {cat.name}</div>
+						<div class="type-group-items">
+							{#each catTypes as t (t.id)}
+								<div class="type-item" style="padding-left: {24 + getTypeDepth(t.id) * 16}px">
+									<span class="type-name">{'--'.repeat(getTypeDepth(t.id))}{t.name}</span>
 									<div class="list-actions">
-										<button class="small" onclick={() => startEditTag(t)}>编辑</button>
-										<button class="small danger" onclick={() => removeTag(t.id)}>删除</button>
+										<button class="small" onclick={() => startEditType(t)}>编辑</button>
+										<button class="small danger" onclick={() => removeType(t.id)}>删除</button>
 									</div>
 								</div>
 							{/each}
@@ -486,7 +508,7 @@
 				<label>分组依据</label>
 				<select bind:value={ruleForm.group_by_key}>
 					<option value="">无</option>
-					{#each allColumns.filter(c => c.key !== 'tag') as col}
+					{#each allColumns.filter(c => c.key !== 'type') as col}
 						<option value={col.key}>{col.label}</option>
 					{/each}
 				</select>
@@ -609,10 +631,10 @@
 		gap: 6px;
 		flex-shrink: 0;
 	}
-	.tag-group {
+	.type-group {
 		margin-bottom: 12px;
 	}
-	.tag-group-header {
+	.type-group-header {
 		font-weight: 600;
 		font-size: 14px;
 		color: var(--text-secondary);
@@ -620,21 +642,21 @@
 		background: var(--surface);
 		border-bottom: 1px solid var(--border);
 	}
-	.tag-group-items {
+	.type-group-items {
 		display: flex;
 		flex-direction: column;
 	}
-	.tag-item {
+	.type-item {
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		padding: 6px 14px 6px 28px;
+		padding: 6px 14px;
 		border-bottom: 1px solid var(--border);
 	}
-	.tag-item:last-child {
+	.type-item:last-child {
 		border-bottom: none;
 	}
-	.tag-name {
+	.type-name {
 		flex: 1;
 	}
 	.spinner {

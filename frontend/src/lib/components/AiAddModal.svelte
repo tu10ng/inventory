@@ -1,21 +1,21 @@
 <script lang="ts">
-	import type { Category, Tag, AiParsedItem, AttributeDefinition } from '$lib/types';
+	import type { Category, Type, AiParsedItem, AttributeDefinition } from '$lib/types';
 	import { aiPostStream } from '$lib/api/client';
 
 	let {
 		categories,
-		tags,
+		types,
 		onConfirm,
 		onClose,
-		onNewTags,
+		onNewTypes,
 		onNewAttrs,
 		prefillAiText = ''
 	}: {
 		categories: Category[];
-		tags: Tag[];
+		types: Type[];
 		onConfirm: (items: AiParsedItem[]) => void;
 		onClose: () => void;
-		onNewTags?: (tags: Tag[]) => void;
+		onNewTypes?: (types: Type[]) => void;
 		onNewAttrs?: (attrs: AttributeDefinition[]) => void;
 		prefillAiText?: string;
 	} = $props();
@@ -52,13 +52,13 @@
 				onProgress(msg: string) {
 					progressMsg = msg;
 				},
-				onResult(data: { items: AiParsedItem[]; new_tags: Tag[]; new_attr_defs?: AttributeDefinition[] }) {
+				onResult(data: { items: AiParsedItem[]; new_types: Type[]; new_attr_defs?: AttributeDefinition[] }) {
 					parsedItems = data.items.map(item => ({
 						...item,
 						attrs: item.attrs || {}
 					}));
-					if (data.new_tags && data.new_tags.length > 0) {
-						onNewTags?.(data.new_tags);
+					if (data.new_types && data.new_types.length > 0) {
+						onNewTypes?.(data.new_types);
 					}
 					if (data.new_attr_defs && data.new_attr_defs.length > 0) {
 						onNewAttrs?.(data.new_attr_defs);
@@ -106,28 +106,28 @@
 		return categories.find(c => c.id === catId)?.name ?? '-';
 	}
 
-	function getTagName(tagId: number | null): string {
-		if (tagId == null) return '-';
-		return tags.find(t => t.id === tagId)?.name ?? '-';
+	function getTypeName(typeId: number | null): string {
+		if (typeId == null) return '-';
+		return types.find(t => t.id === typeId)?.name ?? '-';
 	}
 
 	function handleCategoryChange(index: number, value: string) {
 		const catId = parseInt(value);
 		parsedItems[index].category_id = isNaN(catId) ? null : catId;
-		const currentTag = tags.find(t => t.id === parsedItems[index].tag_id);
-		if (currentTag && currentTag.category_id !== catId) {
-			parsedItems[index].tag_id = null;
+		const currentType = types.find(t => t.id === parsedItems[index].type_id);
+		if (currentType && currentType.category_id !== catId) {
+			parsedItems[index].type_id = null;
 		}
 	}
 
-	function handleTagChange(index: number, value: string) {
-		const tagId = parseInt(value);
-		parsedItems[index].tag_id = isNaN(tagId) ? null : tagId;
+	function handleTypeChange(index: number, value: string) {
+		const typeId = parseInt(value);
+		parsedItems[index].type_id = isNaN(typeId) ? null : typeId;
 	}
 
-	function availableTags(catId: number | null): Tag[] {
-		if (catId == null) return tags;
-		return tags.filter(t => t.category_id === catId);
+	function availableTypes(catId: number | null): Type[] {
+		if (catId == null) return types;
+		return types.filter(t => t.category_id === catId);
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -200,7 +200,7 @@
 									<th>品牌</th>
 									<th>型号</th>
 									<th>分类</th>
-									<th>标签</th>
+									<th>类型</th>
 									<th></th>
 								</tr>
 							</thead>
@@ -230,13 +230,13 @@
 										</td>
 										<td>
 											<select
-												value={item.tag_id?.toString() ?? ''}
-												onchange={(e) => handleTagChange(i, e.currentTarget.value)}
+												value={item.type_id?.toString() ?? ''}
+												onchange={(e) => handleTypeChange(i, e.currentTarget.value)}
 												class="cell-select"
 											>
 												<option value="">-</option>
-												{#each availableTags(item.category_id) as tag}
-													<option value={tag.id.toString()}>{tag.name}</option>
+												{#each availableTypes(item.category_id) as type}
+													<option value={type.id.toString()}>{type.name}</option>
 												{/each}
 											</select>
 										</td>

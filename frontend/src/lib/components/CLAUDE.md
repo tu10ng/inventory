@@ -16,14 +16,14 @@
 | `ChecklistPanel.svelte` | 左栏：进度条 + 提示 + 分类清单 + 添加/批量操作 | `trip, tripItems(bindable), allItems, categories, tips, people, onPopulate, onResync` |
 | `InventoryPanel.svelte` | 右栏：暗色物品库，搜索/分类筛选 + 卡片网格 | `items, categories, tripItemIds, onAddItem` |
 | `PanelContainer.svelte` | 右面板 sticky 容器（Snippet children） | `children: Snippet` |
-| `ItemDetailPanel.svelte` | 物品详情面板：属性/统计/标签展示 | `item, categories, tags, usageCount, onEdit, onDelete` |
-| `ItemForm.svelte` | 物品创建/编辑表单 | `item?, categories, tags, onSave, onCancel` |
+| `ItemDetailPanel.svelte` | 物品详情面板：属性/统计/类型展示 | `item, categories, types, usageCount, onEdit, onDelete` |
+| `ItemForm.svelte` | 物品创建/编辑表单 | `item?, categories, types, onSave, onCancel` |
 
 ### 列表组件
 
 | 组件 | 职责 | 关键 props |
 |------|------|-----------|
-| `ItemListTable.svelte` | 物品库表格：按分类分组 + 可折叠 + 多列渲染（text/number/bool/bar/stars/tag/weight） | `items, categories, tags, usageStats, visibleColumns, selectedItemId, collapsedCategories, onSelect, onToggleCategory` |
+| `ItemListTable.svelte` | 物品库表格：按分类分组 + 可折叠 + 多列渲染（text/number/bool/bar/stars/type/weight） | `items, categories, types, usageStats, visibleColumns, selectedItemId, collapsedCategories, onSelect, onToggleCategory` |
 | `ColumnPicker.svelte` | 列选择下拉：齿轮按钮 + checkbox 列表，持久化到 localStorage | `visibleKeys(bindable)` |
 
 ### 行级组件

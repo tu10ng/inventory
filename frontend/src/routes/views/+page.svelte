@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Item, Category, Tag, AttributeDefinition, DisplayRule, DisplayRuleConfig } from '$lib/types';
+	import type { Item, Category, Type, AttributeDefinition, DisplayRule, DisplayRuleConfig } from '$lib/types';
 	import { parseDisplayRuleConfig } from '$lib/types';
 	import ItemListTable from '$lib/components/ItemListTable.svelte';
 	import { loadAllColumns } from '$lib/utils/columns';
@@ -10,7 +10,7 @@
 
 	let items = $state<Item[]>([]);
 	let categories = $state<Category[]>([]);
-	let tags = $state<Tag[]>([]);
+	let types = $state<Type[]>([]);
 	let attrDefs = $state<AttributeDefinition[]>([]);
 	let allColumns = $state<ItemColumnDef[]>([]);
 	let displayRules = $state<DisplayRule[]>([]);
@@ -35,16 +35,16 @@
 		try {
 			loading = true;
 			error = null;
-			const [itemsData, cats, tagsData, adefs, cols] = await Promise.all([
+			const [itemsData, cats, typesData, adefs, cols] = await Promise.all([
 				api.get<Item[]>('/items'),
 				api.get<Category[]>('/categories'),
-				api.get<Tag[]>('/tags'),
+				api.get<Type[]>('/types'),
 				api.get<AttributeDefinition[]>('/attribute-definitions'),
 				loadAllColumns()
 			]);
 			items = itemsData;
 			categories = cats;
-			tags = tagsData;
+			types = typesData;
 			attrDefs = adefs;
 			allColumns = cols;
 			try {
@@ -110,8 +110,8 @@
 		columnFilters = next;
 	}
 
-	const filteredItems = $derived(filterItems(items, search, filterCategoryId, columnFilters, allColumns, tags));
-	const sortedItems = $derived(sortItems(filteredItems, sortKey, sortDir, tags));
+	const filteredItems = $derived(filterItems(items, search, filterCategoryId, columnFilters, allColumns, types));
+	const sortedItems = $derived(sortItems(filteredItems, sortKey, sortDir, types));
 
 	const groupBy = $derived(
 		groupByKey
@@ -125,7 +125,7 @@
 		for (const cat of categories) {
 			const catItems = sortedItems.filter(i => i.category_id === cat.id);
 			if (catItems.length > 0) {
-				map.set(cat.id, groupItems(catItems, groupByKey, allColumns, tags));
+				map.set(cat.id, groupItems(catItems, groupByKey, allColumns, types));
 			}
 		}
 		return map;
@@ -203,7 +203,7 @@
 			<ItemListTable
 				items={sortedItems}
 				{categories}
-				{tags}
+				{types}
 				visibleColumns={visibleKeys.length > 0 ? allColumns.filter(c => visibleKeys.includes(c.key)) : allColumns.filter(c => ['name', 'brand', 'model', 'weight'].includes(c.key))}
 				selectedItemId={null}
 				{collapsedCategories}

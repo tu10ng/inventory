@@ -1,19 +1,19 @@
 <script lang="ts">
-	import type { Item, Tag } from '$lib/types';
+	import type { Item } from '$lib/types';
 	import type { ItemColumnDef } from '$lib/utils/columns';
 	import { getCellValue } from '$lib/utils/cellValue';
 
-	let { item, col, tag }: {
+	let { item, col, typeDisplay }: {
 		item: Item;
 		col: ItemColumnDef;
-		tag?: Tag | null;
+		typeDisplay?: string;
 	} = $props();
 </script>
 
 <span class="cell cell-{col.type}">
-	{#if col.type === 'tag'}
-		{#if tag}
-			<span class="cell-pill">{tag.name}</span>
+	{#if col.type === 'type'}
+		{#if typeDisplay}
+			<span class="cell-pill">{typeDisplay}</span>
 		{:else}
 			<span class="cell-empty">-</span>
 		{/if}

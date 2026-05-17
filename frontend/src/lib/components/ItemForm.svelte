@@ -1,13 +1,13 @@
 <script lang="ts">
-	import type { Item, Category, Tag, AttributeDefinition } from '$lib/types';
+	import type { Item, Category, Type, AttributeDefinition } from '$lib/types';
 	import { itemName } from '$lib/types';
 	import { getAttrConfig } from '$lib/utils/attrs';
 	import { attrMatchesScope } from '$lib/utils/columns';
 
-	let { item = null, categories, tags, attrDefs = [], onSave, onCancel }: {
+	let { item = null, categories, types, attrDefs = [], onSave, onCancel }: {
 		item?: Partial<Item> | null;
 		categories: Category[];
-		tags: Tag[];
+		types: Type[];
 		attrDefs?: AttributeDefinition[];
 		onSave: (data: Record<string, unknown>) => void;
 		onCancel: () => void;
@@ -16,13 +16,40 @@
 	// svelte-ignore state_referenced_locally
 	let category_id = $state(item?.category_id ?? categories[0]?.id ?? 0);
 	// svelte-ignore state_referenced_locally
-	let tag_id = $state<number | null>(item?.tag_id ?? null);
+	let type_id = $state<number | null>(item?.type_id ?? null);
 
 	// Unified attrs: name, brand, model, default_qty, notes all live here
 	// svelte-ignore state_referenced_locally
 	let attrs = $state<Record<string, unknown>>({ ...(item?.attrs ?? {}) });
 
-	const categoryTags = $derived(tags.filter(t => t.category_id === category_id));
+	const categoryTypes = $derived(types.filter(t => t.category_id === category_id));
+
+	// Build depth map for tree indentation
+	const typeDepthMap = $derived.by(() => {
+		const map = new Map<number, number>();
+		for (const t of types) {
+			let d = 0;
+			let pid: number | null = t.parent_id;
+			while (pid != null) { d++; pid = types.find(p => p.id === pid)?.parent_id ?? null; }
+			map.set(t.id, d);
+		}
+		return map;
+	});
+
+	function typeDisplayName(t: Type): string {
+		const depth = typeDepthMap.get(t.id) ?? 0;
+		return '--'.repeat(depth) + t.name;
+	}
+
+	// When category changes, auto-clear type if not in new category
+	$effect(() => {
+		if (type_id != null) {
+			const t = types.find(t => t.id === type_id);
+			if (t && t.category_id !== category_id && category_id > 0) {
+				type_id = null;
+			}
+		}
+	});
 
 	// Current item_type value
 	const itemType = $derived(String(attrs.item_type ?? '') || '实体');
@@ -30,7 +57,7 @@
 	// Scoped attribute definitions (registered + matching scope)
 	const scopedAttrDefs = $derived(
 		attrDefs
-			.filter(ad => attrMatchesScope(ad, category_id, tag_id))
+			.filter(ad => attrMatchesScope(ad, category_id, type_id))
 			.filter(ad => {
 				// Virtual-item-specific attributes only show when item_type is '虚拟'
 				if (ad.key === 'expiry_date' || ad.key === 'file_url') {
@@ -51,10 +78,10 @@
 		Object.keys(attrs).filter(k => !allDefKeys.has(k))
 	);
 
-	function onTagChange(newTagId: number | null) {
-		tag_id = newTagId;
-		if (newTagId) {
-			const t = tags.find(t => t.id === newTagId);
+	function onTypeChange(newTypeId: number | null) {
+		type_id = newTypeId;
+		if (newTypeId) {
+			const t = types.find(t => t.id === newTypeId);
 			if (t) category_id = t.category_id;
 		}
 	}
@@ -109,7 +136,7 @@
 
 	function handleSave() {
 		onSave({
-			category_id, tag_id, attrs,
+			category_id, type_id, attrs,
 		});
 	}
 
@@ -137,16 +164,16 @@
 			</select>
 		</div>
 		<div class="form-group" style="flex:1">
-			<label for="item-form-tag">标签</label>
-			<select id="item-form-tag" value={tag_id ?? ''} onchange={(e) => onTagChange(e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
-				<option value="">无标签</option>
-				{#each categoryTags as t}
-					<option value={t.id}>{t.name}</option>
+			<label for="item-form-type">类型</label>
+			<select id="item-form-type" value={type_id ?? ''} onchange={(e) => onTypeChange(e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
+				<option value="">无类型</option>
+				{#each categoryTypes as t}
+					<option value={t.id}>{typeDisplayName(t)}</option>
 				{/each}
-				{#if tag_id && !categoryTags.find(t => t.id === tag_id)}
-					{@const otherTag = tags.find(t => t.id === tag_id)}
-					{#if otherTag}
-						<option value={otherTag.id}>{otherTag.name} (其他分类)</option>
+				{#if type_id && !categoryTypes.find(t => t.id === type_id)}
+					{@const otherType = types.find(t => t.id === type_id)}
+					{#if otherType}
+						<option value={otherType.id}>{otherType.name} (其他分类)</option>
 					{/if}
 				{/if}
 			</select>

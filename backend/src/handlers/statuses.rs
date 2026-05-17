@@ -39,7 +39,7 @@ pub async fn create(
         return Err(AppError::validation("状态值不能为空"));
     }
     if body.label.trim().is_empty() {
-        return Err(AppError::validation("状态标签不能为空"));
+        return Err(AppError::validation("状态类型不能为空"));
     }
     let row = sqlx::query_as::<_, StatusDefinition>(
         "INSERT INTO status_definitions (scope, value, label, color, icon, sort_order) VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
@@ -77,7 +77,7 @@ pub async fn update(
         return Err(AppError::validation("状态值不能为空"));
     }
     if label.trim().is_empty() {
-        return Err(AppError::validation("状态标签不能为空"));
+        return Err(AppError::validation("状态类型不能为空"));
     }
 
     let row = sqlx::query_as::<_, StatusDefinition>(

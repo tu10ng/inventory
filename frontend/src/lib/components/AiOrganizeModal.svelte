@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type {
 		Category,
-		Tag,
+		Type,
 		Item,
 		OrganizeAction,
 		OrganizePreviewResponse,
@@ -13,21 +13,21 @@
 	let {
 		items,
 		categories,
-		tags,
+		types,
 		attrDefs = [],
 		itemIds = undefined,
 		onDone,
 		onClose,
-		onNewTags
+		onNewTypes
 	}: {
 		items: Item[];
 		categories: Category[];
-		tags: Tag[];
+		types: Type[];
 		attrDefs?: AttributeDefinition[];
 		itemIds?: number[];
 		onDone: () => void;
 		onClose: () => void;
-		onNewTags?: (tags: Tag[]) => void;
+		onNewTypes?: (types: Type[]) => void;
 	} = $props();
 
 	const isSelectiveMode = $derived(itemIds != null && itemIds.length > 0);
@@ -54,9 +54,9 @@
 		return categories.find((c) => c.id === catId)?.name ?? '';
 	}
 
-	function getTagName(tagId: number | undefined | null): string {
-		if (tagId == null) return '';
-		return tags.find((t) => t.id === tagId)?.name ?? '';
+	function getTypeName(typeId: number | undefined | null): string {
+		if (typeId == null) return '';
+		return types.find((t) => t.id === typeId)?.name ?? '';
 	}
 
 	async function loadPreview() {
@@ -66,8 +66,8 @@
 			const body = isSelectiveMode ? { item_ids: itemIds } : {};
 			const resp = await api.post<OrganizePreviewResponse>('/ai/organize-preview', body);
 			actions = resp.actions;
-			if (resp.new_tags.length > 0) {
-				onNewTags?.(resp.new_tags);
+			if (resp.new_types.length > 0) {
+				onNewTypes?.(resp.new_types);
 			}
 			// Select all by default
 			selected = new Set(actions.map((_, i) => i));
@@ -250,14 +250,14 @@
 													>
 												</div>
 											{/if}
-											{#if action.fields.tag_name != null || action.fields.tag_id !== undefined}
+											{#if action.fields.type_name != null || action.fields.type_id !== undefined}
 												<div class="diff-row">
-													<span class="diff-label">标签</span>
-													<span class="diff-old">{getTagName(item?.tag_id) || '-'}</span>
+													<span class="diff-label">类型</span>
+													<span class="diff-old">{getTypeName(item?.type_id) || '-'}</span>
 													<span class="diff-arrow">→</span>
 													<span class="diff-new"
-														>{action.fields.tag_name ||
-															getTagName(action.fields.tag_id) ||
+														>{action.fields.type_name ||
+															getTypeName(action.fields.type_id) ||
 															'-'}</span
 													>
 												</div>

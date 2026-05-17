@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import CategoryGroup from '$lib/components/CategoryGroup.svelte';
-	import type { Activity, ActivitySlotWithTags, ActivityIncludeEnriched, Tag, Tip, Category } from '$lib/types';
+	import type { Activity, ActivitySlotWithTypes, ActivityIncludeEnriched, Type, Tip, Category } from '$lib/types';
 
 	let activities = $state<Activity[]>([]);
-	let tags = $state<Tag[]>([]);
+	let types = $state<Type[]>([]);
 	let categories = $state<Category[]>([]);
 	let showForm = $state(false);
 	let editingId = $state<number | null>(null);
@@ -14,7 +14,7 @@
 
 	// Detail view
 	let selectedId = $state<number | null>(null);
-	let slots = $state<ActivitySlotWithTags[]>([]);
+	let slots = $state<ActivitySlotWithTypes[]>([]);
 	let tips = $state<Tip[]>([]);
 	let newTip = $state('');
 
@@ -23,7 +23,7 @@
 	let showIncludeAdd = $state(false);
 	let includeSearch = $state('');
 	let expandedIncludes = $state<Set<number>>(new Set());
-	let includedSlots = $state<Map<number, ActivitySlotWithTags[]>>(new Map());
+	let includedSlots = $state<Map<number, ActivitySlotWithTypes[]>>(new Map());
 
 	// Slot form
 	let showSlotForm = $state(false);
@@ -35,16 +35,16 @@
 		default_qty: 1,
 		notes: '',
 		sort_order: 0,
-		tag_ids: [] as number[]
+		type_ids: [] as number[]
 	});
 
 	async function load() {
 		try {
 			loading = true;
 			error = null;
-			[activities, tags, categories] = await Promise.all([
+			[activities, types, categories] = await Promise.all([
 				api.get<Activity[]>('/activities'),
-				api.get<Tag[]>('/tags'),
+				api.get<Type[]>('/types'),
 				api.get<Category[]>('/categories')
 			]);
 		} catch (e) {
@@ -94,7 +94,7 @@
 		try {
 			selectedId = id;
 			[slots, tips, includes] = await Promise.all([
-				api.get<ActivitySlotWithTags[]>(`/activities/${id}/slots`),
+				api.get<ActivitySlotWithTypes[]>(`/activities/${id}/slots`),
 				api.get<Tip[]>(`/activities/${id}/tips`),
 				api.get<ActivityIncludeEnriched[]>(`/activities/${id}/includes`)
 			]);
@@ -115,13 +115,13 @@
 			default_qty: 1,
 			notes: '',
 			sort_order: slots.length,
-			tag_ids: []
+			type_ids: []
 		};
 		editingSlotId = null;
 		showSlotForm = false;
 	}
 
-	function startEditSlot(slot: ActivitySlotWithTags) {
+	function startEditSlot(slot: ActivitySlotWithTypes) {
 		slotForm = {
 			slot_name: slot.slot_name,
 			category_id: slot.category_id,
@@ -129,7 +129,7 @@
 			default_qty: slot.default_qty,
 			notes: slot.notes,
 			sort_order: slot.sort_order,
-			tag_ids: slot.tags.map(t => t.id)
+			type_ids: slot.types.map(t => t.id)
 		};
 		editingSlotId = slot.id;
 		showSlotForm = true;
@@ -144,7 +144,7 @@
 				await api.post(`/activities/${selectedId}/slots`, slotForm);
 			}
 			resetSlotForm();
-			slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
+			slots = await api.get<ActivitySlotWithTypes[]>(`/activities/${selectedId}/slots`);
 		} catch (e) {
 			alert((e as Error).message);
 		}
@@ -154,29 +154,29 @@
 		try {
 			await api.del(`/activity-slots/${id}`);
 			if (selectedId) {
-				slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
+				slots = await api.get<ActivitySlotWithTypes[]>(`/activities/${selectedId}/slots`);
 			}
 		} catch (e) {
 			alert((e as Error).message);
 		}
 	}
 
-	async function toggleSlotEssential(slot: ActivitySlotWithTags) {
+	async function toggleSlotEssential(slot: ActivitySlotWithTypes) {
 		try {
 			await api.put(`/activity-slots/${slot.id}`, { is_essential: !slot.is_essential });
 			if (selectedId) {
-				slots = await api.get<ActivitySlotWithTags[]>(`/activities/${selectedId}/slots`);
+				slots = await api.get<ActivitySlotWithTypes[]>(`/activities/${selectedId}/slots`);
 			}
 		} catch (e) {
 			alert((e as Error).message);
 		}
 	}
 
-	function toggleTagId(tagId: number) {
-		if (slotForm.tag_ids.includes(tagId)) {
-			slotForm.tag_ids = slotForm.tag_ids.filter(id => id !== tagId);
+	function toggleTypeId(typeId: number) {
+		if (slotForm.type_ids.includes(typeId)) {
+			slotForm.type_ids = slotForm.type_ids.filter(id => id !== typeId);
 		} else {
-			slotForm.tag_ids = [...slotForm.tag_ids, tagId];
+			slotForm.type_ids = [...slotForm.type_ids, typeId];
 		}
 	}
 
@@ -238,7 +238,7 @@
 			expandedIncludes = new Set([...expandedIncludes, incId]);
 			if (!includedSlots.has(incId)) {
 				try {
-					const s = await api.get<ActivitySlotWithTags[]>(`/activities/${inc.included_activity_id}/slots`);
+					const s = await api.get<ActivitySlotWithTypes[]>(`/activities/${inc.included_activity_id}/slots`);
 					includedSlots = new Map(includedSlots).set(incId, s);
 				} catch {
 					// ignore
@@ -258,17 +258,17 @@
 
 	// ── Helpers ──
 
-	const slotFormTags = $derived.by(() => {
-		return tags.filter(t => t.category_id === slotForm.category_id);
+	const slotFormTypes = $derived.by(() => {
+		return types.filter(t => t.category_id === slotForm.category_id);
 	});
 
 	const groupedSlots = $derived.by(() => {
-		const catMap = new Map<number, ActivitySlotWithTags[]>();
+		const catMap = new Map<number, ActivitySlotWithTypes[]>();
 		for (const slot of slots) {
 			if (!catMap.has(slot.category_id)) catMap.set(slot.category_id, []);
 			catMap.get(slot.category_id)!.push(slot);
 		}
-		const groups: { category: Category; slots: ActivitySlotWithTags[] }[] = [];
+		const groups: { category: Category; slots: ActivitySlotWithTypes[] }[] = [];
 		for (const cat of categories) {
 			const catSlots = catMap.get(cat.id);
 			if (catSlots && catSlots.length > 0) {
@@ -376,19 +376,19 @@
 								<input type="number" bind:value={slotForm.default_qty} min="1" style="width: 50px;" />
 							</label>
 						</div>
-						<div class="tag-select">
-							<span class="tag-select-label">接受标签：</span>
-							{#each slotFormTags as t}
+						<div class="type-select">
+							<span class="type-select-label">接受类型：</span>
+							{#each slotFormTypes as t}
 								<button
-									class="tag-chip"
-									class:selected={slotForm.tag_ids.includes(t.id)}
-									onclick={() => toggleTagId(t.id)}
+									class="type-chip"
+									class:selected={slotForm.type_ids.includes(t.id)}
+									onclick={() => toggleTypeId(t.id)}
 								>
 									{t.name}
 								</button>
 							{/each}
-							{#if slotFormTags.length === 0}
-								<span style="color: var(--text-secondary); font-size: 13px;">该分类无标签</span>
+							{#if slotFormTypes.length === 0}
+								<span style="color: var(--text-secondary); font-size: 13px;">该分类无类型</span>
 							{/if}
 						</div>
 						<input bind:value={slotForm.notes} placeholder="备注" />
@@ -426,9 +426,9 @@
 										{/if}
 									</div>
 								</div>
-								<div class="slot-tags">
-									{#each slot.tags as t}
-										<span class="tag-chip-small">{t.name}</span>
+								<div class="slot-types">
+									{#each slot.types as t}
+										<span class="type-chip-small">{t.name}</span>
 									{/each}
 								</div>
 								<div class="slot-actions">
@@ -546,18 +546,18 @@
 		font-size: 14px;
 		white-space: nowrap;
 	}
-	.tag-select {
+	.type-select {
 		display: flex;
 		align-items: center;
 		gap: 6px;
 		flex-wrap: wrap;
 	}
-	.tag-select-label {
+	.type-select-label {
 		font-size: 13px;
 		color: var(--text-secondary);
 		white-space: nowrap;
 	}
-	.tag-chip {
+	.type-chip {
 		font-size: 12px;
 		padding: 2px 8px;
 		border-radius: 12px;
@@ -565,12 +565,12 @@
 		background: var(--surface);
 		cursor: pointer;
 	}
-	.tag-chip.selected {
+	.type-chip.selected {
 		background: var(--primary);
 		color: white;
 		border-color: var(--primary);
 	}
-	.tag-chip-small {
+	.type-chip-small {
 		font-size: 11px;
 		padding: 1px 6px;
 		border-radius: 8px;
@@ -605,7 +605,7 @@
 		color: var(--text-secondary);
 		font-size: 13px;
 	}
-	.slot-tags {
+	.slot-types {
 		display: flex;
 		gap: 4px;
 		flex-wrap: wrap;

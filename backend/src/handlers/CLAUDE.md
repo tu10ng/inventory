@@ -15,6 +15,7 @@
 | `ai.rs` | AI 功能 | `parse_items`, `parse_items_stream`, `organize_preview`, `organize_apply` |
 | `ocr.rs` | OCR 图片识别 | `ocr_images` |
 | `attributes.rs` | 属性定义 | CRUD |
+| `types.rs` | 物品类型（原标签） | `GET/POST /api/types`, `PUT/DELETE /api/types/{id}`, `GET /api/types/tree` |
 | `statuses.rs` | 状态定义 | CRUD |
 | `mod.rs` | 路由注册 | `pub fn router() -> Router<SqlitePool>` |
 
@@ -22,6 +23,13 @@
 
 ### categories.rs
 - `list` / `create` / `update` / `delete` — 标准 CRUD
+
+### types.rs
+- `list` / `create` / `update` / `delete` — 标准 CRUD
+- `tree()` — `GET /api/types/tree`，返回 `Vec<TypeTreeNode>`（树形层级）
+- `create` 校验 `parent_id` 存在且 category_id 一致
+- `delete` 拒绝有子类型的父类型
+- `update` 校验循环引用
 
 ### items.rs
 - `list` / `get` / `create` / `update` / `delete` — 标准 CRUD
@@ -63,8 +71,8 @@
 - `call_llm_stream()` — 流式 LLM 调用，通过 channel 发送 `SseEvent::Thinking`
 - `build_system_prompt()` / `build_streaming_system_prompt()` — 构建 prompt
 - `extract_items_from_text()` — 从 LLM 输出中提取 JSON（`---JSON---` 分隔）
-- `resolve_parsed_item()` / `resolve_category_id()` / `resolve_tag_id()` — 将 AI 输出的名称映射到数据库 ID
-- `auto_create_tags_for_items()` — 自动为 AI 返回的新标签创建记录
+- `resolve_parsed_item()` / `resolve_category_id()` / `resolve_type_id()` — 将 AI 输出的名称映射到数据库 ID
+- `auto_create_types_for_items()` — 自动为 AI 返回的新类型创建记录
 
 ## 添加新端点步骤
 

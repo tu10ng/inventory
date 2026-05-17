@@ -9,7 +9,7 @@ pub mod ocr;
 pub mod people;
 pub mod relations;
 pub mod statuses;
-pub mod tags;
+pub mod types;
 pub mod trip_items;
 pub mod trips;
 
@@ -22,9 +22,10 @@ pub fn router() -> Router<SqlitePool> {
         // Categories
         .route("/api/categories", get(categories::list).post(categories::create))
         .route("/api/categories/{id}", put(categories::update).delete(categories::delete))
-        // Tags
-        .route("/api/tags", get(tags::list).post(tags::create))
-        .route("/api/tags/{id}", put(tags::update).delete(tags::delete))
+        // Types — tree MUST be before {id}
+        .route("/api/types/tree", get(types::tree))
+        .route("/api/types", get(types::list).post(types::create))
+        .route("/api/types/{id}", put(types::update).delete(types::delete))
         // Excel import
         .route("/api/import/excel-preview", post(excel::excel_preview))
         // Items — literal paths BEFORE {id}
