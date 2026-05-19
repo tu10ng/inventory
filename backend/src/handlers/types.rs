@@ -7,7 +7,7 @@ use crate::models::{CreateType, Type, TypeTreeNode, UpdateType};
 
 pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Type>>, AppError> {
     let rows = sqlx::query_as::<_, Type>(
-        "SELECT * FROM types ORDER BY category_id, COALESCE(parent_id, id), sort_order, id"
+        "SELECT id, name, sort_order, parent_id FROM types ORDER BY COALESCE(parent_id, id), sort_order, id"
     )
         .fetch_all(&pool)
         .await?;
@@ -15,7 +15,7 @@ pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Type>>, App
 }
 
 pub async fn tree(State(pool): State<SqlitePool>) -> Result<Json<Vec<TypeTreeNode>>, AppError> {
-    let all_types = sqlx::query_as::<_, Type>("SELECT * FROM types ORDER BY category_id, sort_order, id")
+    let all_types = sqlx::query_as::<_, Type>("SELECT id, name, sort_order, parent_id FROM types ORDER BY COALESCE(parent_id, id), sort_order, id")
         .fetch_all(&pool)
         .await?;
 
@@ -26,7 +26,6 @@ pub async fn tree(State(pool): State<SqlitePool>) -> Result<Json<Vec<TypeTreeNod
         map.insert(t.id, TypeTreeNode {
             id: t.id,
             name: t.name.clone(),
-            category_id: t.category_id,
             sort_order: t.sort_order,
             parent_id: t.parent_id,
             children: Vec::new(),
@@ -51,7 +50,7 @@ pub async fn tree(State(pool): State<SqlitePool>) -> Result<Json<Vec<TypeTreeNod
         roots.push(node);
     }
 
-    roots.sort_by_key(|n| (n.category_id, n.sort_order, n.id));
+    roots.sort_by_key(|n| (n.sort_order, n.id));
     Ok(Json(roots))
 }
 
@@ -61,23 +60,19 @@ pub async fn create(
 ) -> Result<Json<Type>, AppError> {
     body.validate()?;
 
-    // Validate parent_id: parent must exist and have same category_id
+    // Validate parent_id exists
     if let Some(pid) = body.parent_id {
-        let parent = sqlx::query_as::<_, Type>("SELECT * FROM types WHERE id = ?")
+        sqlx::query_as::<_, Type>("SELECT id, name, sort_order, parent_id FROM types WHERE id = ?")
             .bind(pid)
             .fetch_optional(&pool)
             .await?
             .ok_or_else(|| AppError::not_found("父类型", pid))?;
-        if parent.category_id != body.category_id {
-            return Err(AppError::validation("子类型必须与父类型属于同一分类"));
-        }
     }
 
     let row = sqlx::query_as::<_, Type>(
-        "INSERT INTO types (name, category_id, sort_order, parent_id) VALUES (?, ?, ?, ?) RETURNING *",
+        "INSERT INTO types (name, sort_order, parent_id) VALUES (?, ?, ?) RETURNING id, name, sort_order, parent_id",
     )
     .bind(&body.name)
-    .bind(body.category_id)
     .bind(body.sort_order)
     .bind(body.parent_id)
     .fetch_one(&pool)
@@ -90,14 +85,13 @@ pub async fn update(
     Path(id): Path<i64>,
     Json(body): Json<UpdateType>,
 ) -> Result<Json<Type>, AppError> {
-    let existing = sqlx::query_as::<_, Type>("SELECT * FROM types WHERE id = ?")
+    let existing = sqlx::query_as::<_, Type>("SELECT id, name, sort_order, parent_id FROM types WHERE id = ?")
         .bind(id)
         .fetch_optional(&pool)
         .await?
         .ok_or_else(|| AppError::not_found("类型", id))?;
 
     let name = body.name.unwrap_or(existing.name);
-    let category_id = body.category_id.unwrap_or(existing.category_id);
     let sort_order = body.sort_order.unwrap_or(existing.sort_order);
     let parent_id = body.parent_id.unwrap_or(existing.parent_id);
 
@@ -108,21 +102,18 @@ pub async fn update(
     // Validate parent_id if changed
     if let Some(Some(pid)) = body.parent_id {
         if pid != id {
-            let parent = sqlx::query_as::<_, Type>("SELECT * FROM types WHERE id = ?")
+            sqlx::query_as::<_, Type>("SELECT id, name, sort_order, parent_id FROM types WHERE id = ?")
                 .bind(pid)
                 .fetch_optional(&pool)
                 .await?
                 .ok_or_else(|| AppError::not_found("父类型", pid))?;
-            if parent.category_id != category_id {
-                return Err(AppError::validation("子类型必须与父类型属于同一分类"));
-            }
             // Check for cycles: ensure pid is not a descendant of id
             let mut current = Some(pid);
             while let Some(cid) = current {
                 if cid == id {
                     return Err(AppError::validation("不能将自己或子类型的后代设为父类型（循环引用）"));
                 }
-                let ancestor = sqlx::query_as::<_, Type>("SELECT * FROM types WHERE id = ?")
+                let ancestor = sqlx::query_as::<_, Type>("SELECT id, name, sort_order, parent_id FROM types WHERE id = ?")
                     .bind(cid)
                     .fetch_optional(&pool)
                     .await?;
@@ -132,10 +123,9 @@ pub async fn update(
     }
 
     let row = sqlx::query_as::<_, Type>(
-        "UPDATE types SET name = ?, category_id = ?, sort_order = ?, parent_id = ? WHERE id = ? RETURNING *",
+        "UPDATE types SET name = ?, sort_order = ?, parent_id = ? WHERE id = ? RETURNING id, name, sort_order, parent_id",
     )
     .bind(&name)
-    .bind(category_id)
     .bind(sort_order)
     .bind(parent_id)
     .bind(id)

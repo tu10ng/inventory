@@ -10,48 +10,12 @@ where
     Deserialize::deserialize(deserializer).map(Some)
 }
 
-// ── Categories ──
-
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Category {
-    pub id: i64,
-    pub name: String,
-    pub icon: String,
-    pub sort_order: i64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CreateCategory {
-    pub name: String,
-    #[serde(default)]
-    pub icon: String,
-    #[serde(default)]
-    pub sort_order: i64,
-}
-
-impl CreateCategory {
-    pub fn validate(&self) -> Result<(), crate::error::AppError> {
-        if self.name.trim().is_empty() {
-            return Err(crate::error::AppError::validation("分类名称不能为空"));
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UpdateCategory {
-    pub name: Option<String>,
-    pub icon: Option<String>,
-    pub sort_order: Option<i64>,
-}
-
 // ── Types ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Type {
     pub id: i64,
     pub name: String,
-    pub category_id: i64,
     pub sort_order: i64,
     pub parent_id: Option<i64>,
 }
@@ -60,7 +24,6 @@ pub struct Type {
 pub struct TypeTreeNode {
     pub id: i64,
     pub name: String,
-    pub category_id: i64,
     pub sort_order: i64,
     pub parent_id: Option<i64>,
     pub children: Vec<TypeTreeNode>,
@@ -69,7 +32,6 @@ pub struct TypeTreeNode {
 #[derive(Debug, Deserialize)]
 pub struct CreateType {
     pub name: String,
-    pub category_id: i64,
     #[serde(default)]
     pub parent_id: Option<i64>,
     #[serde(default)]
@@ -88,7 +50,6 @@ impl CreateType {
 #[derive(Debug, Deserialize)]
 pub struct UpdateType {
     pub name: Option<String>,
-    pub category_id: Option<i64>,
     pub parent_id: Option<Option<i64>>,
     pub sort_order: Option<i64>,
 }
@@ -102,7 +63,6 @@ fn default_qty() -> i64 {
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Item {
     pub id: i64,
-    pub category_id: i64,
     pub type_id: Option<i64>,
     #[sqlx(default)]
     #[serde(default = "default_attrs")]
@@ -134,7 +94,6 @@ impl Item {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateItem {
-    pub category_id: i64,
     pub type_id: Option<i64>,
     #[serde(default = "default_attrs")]
     pub attrs: serde_json::Value,
@@ -169,7 +128,6 @@ impl CreateItem {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateItem {
-    pub category_id: Option<i64>,
     pub attrs: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "deserialize_some")]
     pub type_id: Option<Option<i64>>,
@@ -221,7 +179,6 @@ pub struct ActivitySlot {
     pub id: i64,
     pub activity_id: i64,
     pub slot_name: String,
-    pub category_id: i64,
     pub is_essential: bool,
     pub default_qty: i64,
     pub notes: String,
@@ -234,7 +191,6 @@ pub struct ActivitySlotWithTypes {
     pub id: i64,
     pub activity_id: i64,
     pub slot_name: String,
-    pub category_id: i64,
     pub is_essential: bool,
     pub default_qty: i64,
     pub notes: String,
@@ -246,7 +202,6 @@ pub struct ActivitySlotWithTypes {
 #[derive(Debug, Deserialize)]
 pub struct CreateActivitySlot {
     pub slot_name: String,
-    pub category_id: i64,
     #[serde(default = "default_true")]
     pub is_essential: bool,
     #[serde(default = "default_qty")]
@@ -275,7 +230,6 @@ impl CreateActivitySlot {
 #[derive(Debug, Deserialize)]
 pub struct UpdateActivitySlot {
     pub slot_name: Option<String>,
-    pub category_id: Option<i64>,
     pub is_essential: Option<bool>,
     pub default_qty: Option<i64>,
     pub notes: Option<String>,
@@ -464,7 +418,6 @@ pub struct CheckBody {
 pub struct SlotInfo {
     pub id: i64,
     pub slot_name: String,
-    pub category_id: i64,
     pub is_essential: bool,
 }
 
@@ -561,7 +514,6 @@ pub struct UpdateAttributeDefinition {
 pub struct DisplayRule {
     pub id: i64,
     pub name: String,
-    pub category_id: Option<i64>,
     pub group_by_key: String,
     pub sort_by_key: String,
     pub sort_dir: String,
@@ -573,7 +525,6 @@ pub struct DisplayRule {
 #[derive(Debug, Deserialize)]
 pub struct CreateDisplayRule {
     pub name: String,
-    pub category_id: Option<i64>,
     #[serde(default)]
     pub group_by_key: String,
     #[serde(default)]
@@ -619,8 +570,6 @@ impl CreateDisplayRule {
 #[derive(Debug, Deserialize)]
 pub struct UpdateDisplayRule {
     pub name: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_some")]
-    pub category_id: Option<Option<i64>>,
     pub group_by_key: Option<String>,
     pub sort_by_key: Option<String>,
     pub sort_dir: Option<String>,
@@ -724,11 +673,7 @@ pub struct AiParseRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiParsedItem {
     #[serde(default)]
-    pub category_name: Option<String>,
-    #[serde(default)]
     pub type_name: Option<String>,
-    #[serde(default)]
-    pub category_id: Option<i64>,
     #[serde(default)]
     pub type_id: Option<i64>,
     #[serde(default = "default_attrs")]
@@ -773,9 +718,7 @@ pub enum OrganizeAction {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrganizeUpdateFields {
-    pub category_name: Option<String>,
     pub type_name: Option<String>,
-    pub category_id: Option<i64>,
     pub type_id: Option<Option<i64>>,
     pub attrs: Option<serde_json::Value>,
 }
@@ -804,7 +747,6 @@ pub struct OrganizeApplyResponse {
 pub struct ExportData {
     pub version: i32,
     pub exported_at: String,
-    pub categories: Vec<Category>,
     pub types: Vec<Type>,
     pub attribute_definitions: Vec<AttributeDefinition>,
     pub items: Vec<Item>,
@@ -821,7 +763,6 @@ pub enum ImportStrategy {
 #[derive(Debug, Deserialize)]
 pub struct ImportRequest {
     pub version: i32,
-    pub categories: Vec<Category>,
     pub types: Vec<Type>,
     pub attribute_definitions: Vec<AttributeDefinition>,
     pub items: Vec<Item>,
@@ -847,7 +788,6 @@ pub struct ImportItemPreview {
 
 #[derive(Debug, Serialize)]
 pub struct ImportResult {
-    pub categories_created: u64,
     pub types_created: u64,
     pub attribute_definitions_created: u64,
     pub items_created: u64,
@@ -997,6 +937,71 @@ pub struct CreateActivityInclude {
     pub sort_order: i64,
 }
 
+// ── LLM Configs ──
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct LlmConfig {
+    pub id: i64,
+    pub task: String,
+    pub provider_name: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    pub is_active: bool,
+    #[sqlx(default)]
+    #[serde(default)]
+    pub created_at: String,
+    #[sqlx(default)]
+    #[serde(default)]
+    pub updated_at: String,
+}
+
+/// API response: same as LlmConfig but api_key is masked (**** + last 4 chars)
+#[derive(Debug, Serialize)]
+pub struct LlmConfigPublic {
+    pub id: i64,
+    pub task: String,
+    pub provider_name: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    pub is_active: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<LlmConfig> for LlmConfigPublic {
+    fn from(c: LlmConfig) -> Self {
+        let masked = if c.api_key.len() <= 4 {
+            "****".to_string()
+        } else {
+            format!("****{}", &c.api_key[c.api_key.len() - 4..])
+        };
+        LlmConfigPublic {
+            id: c.id,
+            task: c.task,
+            provider_name: c.provider_name,
+            base_url: c.base_url,
+            api_key: masked,
+            model: c.model,
+            is_active: c.is_active,
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateLlmConfig {
+    pub provider_name: Option<String>,
+    pub base_url: Option<String>,
+    /// Empty string means "keep existing value"
+    #[serde(default)]
+    pub api_key: Option<String>,
+    pub model: Option<String>,
+    pub is_active: Option<bool>,
+}
+
 // ── Batch Items ──
 
 #[derive(Debug, Deserialize)]
@@ -1025,7 +1030,6 @@ mod tests {
     #[test]
     fn create_item_empty_name() {
         let item = CreateItem {
-            category_id: 1,
             type_id: None,
             attrs: json!({}),
         };
@@ -1035,7 +1039,6 @@ mod tests {
     #[test]
     fn create_item_whitespace_name() {
         let item = CreateItem {
-            category_id: 1,
             type_id: None,
             attrs: json!({"name": "   "}),
         };
@@ -1046,7 +1049,6 @@ mod tests {
     fn create_item_name_too_long() {
         let long_name = "x".repeat(201);
         let item = CreateItem {
-            category_id: 1,
             type_id: None,
             attrs: json!({"name": long_name}),
         };
@@ -1056,7 +1058,6 @@ mod tests {
     #[test]
     fn create_item_zero_qty() {
         let item = CreateItem {
-            category_id: 1,
             type_id: None,
             attrs: json!({"name": "测试物品", "default_qty": 0}),
         };
@@ -1066,7 +1067,6 @@ mod tests {
     #[test]
     fn create_item_negative_qty() {
         let item = CreateItem {
-            category_id: 1,
             type_id: None,
             attrs: json!({"name": "测试物品", "default_qty": -1}),
         };
@@ -1076,7 +1076,6 @@ mod tests {
     #[test]
     fn create_item_valid_minimal() {
         let item = CreateItem {
-            category_id: 1,
             type_id: None,
             attrs: json!({"name": "测试物品"}),
         };
@@ -1086,7 +1085,6 @@ mod tests {
     #[test]
     fn create_item_valid_full() {
         let item = CreateItem {
-            category_id: 2,
             type_id: Some(1),
             attrs: json!({"name": "冲锋衣", "brand": "始祖鸟", "model": "Beta LT", "default_qty": 2, "warmth_rating": 30}),
         };
@@ -1097,7 +1095,6 @@ mod tests {
     fn create_item_name_exactly_200_chars() {
         let name = "x".repeat(200);
         let item = CreateItem {
-            category_id: 1,
             type_id: None,
             attrs: json!({"name": name}),
         };
@@ -1107,7 +1104,6 @@ mod tests {
     #[test]
     fn create_item_default_qty_not_present() {
         let item = CreateItem {
-            category_id: 1,
             type_id: None,
             attrs: json!({"name": "测试"}),
         };
@@ -1121,7 +1117,6 @@ mod tests {
     fn item_attr_str_present() {
         let item = Item {
             id: 1,
-            category_id: 1,
             type_id: None,
             attrs: json!({"name": "冲锋衣", "brand": "始祖鸟"}),
         };
@@ -1133,7 +1128,6 @@ mod tests {
     fn item_attr_str_missing() {
         let item = Item {
             id: 1,
-            category_id: 1,
             type_id: None,
             attrs: json!({}),
         };
@@ -1145,7 +1139,6 @@ mod tests {
     fn item_attr_i64_present() {
         let item = Item {
             id: 1,
-            category_id: 1,
             type_id: None,
             attrs: json!({"default_qty": 3, "warmth_rating": 25}),
         };
@@ -1157,7 +1150,6 @@ mod tests {
     fn item_attr_i64_missing() {
         let item = Item {
             id: 1,
-            category_id: 1,
             type_id: None,
             attrs: json!({}),
         };

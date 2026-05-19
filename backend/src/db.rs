@@ -20,6 +20,10 @@ pub async fn init_pool() -> SqlitePool {
 
 async fn run_all_setup(pool: &SqlitePool) {
     run_migrations(pool).await;
+    // migrate_remove_categories must run BEFORE other rebuilds because it
+    // rebuilds items/types/activity_slots/display_rules tables without FK
+    // to categories, and drops the categories table.
+    migrate_remove_categories(pool).await;
     rebuild_trip_items_fk(pool).await;
     rebuild_trips_table(pool).await;
     migrate_attrs(pool).await;
@@ -423,15 +427,15 @@ async fn clean_out_of_scope_attrs(pool: &SqlitePool) {
     use std::collections::{HashMap, HashSet};
     let mut remove_map: HashMap<i64, Vec<String>> = HashMap::new();
 
-    // Get all category IDs
-    let cat_ids: Vec<(i64,)> =
-        sqlx::query_as("SELECT id FROM categories")
+    // Get all root type IDs (these replace category IDs for scope checking)
+    let root_ids: Vec<(i64,)> =
+        sqlx::query_as("SELECT id FROM types WHERE parent_id IS NULL")
             .fetch_all(pool)
             .await
             .unwrap_or_default();
 
-    for (cat_id,) in &cat_ids {
-        remove_map.entry(*cat_id).or_default();
+    for (root_id,) in &root_ids {
+        remove_map.entry(*root_id).or_default();
     }
 
     for (key, scope) in &attr_scopes {
@@ -444,56 +448,19 @@ async fn clean_out_of_scope_attrs(pool: &SqlitePool) {
             continue;
         }
 
-        for (cat_id,) in &cat_ids {
-            if !allowed.contains(cat_id) {
+        for (root_id,) in &root_ids {
+            if !allowed.contains(root_id) {
                 remove_map
-                    .entry(*cat_id)
+                    .entry(*root_id)
                     .or_default()
                     .push(key.clone());
             }
         }
     }
 
-    // Load all items and clean their attrs
-    let items: Vec<(i64, i64, String)> = sqlx::query_as(
-        "SELECT id, category_id, COALESCE(attrs, '{}') FROM items",
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default();
-
-    let mut cleaned_count = 0;
-    for (item_id, cat_id, attrs_json) in &items {
-        let keys_to_remove = match remove_map.get(cat_id) {
-            Some(keys) if !keys.is_empty() => keys,
-            _ => continue,
-        };
-
-        let mut attrs: serde_json::Value =
-            serde_json::from_str(attrs_json).unwrap_or(serde_json::Value::Object(Default::default()));
-
-        let mut removed_any = false;
-        if let Some(obj) = attrs.as_object_mut() {
-            for key in keys_to_remove {
-                if obj.remove(key).is_some() {
-                    removed_any = true;
-                }
-            }
-        }
-
-        if removed_any {
-            let new_attrs = serde_json::to_string(&attrs).unwrap();
-            if let Err(e) = sqlx::query("UPDATE items SET attrs = ? WHERE id = ?")
-                .bind(&new_attrs)
-                .bind(item_id)
-                .execute(pool)
-                .await
-            {
-                tracing::warn!("Failed to update attrs for item {}: {}", *item_id, e);
-            }
-            cleaned_count += 1;
-        }
-    }
+    // Items no longer have category_id - so scope-based cleaning is no longer
+    // applicable at the item level. Mark as done and skip.
+    tracing::info!("clean_out_of_scope_attrs: category_id removed, skipping item-level scope cleaning");
 
     // Record cleanup as done (custom marker, not a migration file)
     if let Err(e) = sqlx::query("INSERT INTO _migrations (filename) VALUES ('011_clean_attrs_done')")
@@ -503,9 +470,297 @@ async fn clean_out_of_scope_attrs(pool: &SqlitePool) {
         tracing::warn!("Failed to record clean_out_of_scope_attrs completion: {}", e);
     }
 
-    tracing::info!(
-        "clean_out_of_scope_attrs complete: cleaned {} items",
-        cleaned_count
-    );
+    tracing::info!("clean_out_of_scope_attrs complete (no-op after category removal)");
+}
+
+/// Rebuild tables to remove FK references to categories, then drop categories.
+/// Creates root types from category names (parent_id IS NULL).
+/// Must run on a SINGLE connection because PRAGMA foreign_keys = OFF must
+/// persist across all statements in the rebuild.
+async fn migrate_remove_categories(pool: &SqlitePool) {
+    // Check idempotency
+    let already_ran: Vec<(String,)> = sqlx::query_as(
+        "SELECT filename FROM _migrations WHERE filename = '014_remove_categories_done'",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    if !already_ran.is_empty() {
+        tracing::info!("migrate_remove_categories already executed, skipping");
+        return;
+    }
+
+    // Check prerequisite: migration 014 marker must be applied
+    let has_014: Vec<(String,)> = sqlx::query_as(
+        "SELECT filename FROM _migrations WHERE filename = '014_remove_categories.sql'",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    if has_014.is_empty() {
+        // Migration hasn't run yet (fresh DB), skip — will run after migration
+        return;
+    }
+
+    // Check if categories table still exists (it may have already been dropped)
+    let cat_exists: Vec<(String,)> = sqlx::query_as(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='categories'",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    if cat_exists.is_empty() {
+        tracing::info!("categories table already dropped, recording marker and skipping");
+        let _ = sqlx::query("INSERT INTO _migrations (filename) VALUES ('014_remove_categories_done')")
+            .execute(pool)
+            .await;
+        return;
+    }
+
+    tracing::info!("Rebuilding tables to remove categories FK...");
+
+    // Acquire a SINGLE connection so PRAGMA foreign_keys = OFF persists
+    let mut conn = pool.acquire().await.expect("failed to acquire connection for migration");
+
+    // Disable FK enforcement for the entire rebuild
+    sqlx::query("PRAGMA foreign_keys = OFF")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to disable foreign keys");
+
+    // ── 1. Rebuild types table (remove FK to categories, add root types) ──
+    sqlx::query(
+        "CREATE TABLE types_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            category_id INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            parent_id INTEGER REFERENCES types(id)
+        )",
+    )
+    .execute(&mut *conn)
+    .await
+    .expect("failed to create types_new");
+
+    sqlx::query("INSERT INTO types_new SELECT id, name, category_id, sort_order, parent_id FROM types")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to copy types to types_new");
+
+    // Insert root types from categories
+    sqlx::query(
+        "INSERT INTO types_new (name, category_id, sort_order, parent_id)
+         SELECT name, 0, sort_order, NULL FROM categories ORDER BY id",
+    )
+    .execute(&mut *conn)
+    .await
+    .expect("failed to insert root types");
+
+    // Remember the old→new root type mapping for scope remapping
+    let cat_to_root: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT c.id, c.name FROM categories c ORDER BY c.id",
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .unwrap_or_default();
+
+    let root_types: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, name FROM types_new WHERE parent_id IS NULL ORDER BY id",
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .unwrap_or_default();
+
+    sqlx::query("DROP TABLE types")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to drop old types table");
+
+    sqlx::query("ALTER TABLE types_new RENAME TO types")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to rename types_new to types");
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_types_parent_id ON types(parent_id)")
+        .execute(&mut *conn)
+        .await
+        .ok();
+
+    // ── 2. Rebuild items table (remove FK to categories) ──
+    sqlx::query(
+        "CREATE TABLE items_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL DEFAULT '',
+            brand TEXT NOT NULL DEFAULT '',
+            model TEXT NOT NULL DEFAULT '',
+            category_id INTEGER NOT NULL DEFAULT 0,
+            default_qty INTEGER NOT NULL DEFAULT 1,
+            notes TEXT NOT NULL DEFAULT '',
+            type_id INTEGER REFERENCES types(id),
+            attrs TEXT NOT NULL DEFAULT '{}'
+        )",
+    )
+    .execute(&mut *conn)
+    .await
+    .expect("failed to create items_new");
+
+    sqlx::query("INSERT INTO items_new SELECT id, name, brand, model, category_id, default_qty, notes, type_id, COALESCE(attrs,'{}') FROM items")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to copy items to items_new");
+
+    sqlx::query("DROP TABLE items")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to drop old items table");
+
+    sqlx::query("ALTER TABLE items_new RENAME TO items")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to rename items_new to items");
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_items_type ON items(type_id)")
+        .execute(&mut *conn)
+        .await
+        .ok();
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_items_name ON items(json_extract(attrs, '$.name'))")
+        .execute(&mut *conn)
+        .await
+        .ok();
+
+    // ── 3. Rebuild activity_slots table (remove FK to categories) ──
+    sqlx::query(
+        "CREATE TABLE activity_slots_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            activity_id INTEGER NOT NULL REFERENCES activities(id),
+            slot_name TEXT NOT NULL,
+            category_id INTEGER NOT NULL DEFAULT 0,
+            is_essential INTEGER NOT NULL DEFAULT 1,
+            default_qty INTEGER NOT NULL DEFAULT 1,
+            notes TEXT NOT NULL DEFAULT '',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            default_item_id INTEGER REFERENCES items(id)
+        )",
+    )
+    .execute(&mut *conn)
+    .await
+    .expect("failed to create activity_slots_new");
+
+    sqlx::query("INSERT INTO activity_slots_new SELECT id, activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order, default_item_id FROM activity_slots")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to copy activity_slots");
+
+    sqlx::query("DROP TABLE activity_slots")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to drop old activity_slots table");
+
+    sqlx::query("ALTER TABLE activity_slots_new RENAME TO activity_slots")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to rename activity_slots_new to activity_slots");
+
+    // ── 4. Rebuild display_rules table (remove FK to categories) ──
+    sqlx::query(
+        "CREATE TABLE display_rules_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            category_id INTEGER DEFAULT 0,
+            group_by_key TEXT NOT NULL DEFAULT '',
+            sort_by_key TEXT NOT NULL DEFAULT '',
+            sort_dir TEXT NOT NULL DEFAULT 'asc',
+            visible_columns TEXT NOT NULL DEFAULT '[]',
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            config TEXT NOT NULL DEFAULT '{}'
+        )",
+    )
+    .execute(&mut *conn)
+    .await
+    .expect("failed to create display_rules_new");
+
+    sqlx::query("INSERT INTO display_rules_new SELECT id, name, category_id, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config FROM display_rules")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to copy display_rules");
+
+    sqlx::query("DROP TABLE display_rules")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to drop old display_rules table");
+
+    sqlx::query("ALTER TABLE display_rules_new RENAME TO display_rules")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to rename display_rules_new to display_rules");
+
+    // ── 5. Remap parent_id and scope BEFORE zeroing category_id ──
+    // (uses the cat_to_root mapping captured before the rebuild)
+    for (old_cat_id, cat_name) in &cat_to_root {
+        if let Some((new_root_id, _)) = root_types.iter().find(|(_, name)| name == cat_name) {
+            // Update types.parent_id: top-level types under old category → point to new root
+            sqlx::query(
+                "UPDATE types SET parent_id = ? WHERE category_id = ? AND parent_id IS NULL AND id != ?",
+            )
+            .bind(new_root_id)
+            .bind(old_cat_id)
+            .bind(new_root_id)
+            .execute(&mut *conn)
+            .await
+            .ok();
+
+            // Replace old category ID with new root type ID in scope strings
+            let old_id_str = old_cat_id.to_string();
+            let new_id_str = new_root_id.to_string();
+            sqlx::query(
+                "UPDATE attribute_definitions SET category_scope = REPLACE(category_scope, ?1, ?2) WHERE category_scope LIKE ?3",
+            )
+            .bind(&old_id_str)
+            .bind(&new_id_str)
+            .bind(format!("%{}%", old_id_str))
+            .execute(&mut *conn)
+            .await
+            .ok();
+        }
+    }
+
+    // ── 6. Set legacy category_id = 0 ──
+    sqlx::query("UPDATE items SET category_id = 0")
+        .execute(&mut *conn).await.ok();
+    sqlx::query("UPDATE types SET category_id = 0")
+        .execute(&mut *conn).await.ok();
+    sqlx::query("UPDATE activity_slots SET category_id = 0")
+        .execute(&mut *conn).await.ok();
+    sqlx::query("UPDATE display_rules SET category_id = 0")
+        .execute(&mut *conn).await.ok();
+
+    // ── 7. Now safe to drop categories (no FKs reference it anymore) ──
+    sqlx::query("DROP TABLE categories")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to drop categories table");
+
+    // ── 8. Re-enable FK enforcement ──
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&mut *conn)
+        .await
+        .expect("failed to re-enable foreign keys");
+
+    // Release the connection back to the pool
+    drop(conn);
+
+    // ── 9. Record completion ──
+    if let Err(e) = sqlx::query("INSERT INTO _migrations (filename) VALUES ('014_remove_categories_done')")
+        .execute(pool)
+        .await
+    {
+        tracing::warn!("Failed to record migrate_remove_categories completion: {}", e);
+    }
+
+    tracing::info!("migrate_remove_categories complete: tables rebuilt without categories FK");
 }
 

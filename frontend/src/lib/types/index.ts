@@ -1,22 +1,13 @@
-export interface Category {
-	id: number;
-	name: string;
-	icon: string;
-	sort_order: number;
-}
-
 export interface Type {
 	id: number;
 	name: string;
-	category_id: number;
-	sort_order: number;
 	parent_id: number | null;
+	sort_order: number;
 }
 
 export interface TypeTreeNode {
 	id: number;
 	name: string;
-	category_id: number;
 	sort_order: number;
 	parent_id: number | null;
 	children: TypeTreeNode[];
@@ -24,7 +15,6 @@ export interface TypeTreeNode {
 
 export interface Item {
 	id: number;
-	category_id: number;
 	type_id: number | null;
 	attrs: Record<string, unknown>;
 }
@@ -62,7 +52,6 @@ export interface ActivitySlot {
 	id: number;
 	activity_id: number;
 	slot_name: string;
-	category_id: number;
 	is_essential: boolean;
 	default_qty: number;
 	notes: string;
@@ -126,7 +115,6 @@ export interface StatusDefinition {
 export interface SlotInfo {
 	id: number;
 	slot_name: string;
-	category_id: number;
 	is_essential: boolean;
 }
 
@@ -137,7 +125,6 @@ export interface TripItemEnriched extends TripItem {
 
 export interface TripItemWithInfo extends TripItem {
 	item_info?: Item | null;
-	category?: Category | null;
 }
 
 export interface ItemUsageCount {
@@ -180,16 +167,12 @@ export interface DndItem {
 	id: string;
 	item_id: number;
 	name: string;
-	category_id: number;
-	category_icon: string;
 	already_added: boolean;
 	attrs: Record<string, unknown>;
 }
 
 export interface AiParsedItem {
-	category_name: string | null;
 	type_name: string | null;
-	category_id: number | null;
 	type_id: number | null;
 	attrs: Record<string, unknown>;
 }
@@ -202,9 +185,7 @@ export interface AiParseResponse {
 // ── AI Organize ──
 
 export interface OrganizeUpdateFields {
-	category_name?: string;
 	type_name?: string;
-	category_id?: number;
 	type_id?: number | null;
 	attrs?: Record<string, unknown>;
 }
@@ -230,7 +211,6 @@ export interface OrganizeApplyResponse {
 export interface DisplayRule {
 	id: number;
 	name: string;
-	category_id: number | null;
 	group_by_key: string;
 	sort_by_key: string;
 	sort_dir: string;
@@ -343,12 +323,25 @@ export interface ExcelPreviewResponse {
 	total_rows: number;
 }
 
+// ── LLM Configs ──
+
+export interface LlmConfig {
+	id: number;
+	task: string;
+	provider_name: string;
+	base_url: string;
+	api_key: string;
+	model: string;
+	is_active: boolean;
+	created_at: string;
+	updated_at: string;
+}
+
 // ── Import / Export ──
 
 export interface ExportData {
 	version: number;
 	exported_at: string;
-	categories: Category[];
 	types: Type[];
 	attribute_definitions: AttributeDefinition[];
 	items: Item[];
@@ -369,7 +362,6 @@ export interface ImportItemPreview {
 }
 
 export interface ImportResult {
-	categories_created: number;
 	types_created: number;
 	attribute_definitions_created: number;
 	items_created: number;

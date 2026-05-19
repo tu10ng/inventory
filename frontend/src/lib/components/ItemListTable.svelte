@@ -1,8 +1,8 @@
 <script lang="ts">
-	import type { Item, Category, Type } from '$lib/types';
+	import type { Item, Type } from '$lib/types';
 	import { itemName, itemBrand, itemModel } from '$lib/types';
 	import type { ItemColumnDef } from '$lib/utils/columns';
-	import { buildTypePath } from '$lib/utils/columns';
+	import { buildTypePath, getRootTypeId, getRootTypeName } from '$lib/utils/columns';
 	import type { ItemGroup, TypeTreeGroup } from '$lib/utils/itemFilters';
 	import { getCellValue } from '$lib/utils/cellValue';
 	import CellRenderer from './CellRenderer.svelte';
@@ -10,11 +10,10 @@
 
 	let {
 		items,
-		categories,
 		types,
 		visibleColumns = [],
 		selectedItemId,
-		collapsedCategories,
+		collapsedRootTypes,
 		sortKey = null,
 		sortDir = 'asc',
 		columnFilters = new Map(),
@@ -23,26 +22,25 @@
 		selectable = true,
 		selectedIds = new Set(),
 		onSelect,
-		onToggleCategory,
+		onToggleRootType,
 		onSort,
 		onFilterChange,
 		onToggleSelect,
 	}: {
 		items: Item[];
-		categories: Category[];
 		types: Type[];
 		visibleColumns?: ItemColumnDef[];
 		selectedItemId: number | null;
-		collapsedCategories: Set<number>;
+		collapsedRootTypes: Set<number>;
 		sortKey?: string | null;
 		sortDir?: 'asc' | 'desc';
 		columnFilters?: Map<string, Set<string>>;
 		groupBy?: { key: string; label: string } | null;
-		groupedData?: Map<number, { groups: ItemGroup[]; tree?: TypeTreeGroup[]; ungrouped: Item[] }> | null;
+		groupedData?: Map<number, { groups?: ItemGroup[]; tree?: TypeTreeGroup[]; ungrouped: Item[] }> | null;
 		selectable?: boolean;
 		selectedIds?: Set<number>;
 		onSelect: (item: Item) => void;
-		onToggleCategory: (catId: number) => void;
+		onToggleRootType: (rootTypeId: number) => void;
 		onSort?: (key: string) => void;
 		onFilterChange?: (key: string, values: Set<string>) => void;
 		onToggleSelect?: (id: number) => void;
@@ -50,14 +48,29 @@
 
 	let openFilter = $state<string | null>(null);
 
+	// Group items by root type
+	const rootTypes = $derived(types.filter(t => t.parent_id === null).sort((a, b) => a.sort_order - b.sort_order));
+
 	const groupedItems = $derived.by(() => {
-		const groups: { category: Category; items: Item[] }[] = [];
-		for (const cat of categories) {
-			const catItems = items.filter((i) => i.category_id === cat.id);
-			if (catItems.length > 0) {
-				groups.push({ category: cat, items: catItems });
+		const groups: { rootType: Type; items: Item[] }[] = [];
+		const rootMap = new Map<number, Item[]>();
+
+		for (const item of items) {
+			const rootId = getRootTypeId(item.type_id, types);
+			if (rootId == null) continue;
+			if (!rootMap.has(rootId)) {
+				rootMap.set(rootId, []);
+			}
+			rootMap.get(rootId)!.push(item);
+		}
+
+		for (const rt of rootTypes) {
+			const rtItems = rootMap.get(rt.id);
+			if (rtItems && rtItems.length > 0) {
+				groups.push({ rootType: rt, items: rtItems });
 			}
 		}
+
 		return groups;
 	});
 
@@ -185,20 +198,19 @@
 		</div>
 	{/if}
 
-	{#each groupedItems as group (group.category.id)}
+	{#each groupedItems as group (group.rootType.id)}
 		<button
 			class="category-row"
-			onclick={() => onToggleCategory(group.category.id)}
+			onclick={() => onToggleRootType(group.rootType.id)}
 		>
-			<span class="collapse-icon">{collapsedCategories.has(group.category.id) ? '▶' : '▼'}</span>
-			<span class="cat-icon">{group.category.icon}</span>
-			<span class="cat-name">{group.category.name}</span>
+			<span class="collapse-icon">{collapsedRootTypes.has(group.rootType.id) ? '▶' : '▼'}</span>
+			<span class="cat-name">{group.rootType.name}</span>
 			<span class="cat-count">({group.items.length})</span>
 		</button>
 
-		{#if !collapsedCategories.has(group.category.id)}
+		{#if !collapsedRootTypes.has(group.rootType.id)}
 			{#if groupBy && groupedData}
-				{@const catData = groupedData.get(group.category.id)}
+				{@const catData = groupedData.get(group.rootType.id)}
 				{#if catData}
 					{#if groupBy.key === 'type' && catData.tree}
 						{#each catData.tree as treeGroup}
@@ -473,9 +485,6 @@
 		font-size: 10px;
 		width: 14px;
 		color: var(--text-secondary);
-	}
-	.cat-icon {
-		font-size: 15px;
 	}
 	.cat-name {
 		flex: 1;

@@ -255,12 +255,6 @@
 			</div>
 			<div class="modal-body">
 				<div class="result-grid">
-					{#if result!.categories_created > 0}
-						<div class="result-item">
-							<span class="result-label">分类</span>
-							<span class="result-value">+{result!.categories_created}</span>
-						</div>
-					{/if}
 					{#if result!.types_created > 0}
 						<div class="result-item">
 							<span class="result-label">类型</span>

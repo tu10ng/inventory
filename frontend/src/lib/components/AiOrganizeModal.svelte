@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type {
-		Category,
 		Type,
 		Item,
 		OrganizeAction,
@@ -12,7 +11,6 @@
 
 	let {
 		items,
-		categories,
 		types,
 		attrDefs = [],
 		itemIds = undefined,
@@ -21,7 +19,6 @@
 		onNewTypes
 	}: {
 		items: Item[];
-		categories: Category[];
 		types: Type[];
 		attrDefs?: AttributeDefinition[];
 		itemIds?: number[];
@@ -47,11 +44,6 @@
 
 	function getItemInfo(itemId: number): Item | undefined {
 		return items.find((i) => i.id === itemId);
-	}
-
-	function getCategoryName(catId: number | undefined | null): string {
-		if (catId == null) return '';
-		return categories.find((c) => c.id === catId)?.name ?? '';
 	}
 
 	function getTypeName(typeId: number | undefined | null): string {
@@ -105,7 +97,6 @@
 			});
 			applyResult = resp;
 			stage = 'preview';
-			// Tags are already created during preview phase, no need to re-emit
 			onDone();
 		} catch (e: unknown) {
 			errorMsg = e instanceof Error ? e.message : '应用失败';
@@ -239,17 +230,6 @@
 													<span class="diff-new">{String(action.fields.attrs?.model ?? '')}</span>
 												</div>
 											{/if}
-											{#if action.fields.category_name != null || action.fields.category_id != null}
-												<div class="diff-row">
-													<span class="diff-label">分类</span>
-													<span class="diff-old">{getCategoryName(item?.category_id)}</span>
-													<span class="diff-arrow">→</span>
-													<span class="diff-new"
-														>{action.fields.category_name ||
-															getCategoryName(action.fields.category_id)}</span
-													>
-												</div>
-											{/if}
 											{#if action.fields.type_name != null || action.fields.type_id !== undefined}
 												<div class="diff-row">
 													<span class="diff-label">类型</span>
@@ -290,9 +270,7 @@
 											<span class="split-label">拆分为：</span>
 											{#each action.new_items as newItem}
 												<span class="split-item"
-													>{String(newItem.attrs?.name ?? '')}{#if newItem.category_name}
-														<span class="split-cat">({newItem.category_name})</span
-														>{/if}</span
+													>{String(newItem.attrs?.name ?? '')}</span
 												>
 											{/each}
 										</div>
@@ -547,12 +525,6 @@
 		border: 1px solid var(--border);
 		padding: 2px 8px;
 		border-radius: 4px;
-	}
-
-	.split-cat {
-		color: var(--text-secondary);
-		font-size: 11px;
-		margin-left: 2px;
 	}
 
 	.result-summary {

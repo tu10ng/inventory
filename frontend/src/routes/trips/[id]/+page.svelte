@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api/client';
-	import type { Trip, TripItem, TripItemEnriched, Item, Category, Tip, Person, ResyncPreview, ResyncPreviewItem, StatusDefinition, ItemRelationEnriched } from '$lib/types';
+	import type { Trip, TripItem, TripItemEnriched, Item, Type, Tip, Person, ResyncPreview, ResyncPreviewItem, StatusDefinition, ItemRelationEnriched } from '$lib/types';
 	import { getItemStatuses, getTripStatuses, getTripStatusLabel } from '$lib/utils/status';
 	import SplitPane from '$lib/components/SplitPane.svelte';
 	import ChecklistPanel from '$lib/components/ChecklistPanel.svelte';
@@ -11,7 +11,7 @@
 	let trip = $state<Trip | null>(null);
 	let enrichedItems = $state<TripItemEnriched[]>([]);
 	let allItems = $state<Item[]>([]);
-	let categories = $state<Category[]>([]);
+	let types = $state<Type[]>([]);
 	let tips = $state<Tip[]>([]);
 	let people = $state<Person[]>([]);
 	let itemStatusDefs = $state<StatusDefinition[]>([]);
@@ -60,17 +60,17 @@
 			loading = true;
 			error = null;
 			const id = tripId;
-			const [t, items, cats, ppl, iDefs, tDefs] = await Promise.all([
+			const [t, items, tps, ppl, iDefs, tDefs] = await Promise.all([
 				api.get<Trip>(`/trips/${id}`),
 				api.get<Item[]>('/items'),
-				api.get<Category[]>('/categories'),
+				api.get<Type[]>('/types'),
 				api.get<Person[]>('/people'),
 				getItemStatuses(),
 				getTripStatuses()
 			]);
 			trip = t;
 			allItems = items;
-			categories = cats;
+			types = tps;
 			people = ppl;
 			itemStatusDefs = iDefs;
 			tripStatusDefs = tDefs;
@@ -202,8 +202,8 @@
 			<ChecklistPanel
 				trip={trip!}
 				bind:enrichedItems
-				{allItems}
-				{categories}
+				allItems={allItems}
+				{types}
 				{tips}
 				{people}
 				statusDefs={itemStatusDefs}
@@ -215,7 +215,7 @@
 		{#snippet right()}
 			<InventoryPanel
 				items={allItems}
-				{categories}
+				{types}
 				{tripItemIds}
 				{enrichedItems}
 				onHoverItem={handleHoverItem}

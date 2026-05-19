@@ -1,7 +1,8 @@
 <script lang="ts">
-	import type { Trip, TripItemEnriched, Item, Category, Tip, Person, StatusDefinition } from '$lib/types';
+	import type { Trip, TripItemEnriched, Item, Type, Tip, Person, StatusDefinition } from '$lib/types';
 	import { api } from '$lib/api/client';
 	import { getDragState } from '$lib/stores/dragState.svelte';
+	import { getRootTypeId, getRootTypeName } from '$lib/utils/columns';
 	import ProgressBar from './ProgressBar.svelte';
 	import CategoryGroup from './CategoryGroup.svelte';
 	import TripItemRow from './TripItemRow.svelte';
@@ -76,7 +77,7 @@
 		trip,
 		enrichedItems = $bindable(),
 		allItems,
-		categories,
+		types,
 		tips,
 		people,
 		statusDefs = [],
@@ -87,7 +88,7 @@
 		trip: Trip;
 		enrichedItems: TripItemEnriched[];
 		allItems: Item[];
-		categories: Category[];
+		types: Type[];
 		tips: Tip[];
 		people: Person[];
 		statusDefs?: StatusDefinition[];
@@ -108,46 +109,44 @@
 		return allItems.find((i) => i.id === itemId) ?? null;
 	}
 
-	function toggleCollapse(catId: number) {
-		collapsed[catId] = !collapsed[catId];
+	function toggleCollapse(rootTypeId: number) {
+		collapsed[rootTypeId] = !collapsed[rootTypeId];
 	}
 
 	const groupedItems = $derived.by(() => {
-		const groups: { category: Category; items: TripItemEnriched[] }[] = [];
-		const uncategorized: TripItemEnriched[] = [];
+		const groups: { rootTypeId: number; rootTypeName: string; items: TripItemEnriched[] }[] = [];
 		const catMap = new Map<number, TripItemEnriched[]>();
 
 		for (const ti of enrichedItems) {
-			// Use slot's category_id if available, otherwise use item's category
-			let catId: number | null = null;
-			if (ti.slot) {
-				catId = ti.slot.category_id;
-			} else if (ti.item_id) {
+			let rootTypeId: number | null = null;
+			if (ti.item_id) {
 				const item = getItemInfo(ti.item_id);
-				catId = item?.category_id ?? null;
+				rootTypeId = item ? getRootTypeId(item.type_id, types) : null;
 			}
 
-			if (catId !== null) {
-				if (!catMap.has(catId)) catMap.set(catId, []);
-				catMap.get(catId)!.push(ti);
+			if (rootTypeId !== null && rootTypeId !== undefined) {
+				if (!catMap.has(rootTypeId)) catMap.set(rootTypeId, []);
+				catMap.get(rootTypeId)!.push(ti);
 			} else {
-				uncategorized.push(ti);
+				// Uncategorized
+				if (!catMap.has(-1)) catMap.set(-1, []);
+				catMap.get(-1)!.push(ti);
 			}
 		}
 
-		for (const cat of categories) {
-			const items = catMap.get(cat.id);
+		const rootTypes = types.filter(t => t.parent_id === null).sort((a, b) => a.sort_order - b.sort_order);
+		for (const rt of rootTypes) {
+			const items = catMap.get(rt.id);
 			if (items && items.length > 0) {
-				groups.push({ category: cat, items });
+				groups.push({ rootTypeId: rt.id, rootTypeName: rt.name, items });
 			}
 		}
 
-		if (uncategorized.length > 0) {
-			groups.push({
-				category: { id: -1, name: '其他', icon: '📦', sort_order: 999 },
-				items: uncategorized
-			});
+		const uncategorized = catMap.get(-1);
+		if (uncategorized && uncategorized.length > 0) {
+			groups.push({ rootTypeId: -1, rootTypeName: '其他', items: uncategorized });
 		}
+
 		return groups;
 	});
 
@@ -247,7 +246,16 @@
 	}
 
 	async function copyExportText() {
-		const text = generateTripText(trip, groupedItems, allItems, people, tips, totalChecked, totalItems);
+		const text = generateTripText(
+			trip,
+			groupedItems.map(g => ({ rootTypeName: g.rootTypeName, items: g.items })),
+			allItems,
+			types,
+			people,
+			tips,
+			totalChecked,
+			totalItems
+		);
 		try {
 			await navigator.clipboard.writeText(text);
 			clearTimeout(exportTimer);
@@ -349,12 +357,12 @@
 {#each groupedItems as group}
 	{@const checked = group.items.filter((t) => t.checked).length}
 	<CategoryGroup
-		icon={group.category.icon}
-		name={group.category.name}
+		icon=""
+		name={group.rootTypeName}
 		{checked}
 		total={group.items.length}
-		collapsed={collapsed[group.category.id] ?? false}
-		onToggle={() => toggleCollapse(group.category.id)}
+		collapsed={collapsed[group.rootTypeId] ?? false}
+		onToggle={() => toggleCollapse(group.rootTypeId)}
 	>
 		{#each group.items as ti (ti.id)}
 			{#if ti.slot_id}

@@ -85,7 +85,7 @@ pub async fn list_enriched(
     if !all_type_ids.is_empty() {
         let placeholders = all_type_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let q = format!(
-            "SELECT id, category_id, type_id, attrs FROM items WHERE type_id IN ({}) ORDER BY json_extract(attrs, '$.name')",
+            "SELECT id, type_id, attrs FROM items WHERE type_id IN ({}) ORDER BY json_extract(attrs, '$.name')",
             placeholders
         );
         let mut query = sqlx::query_as::<_, Item>(&q);
@@ -107,7 +107,6 @@ pub async fn list_enriched(
             let slot_info = slot_map.get(&sid).map(|s| SlotInfo {
                 id: s.id,
                 slot_name: s.slot_name.clone(),
-                category_id: s.category_id,
                 is_essential: s.is_essential,
             });
 
@@ -321,8 +320,8 @@ pub async fn save_as_slot(
         AppError::bad_request("该行程物品未关联物品库物品，无法保存为槽位")
     })?;
 
-    // 2. Fetch the item to get category_id and type_id
-    let item = sqlx::query_as::<_, Item>("SELECT id, category_id, type_id, attrs FROM items WHERE id = ?")
+    // 2. Fetch the item to get type_id
+    let item = sqlx::query_as::<_, Item>("SELECT id, type_id, attrs FROM items WHERE id = ?")
         .bind(item_id)
         .fetch_optional(&pool)
         .await?
@@ -345,11 +344,10 @@ pub async fn save_as_slot(
     let mut tx = pool.begin().await?;
 
     let slot = sqlx::query_as::<_, ActivitySlot>(
-        "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order, default_item_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *"
+        "INSERT INTO activity_slots (activity_id, slot_name, is_essential, default_qty, notes, sort_order, default_item_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id, activity_id, slot_name, is_essential, default_qty, notes, sort_order, default_item_id"
     )
     .bind(activity_id)
     .bind(&item_name)
-    .bind(item.category_id)
     .bind(ti.is_essential)
     .bind(ti.qty)
     .bind(&ti.notes)

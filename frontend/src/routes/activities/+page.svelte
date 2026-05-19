@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
 	import CategoryGroup from '$lib/components/CategoryGroup.svelte';
-	import type { Activity, ActivitySlotWithTypes, ActivityIncludeEnriched, Type, Tip, Category } from '$lib/types';
+	import { getRootTypeId, getRootTypeName, getRootTypes } from '$lib/utils/columns';
+	import type { Activity, ActivitySlotWithTypes, ActivityIncludeEnriched, Type, Tip } from '$lib/types';
 
 	let activities = $state<Activity[]>([]);
 	let types = $state<Type[]>([]);
-	let categories = $state<Category[]>([]);
 	let showForm = $state(false);
 	let editingId = $state<number | null>(null);
 	let form = $state({ name: '', description: '', icon: '' });
@@ -30,7 +30,6 @@
 	let editingSlotId = $state<number | null>(null);
 	let slotForm = $state({
 		slot_name: '',
-		category_id: 0,
 		is_essential: true,
 		default_qty: 1,
 		notes: '',
@@ -42,10 +41,9 @@
 		try {
 			loading = true;
 			error = null;
-			[activities, types, categories] = await Promise.all([
+			[activities, types] = await Promise.all([
 				api.get<Activity[]>('/activities'),
-				api.get<Type[]>('/types'),
-				api.get<Category[]>('/categories')
+				api.get<Type[]>('/types')
 			]);
 		} catch (e) {
 			error = (e as Error).message;
@@ -53,6 +51,8 @@
 			loading = false;
 		}
 	}
+
+	const rootTypes = $derived(getRootTypes(types));
 
 	function resetForm() {
 		form = { name: '', description: '', icon: '' };
@@ -110,7 +110,6 @@
 	function resetSlotForm() {
 		slotForm = {
 			slot_name: '',
-			category_id: categories[0]?.id ?? 0,
 			is_essential: true,
 			default_qty: 1,
 			notes: '',
@@ -124,7 +123,6 @@
 	function startEditSlot(slot: ActivitySlotWithTypes) {
 		slotForm = {
 			slot_name: slot.slot_name,
-			category_id: slot.category_id,
 			is_essential: slot.is_essential,
 			default_qty: slot.default_qty,
 			notes: slot.notes,
@@ -258,22 +256,27 @@
 
 	// ── Helpers ──
 
-	const slotFormTypes = $derived.by(() => {
-		return types.filter(t => t.category_id === slotForm.category_id);
-	});
+	const slotFormTypes = $derived(types);
 
 	const groupedSlots = $derived.by(() => {
 		const catMap = new Map<number, ActivitySlotWithTypes[]>();
 		for (const slot of slots) {
-			if (!catMap.has(slot.category_id)) catMap.set(slot.category_id, []);
-			catMap.get(slot.category_id)!.push(slot);
+			// Group slots by the root type of their first assigned type
+			const firstTypeId = slot.types[0]?.id ?? null;
+			const rootId = getRootTypeId(firstTypeId, types) ?? -1;
+			if (!catMap.has(rootId)) catMap.set(rootId, []);
+			catMap.get(rootId)!.push(slot);
 		}
-		const groups: { category: Category; slots: ActivitySlotWithTypes[] }[] = [];
-		for (const cat of categories) {
-			const catSlots = catMap.get(cat.id);
-			if (catSlots && catSlots.length > 0) {
-				groups.push({ category: cat, slots: catSlots });
+		const groups: { rootTypeId: number; rootTypeName: string; slots: ActivitySlotWithTypes[] }[] = [];
+		for (const rt of rootTypes) {
+			const rtSlots = catMap.get(rt.id);
+			if (rtSlots && rtSlots.length > 0) {
+				groups.push({ rootTypeId: rt.id, rootTypeName: rt.name, slots: rtSlots });
 			}
+		}
+		const ungrouped = catMap.get(-1);
+		if (ungrouped && ungrouped.length > 0) {
+			groups.push({ rootTypeId: -1, rootTypeName: '其他', slots: ungrouped });
 		}
 		return groups;
 	});
@@ -360,11 +363,6 @@
 					<div class="card slot-form">
 						<div class="slot-form-row">
 							<input bind:value={slotForm.slot_name} placeholder="槽位名称（如：硬壳/雨衣）" style="flex: 2;" />
-							<select bind:value={slotForm.category_id} style="flex: 1;">
-								{#each categories as c}
-									<option value={c.id}>{c.icon} {c.name}</option>
-								{/each}
-							</select>
 						</div>
 						<div class="slot-form-row">
 							<label class="inline-label">
@@ -379,16 +377,17 @@
 						<div class="type-select">
 							<span class="type-select-label">接受类型：</span>
 							{#each slotFormTypes as t}
+								{@const depth = (() => { let d = 0; let pid: number | null = t.parent_id; while (pid != null) { d++; pid = types.find(p => p.id === pid)?.parent_id ?? null; } return d; })()}
 								<button
 									class="type-chip"
 									class:selected={slotForm.type_ids.includes(t.id)}
 									onclick={() => toggleTypeId(t.id)}
 								>
-									{t.name}
+									{'--'.repeat(depth)}{t.name}
 								</button>
 							{/each}
 							{#if slotFormTypes.length === 0}
-								<span style="color: var(--text-secondary); font-size: 13px;">该分类无类型</span>
+								<span style="color: var(--text-secondary); font-size: 13px;">无类型可用</span>
 							{/if}
 						</div>
 						<input bind:value={slotForm.notes} placeholder="备注" />
@@ -398,15 +397,15 @@
 					</div>
 				{/if}
 
-				{#each groupedSlots as group (group.category.id)}
+				{#each groupedSlots as group (group.rootTypeId)}
 					{@const essentialCount = group.slots.filter(s => s.is_essential).length}
 					<CategoryGroup
-						icon={group.category.icon}
-						name={group.category.name}
+						icon=""
+						name={group.rootTypeName}
 						checked={essentialCount}
 						total={group.slots.length}
-						collapsed={slotCollapsed[group.category.id] ?? false}
-						onToggle={() => slotCollapsed[group.category.id] = !slotCollapsed[group.category.id]}
+						collapsed={slotCollapsed[group.rootTypeId] ?? false}
+						onToggle={() => slotCollapsed[group.rootTypeId] = !slotCollapsed[group.rootTypeId]}
 					>
 						{#each group.slots as slot (slot.id)}
 							<div class="slot-row">

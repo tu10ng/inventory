@@ -1,9 +1,8 @@
 <script lang="ts">
-	import type { Category, Type, AiParsedItem, AttributeDefinition } from '$lib/types';
+	import type { Type, AiParsedItem, AttributeDefinition } from '$lib/types';
 	import { aiPostStream } from '$lib/api/client';
 
 	let {
-		categories,
 		types,
 		onConfirm,
 		onClose,
@@ -11,7 +10,6 @@
 		onNewAttrs,
 		prefillAiText = ''
 	}: {
-		categories: Category[];
 		types: Type[];
 		onConfirm: (items: AiParsedItem[]) => void;
 		onClose: () => void;
@@ -101,33 +99,14 @@
 		stage = 'input';
 	}
 
-	function getCategoryName(catId: number | null): string {
-		if (catId == null) return '-';
-		return categories.find(c => c.id === catId)?.name ?? '-';
-	}
-
 	function getTypeName(typeId: number | null): string {
 		if (typeId == null) return '-';
 		return types.find(t => t.id === typeId)?.name ?? '-';
 	}
 
-	function handleCategoryChange(index: number, value: string) {
-		const catId = parseInt(value);
-		parsedItems[index].category_id = isNaN(catId) ? null : catId;
-		const currentType = types.find(t => t.id === parsedItems[index].type_id);
-		if (currentType && currentType.category_id !== catId) {
-			parsedItems[index].type_id = null;
-		}
-	}
-
 	function handleTypeChange(index: number, value: string) {
 		const typeId = parseInt(value);
 		parsedItems[index].type_id = isNaN(typeId) ? null : typeId;
-	}
-
-	function availableTypes(catId: number | null): Type[] {
-		if (catId == null) return types;
-		return types.filter(t => t.category_id === catId);
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -199,7 +178,6 @@
 									<th>名称</th>
 									<th>品牌</th>
 									<th>型号</th>
-									<th>分类</th>
 									<th>类型</th>
 									<th></th>
 								</tr>
@@ -218,24 +196,12 @@
 										</td>
 										<td>
 											<select
-												value={item.category_id?.toString() ?? ''}
-												onchange={(e) => handleCategoryChange(i, e.currentTarget.value)}
-												class="cell-select"
-											>
-												<option value="">-</option>
-												{#each categories as cat}
-													<option value={cat.id.toString()}>{cat.name}</option>
-												{/each}
-											</select>
-										</td>
-										<td>
-											<select
 												value={item.type_id?.toString() ?? ''}
 												onchange={(e) => handleTypeChange(i, e.currentTarget.value)}
 												class="cell-select"
 											>
 												<option value="">-</option>
-												{#each availableTypes(item.category_id) as type}
+												{#each types as type}
 													<option value={type.id.toString()}>{type.name}</option>
 												{/each}
 											</select>

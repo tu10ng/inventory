@@ -26,10 +26,32 @@ function attrDefToColumn(ad: AttributeDefinition): ItemColumnDef {
 	return col;
 }
 
-/** Check if an attribute definition matches the given category/type scope. */
+/** Walk up parent_id chain to find root type (type with parent_id == null). */
+export function getRootTypeId(typeId: number | null, types: Type[]): number | null {
+	if (typeId == null) return null;
+	let current: Type | undefined = types.find(t => t.id === typeId);
+	while (current?.parent_id != null) {
+		current = types.find(t => t.id === current!.parent_id);
+	}
+	return current?.id ?? typeId;
+}
+
+/** Get root type name from a type_id. */
+export function getRootTypeName(typeId: number | null, types: Type[]): string {
+	const rootId = getRootTypeId(typeId, types);
+	if (rootId == null) return '未分类';
+	return types.find(t => t.id === rootId)?.name ?? '未分类';
+}
+
+/** Get root types (types with parent_id == null). */
+export function getRootTypes(types: Type[]): Type[] {
+	return types.filter(t => t.parent_id === null).sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/** Check if an attribute definition matches the given root type/type scope. */
 export function attrMatchesScope(
 	ad: AttributeDefinition,
-	categoryId: number | null,
+	rootTypeId: number | null,
 	typeId: number | null
 ): boolean {
 	const catScope = ad.category_scope
@@ -43,8 +65,8 @@ export function attrMatchesScope(
 	if (catScope.length === 0 && typeScope.length === 0) return true;
 
 	let ok = false;
-	if (catScope.length > 0 && categoryId != null) {
-		ok = ok || catScope.includes(categoryId);
+	if (catScope.length > 0 && rootTypeId != null) {
+		ok = ok || catScope.includes(rootTypeId);
 	}
 	if (typeScope.length > 0 && typeId != null) {
 		ok = ok || typeScope.includes(typeId);

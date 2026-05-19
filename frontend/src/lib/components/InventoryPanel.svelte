@@ -1,18 +1,21 @@
 <script lang="ts">
-	import type { Item, Category, TripItemEnriched } from '$lib/types';
+	import type { Item, Type, TripItemEnriched } from '$lib/types';
+	import { getRootTypeId, getRootTypeName } from '$lib/utils/columns';
 	import SearchFilter from './SearchFilter.svelte';
 	import ItemCard from './ItemCard.svelte';
 
-	let { items, categories, tripItemIds, enrichedItems, onHoverItem = null }: {
+	let { items, types, tripItemIds, enrichedItems, onHoverItem = null }: {
 		items: Item[];
-		categories: Category[];
+		types: Type[];
 		tripItemIds: Set<number>;
 		enrichedItems: TripItemEnriched[];
 		onHoverItem?: ((itemId: number | null) => void) | null;
 	} = $props();
 
 	let search = $state('');
-	let filterCategoryId = $state<number | null>(null);
+	let filterRootTypeId = $state<number | null>(null);
+
+	const rootTypes = $derived(types.filter(t => t.parent_id === null).sort((a, b) => a.sort_order - b.sort_order));
 
 	const filteredItems = $derived.by(() => {
 		let list = items;
@@ -25,33 +28,31 @@
 					String(i.attrs?.model ?? '').toLowerCase().includes(q)
 			);
 		}
-		if (filterCategoryId !== null) {
-			list = list.filter((i) => i.category_id === filterCategoryId);
+		if (filterRootTypeId !== null) {
+			list = list.filter((i) => getRootTypeId(i.type_id, types) === filterRootTypeId);
 		}
 		return list;
 	});
 
 	const groupedFiltered = $derived.by(() => {
-		const groups: { category: Category; items: Item[] }[] = [];
-		const catMap = new Map<number, Item[]>();
+		const groups: { rootType: Type; items: Item[] }[] = [];
+		const typeMap = new Map<number, Item[]>();
 
 		for (const item of filteredItems) {
-			if (!catMap.has(item.category_id)) catMap.set(item.category_id, []);
-			catMap.get(item.category_id)!.push(item);
+			const rootId = getRootTypeId(item.type_id, types);
+			if (rootId == null) continue;
+			if (!typeMap.has(rootId)) typeMap.set(rootId, []);
+			typeMap.get(rootId)!.push(item);
 		}
 
-		for (const cat of categories) {
-			const catItems = catMap.get(cat.id);
-			if (catItems && catItems.length > 0) {
-				groups.push({ category: cat, items: catItems });
+		for (const rt of rootTypes) {
+			const rtItems = typeMap.get(rt.id);
+			if (rtItems && rtItems.length > 0) {
+				groups.push({ rootType: rt, items: rtItems });
 			}
 		}
 		return groups;
 	});
-
-	function getCategoryIcon(catId: number): string {
-		return categories.find((c) => c.id === catId)?.icon ?? '📦';
-	}
 </script>
 
 <div class="inventory-panel">
@@ -62,22 +63,21 @@
 
 	<SearchFilter
 		{search}
-		categoryId={filterCategoryId}
-		{categories}
+		rootTypeId={filterRootTypeId}
+		{rootTypes}
 		onSearchChange={(v) => (search = v)}
-		onCategoryChange={(id) => (filterCategoryId = id)}
+		onRootTypeChange={(id) => (filterRootTypeId = id)}
 	/>
 
 	<p class="drag-hint">拖拽物品卡片到左侧清单</p>
 
 	<div class="inventory-grid-container">
 		{#each groupedFiltered as group}
-			<div class="group-label">{group.category.icon} {group.category.name}</div>
+			<div class="group-label">{group.rootType.name}</div>
 			<div class="inventory-grid">
 				{#each group.items as item (item.id)}
 					<ItemCard
 						{item}
-						categoryIcon={getCategoryIcon(item.category_id)}
 						alreadyAdded={tripItemIds.has(item.id)}
 						itemId={item.id}
 						{enrichedItems}

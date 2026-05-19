@@ -148,6 +148,14 @@ export const api = {
 		return res.json();
 	},
 
+	// ── LLM Configs ──
+	async getLlmConfigs<T>(): Promise<T> {
+		return request<T>('/llm-configs');
+	},
+	async updateLlmConfig<T>(id: number, body: Record<string, unknown>): Promise<T> {
+		return request<T>(`/llm-configs/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+	},
+
 	async downloadExport(path: string): Promise<void> {
 		const res = await fetch(`${BASE}${path}`);
 		if (!res.ok) {

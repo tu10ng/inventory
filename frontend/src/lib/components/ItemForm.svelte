@@ -1,12 +1,11 @@
 <script lang="ts">
-	import type { Item, Category, Type, AttributeDefinition } from '$lib/types';
+	import type { Item, Type, AttributeDefinition } from '$lib/types';
 	import { itemName } from '$lib/types';
 	import { getAttrConfig } from '$lib/utils/attrs';
-	import { attrMatchesScope } from '$lib/utils/columns';
+	import { attrMatchesScope, getRootTypeId } from '$lib/utils/columns';
 
-	let { item = null, categories, types, attrDefs = [], onSave, onCancel }: {
+	let { item = null, types, attrDefs = [], onSave, onCancel }: {
 		item?: Partial<Item> | null;
-		categories: Category[];
 		types: Type[];
 		attrDefs?: AttributeDefinition[];
 		onSave: (data: Record<string, unknown>) => void;
@@ -14,15 +13,13 @@
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
-	let category_id = $state(item?.category_id ?? categories[0]?.id ?? 0);
-	// svelte-ignore state_referenced_locally
 	let type_id = $state<number | null>(item?.type_id ?? null);
 
 	// Unified attrs: name, brand, model, default_qty, notes all live here
 	// svelte-ignore state_referenced_locally
 	let attrs = $state<Record<string, unknown>>({ ...(item?.attrs ?? {}) });
 
-	const categoryTypes = $derived(types.filter(t => t.category_id === category_id));
+	const rootTypes = $derived(types.filter(t => t.parent_id === null).sort((a, b) => a.sort_order - b.sort_order));
 
 	// Build depth map for tree indentation
 	const typeDepthMap = $derived.by(() => {
@@ -41,23 +38,15 @@
 		return '--'.repeat(depth) + t.name;
 	}
 
-	// When category changes, auto-clear type if not in new category
-	$effect(() => {
-		if (type_id != null) {
-			const t = types.find(t => t.id === type_id);
-			if (t && t.category_id !== category_id && category_id > 0) {
-				type_id = null;
-			}
-		}
-	});
-
 	// Current item_type value
 	const itemType = $derived(String(attrs.item_type ?? '') || '实体');
+
+	const currentRootTypeId = $derived(getRootTypeId(type_id, types));
 
 	// Scoped attribute definitions (registered + matching scope)
 	const scopedAttrDefs = $derived(
 		attrDefs
-			.filter(ad => attrMatchesScope(ad, category_id, type_id))
+			.filter(ad => attrMatchesScope(ad, currentRootTypeId, type_id))
 			.filter(ad => {
 				// Virtual-item-specific attributes only show when item_type is '虚拟'
 				if (ad.key === 'expiry_date' || ad.key === 'file_url') {
@@ -80,10 +69,6 @@
 
 	function onTypeChange(newTypeId: number | null) {
 		type_id = newTypeId;
-		if (newTypeId) {
-			const t = types.find(t => t.id === newTypeId);
-			if (t) category_id = t.category_id;
-		}
 	}
 
 	function getAttrValue(key: string, defaultVal: unknown = ''): unknown {
@@ -136,7 +121,7 @@
 
 	function handleSave() {
 		onSave({
-			category_id, type_id, attrs,
+			type_id, attrs,
 		});
 	}
 
@@ -156,26 +141,12 @@
 
 	<div class="form-row">
 		<div class="form-group" style="flex:1">
-			<label for="item-form-category">分类</label>
-			<select id="item-form-category" bind:value={category_id}>
-				{#each categories as c}
-					<option value={c.id}>{c.icon} {c.name}</option>
-				{/each}
-			</select>
-		</div>
-		<div class="form-group" style="flex:1">
 			<label for="item-form-type">类型</label>
 			<select id="item-form-type" value={type_id ?? ''} onchange={(e) => onTypeChange(e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
 				<option value="">无类型</option>
-				{#each categoryTypes as t}
+				{#each types as t}
 					<option value={t.id}>{typeDisplayName(t)}</option>
 				{/each}
-				{#if type_id && !categoryTypes.find(t => t.id === type_id)}
-					{@const otherType = types.find(t => t.id === type_id)}
-					{#if otherType}
-						<option value={otherType.id}>{otherType.name} (其他分类)</option>
-					{/if}
-				{/if}
 			</select>
 		</div>
 	</div>

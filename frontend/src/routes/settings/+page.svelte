@@ -1,27 +1,22 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Category, Type, Person, DisplayRule, AttributeDefinition, RelationType } from '$lib/types';
+	import type { Type, Person, DisplayRule, AttributeDefinition, RelationType, LlmConfig } from '$lib/types';
 
 	// ── Data ──
-	let categories = $state<Category[]>([]);
 	let types = $state<Type[]>([]);
 	let people = $state<Person[]>([]);
 	let displayRules = $state<DisplayRule[]>([]);
 	let relationTypes = $state<RelationType[]>([]);
 	let attrDefs = $state<AttributeDefinition[]>([]);
 	let allColumns = $state<{ key: string; label: string }[]>([]);
+	let llmConfigs = $state<LlmConfig[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
-
-	// ── Category form ──
-	let showCatForm = $state(false);
-	let editingCatId = $state<number | null>(null);
-	let catForm = $state({ name: '', icon: '', sort_order: 0 });
 
 	// ── Type form ──
 	let showTypeForm = $state(false);
 	let editingTypeId = $state<number | null>(null);
-	let typeForm = $state({ name: '', category_id: 0, parent_id: null as number | null, sort_order: 0 });
+	let typeForm = $state({ name: '', parent_id: null as number | null, sort_order: 0 });
 
 	// ── Person form ──
 	let showPersonForm = $state(false);
@@ -33,7 +28,6 @@
 	let editingRuleId = $state<number | null>(null);
 	let ruleForm = $state({
 		name: '',
-		category_id: null as number | null,
 		group_by_key: '',
 		sort_by_key: '',
 		sort_dir: 'asc',
@@ -42,6 +36,11 @@
 		config: '{}'
 	});
 	let ruleVisibleCols = $state<string[]>([]);
+
+	// ── LLM Config form ──
+	let editingLlmId = $state<number | null>(null);
+	let llmForm = $state({ provider_name: '', base_url: '', api_key: '', model: '', is_active: true });
+	let llmFormTask = $state('');
 
 	// ── Relation Type form ──
 	let showRtForm = $state(false);
@@ -60,13 +59,13 @@
 		try {
 			loading = true;
 			error = null;
-			[categories, types, people, displayRules, relationTypes, attrDefs] = await Promise.all([
-				api.get<Category[]>('/categories'),
+			[types, people, displayRules, relationTypes, attrDefs, llmConfigs] = await Promise.all([
 				api.get<Type[]>('/types'),
 				api.get<Person[]>('/people'),
 				api.get<DisplayRule[]>('/display-rules'),
 				api.get<RelationType[]>('/relation-types'),
-				api.get<AttributeDefinition[]>('/attribute-definitions')
+				api.get<AttributeDefinition[]>('/attribute-definitions'),
+				api.getLlmConfigs<LlmConfig[]>()
 			]);
 			allColumns = [{ key: 'type', label: '类型' }, ...attrDefs.map(a => ({ key: a.key, label: a.label }))];
 		} catch (e: unknown) {
@@ -76,50 +75,19 @@
 		}
 	}
 
-	// ── Categories ──
-
-	function resetCatForm() {
-		catForm = { name: '', icon: '', sort_order: categories.length };
-		editingCatId = null;
-		showCatForm = false;
-	}
-
-	function startEditCat(c: Category) {
-		catForm = { name: c.name, icon: c.icon, sort_order: c.sort_order };
-		editingCatId = c.id;
-		showCatForm = true;
-	}
-
-	async function saveCat() {
-		if (editingCatId) {
-			await api.put(`/categories/${editingCatId}`, catForm);
-		} else {
-			await api.post('/categories', catForm);
-		}
-		resetCatForm();
-		await load();
-	}
-
-	async function removeCat(id: number) {
-		if (!confirm('删除分类？如果有物品或类型引用此分类，删除会失败。')) return;
-		try {
-			await api.del(`/categories/${id}`);
-			await load();
-		} catch (e: unknown) {
-			alert('删除失败：' + (e instanceof Error ? e.message : '未知错误'));
+	// ── Helpers ──
+	function taskLabel(task: string): string {
+		switch (task) {
+			case 'parse': return '物品解析';
+			case 'organize': return 'AI 整理';
+			case 'ocr': return '图片识别';
+			default: return task;
 		}
 	}
 
 	// ── Types ──
 
-	const typesByCategory = $derived.by(() => {
-		const map = new Map<number, Type[]>();
-		for (const t of types) {
-			if (!map.has(t.category_id)) map.set(t.category_id, []);
-			map.get(t.category_id)!.push(t);
-		}
-		return map;
-	});
+	const rootTypes = $derived(types.filter(t => t.parent_id === null).sort((a, b) => a.sort_order - b.sort_order));
 
 	// Depth helper for tree display
 	function getTypeDepth(typeId: number): number {
@@ -133,13 +101,13 @@
 	}
 
 	function resetTypeForm() {
-		typeForm = { name: '', category_id: categories[0]?.id ?? 0, parent_id: null, sort_order: 0 };
+		typeForm = { name: '', parent_id: null, sort_order: 0 };
 		editingTypeId = null;
 		showTypeForm = false;
 	}
 
 	function startEditType(t: Type) {
-		typeForm = { name: t.name, category_id: t.category_id, parent_id: t.parent_id, sort_order: t.sort_order };
+		typeForm = { name: t.name, parent_id: t.parent_id, sort_order: t.sort_order };
 		editingTypeId = t.id;
 		showTypeForm = true;
 	}
@@ -206,14 +174,14 @@
 	// ── Display Rules ──
 
 	function resetRuleForm() {
-		ruleForm = { name: '', category_id: null, group_by_key: '', sort_by_key: '', sort_dir: 'asc', visible_columns: '[]', sort_order: 0, config: '{}' };
+		ruleForm = { name: '', group_by_key: '', sort_by_key: '', sort_dir: 'asc', visible_columns: '[]', sort_order: 0, config: '{}' };
 		ruleVisibleCols = [];
 		editingRuleId = null;
 		showRuleForm = false;
 	}
 
 	function startEditRule(r: DisplayRule) {
-		ruleForm = { name: r.name, category_id: r.category_id, group_by_key: r.group_by_key, sort_by_key: r.sort_by_key, sort_dir: r.sort_dir, visible_columns: r.visible_columns, sort_order: r.sort_order, config: r.config };
+		ruleForm = { name: r.name, group_by_key: r.group_by_key, sort_by_key: r.sort_by_key, sort_dir: r.sort_dir, visible_columns: r.visible_columns, sort_order: r.sort_order, config: r.config };
 		try { ruleVisibleCols = JSON.parse(r.visible_columns); } catch { ruleVisibleCols = []; }
 		editingRuleId = r.id;
 		showRuleForm = true;
@@ -238,6 +206,33 @@
 		} catch (e: unknown) {
 			alert('删除失败：' + (e instanceof Error ? e.message : '未知错误'));
 		}
+	}
+
+	// ── LLM Configs ──
+
+	function startEditLlm(cfg: LlmConfig) {
+		llmForm = {
+			provider_name: cfg.provider_name,
+			base_url: cfg.base_url,
+			api_key: '',  // Must re-enter key
+			model: cfg.model,
+			is_active: cfg.is_active
+		};
+		llmFormTask = cfg.task;
+		editingLlmId = cfg.id;
+	}
+
+	function cancelEditLlm() {
+		editingLlmId = null;
+		llmFormTask = '';
+		llmForm = { provider_name: '', base_url: '', api_key: '', model: '', is_active: true };
+	}
+
+	async function saveLlm() {
+		if (!editingLlmId) return;
+		await api.updateLlmConfig(editingLlmId, llmForm);
+		cancelEditLlm();
+		await load();
 	}
 
 	// ── Relation Types ──
@@ -286,108 +281,135 @@
 	<button class="primary" onclick={load}>重试</button>
 {:else}
 
-<!-- ── Section: Categories ── -->
-<section class="settings-section">
-	<div class="section-header">
-		<h2>物品分类</h2>
-		<button class="primary small" onclick={() => { if (showCatForm && !editingCatId) resetCatForm(); else { resetCatForm(); showCatForm = true; } }}>
-			{showCatForm && !editingCatId ? '取消' : '+ 新建分类'}
-		</button>
-	</div>
-
-	{#if showCatForm}
-		<div class="card inline-form">
-			<input bind:value={catForm.icon} placeholder="图标" style="width: 60px;" />
-			<input bind:value={catForm.name} placeholder="分类名称" style="flex: 1;" />
-			<input type="number" bind:value={catForm.sort_order} placeholder="排序" style="width: 70px;" title="排序" />
-			<button class="primary" onclick={saveCat} disabled={!catForm.name}>
-				{editingCatId ? '更新' : '创建'}
-			</button>
-			{#if editingCatId}
-				<button onclick={resetCatForm}>取消</button>
-			{/if}
-		</div>
-	{/if}
-
-	{#if categories.length === 0}
-		<div class="card empty">还没有分类，点击上方按钮创建</div>
-	{:else}
-		<div class="list">
-			{#each categories as c (c.id)}
-				<div class="list-item">
-					<span class="list-icon">{c.icon}</span>
-					<span class="list-name">{c.name}</span>
-					<span class="list-meta">排序: {c.sort_order}</span>
-					<div class="list-actions">
-						<button class="small" onclick={() => startEditCat(c)}>编辑</button>
-						<button class="small danger" onclick={() => removeCat(c.id)}>删除</button>
-					</div>
-				</div>
-			{/each}
-		</div>
-	{/if}
-</section>
-
 <!-- ── Section: Types ── -->
 <section class="settings-section">
 	<div class="section-header">
 		<h2>类型</h2>
-		<button class="primary small" onclick={() => { if (showTypeForm && !editingTypeId) resetTypeForm(); else { resetTypeForm(); showTypeForm = true; } }} disabled={categories.length === 0}>
+		<button class="primary small" onclick={() => { if (showTypeForm && !editingTypeId) resetTypeForm(); else { resetTypeForm(); showTypeForm = true; } }}>
 			{showTypeForm && !editingTypeId ? '取消' : '+ 新建类型'}
 		</button>
 	</div>
 
-	{#if categories.length === 0}
-		<div class="card empty">请先创建分类</div>
-	{:else}
-		{#if showTypeForm}
-			<div class="card inline-form">
-				<input bind:value={typeForm.name} placeholder="类型名称" style="flex: 1;" />
-				<select bind:value={typeForm.category_id}>
-					{#each categories as c}
-						<option value={c.id}>{c.icon} {c.name}</option>
-					{/each}
-				</select>
-				<select bind:value={typeForm.parent_id}>
-					<option value={null}>无（顶级类型）</option>
-					{#each types.filter(t => t.category_id === typeForm.category_id && t.id !== editingTypeId) as pt (pt.id)}
-						<option value={pt.id}>{'--'.repeat(getTypeDepth(pt.id))}{pt.name}</option>
-					{/each}
-				</select>
-				<input type="number" bind:value={typeForm.sort_order} placeholder="排序" style="width: 70px;" title="排序" />
-				<button class="primary" onclick={saveType} disabled={!typeForm.name}>
-					{editingTypeId ? '更新' : '创建'}
-				</button>
-				{#if editingTypeId}
-					<button onclick={resetTypeForm}>取消</button>
-				{/if}
-			</div>
-		{/if}
+	{#if showTypeForm}
+		<div class="card inline-form">
+			<input bind:value={typeForm.name} placeholder="类型名称" style="flex: 1;" />
+			<select bind:value={typeForm.parent_id}>
+				<option value={null}>无（顶级类型）</option>
+				{#each types.filter(t => t.id !== editingTypeId) as pt (pt.id)}
+					<option value={pt.id}>{'--'.repeat(getTypeDepth(pt.id))}{pt.name}</option>
+				{/each}
+			</select>
+			<input type="number" bind:value={typeForm.sort_order} placeholder="排序" style="width: 70px;" title="排序" />
+			<button class="primary" onclick={saveType} disabled={!typeForm.name}>
+				{editingTypeId ? '更新' : '创建'}
+			</button>
+			{#if editingTypeId}
+				<button onclick={resetTypeForm}>取消</button>
+			{/if}
+		</div>
+	{/if}
 
-		{#if types.length === 0}
-			<div class="card empty">还没有类型</div>
-		{:else}
-			{#each categories as cat (cat.id)}
-				{@const catTypes = typesByCategory.get(cat.id)}
-				{#if catTypes && catTypes.length > 0}
-					<div class="type-group">
-						<div class="type-group-header">{cat.icon} {cat.name}</div>
-						<div class="type-group-items">
-							{#each catTypes as t (t.id)}
-								<div class="type-item" style="padding-left: {24 + getTypeDepth(t.id) * 16}px">
-									<span class="type-name">{'--'.repeat(getTypeDepth(t.id))}{t.name}</span>
-									<div class="list-actions">
-										<button class="small" onclick={() => startEditType(t)}>编辑</button>
-										<button class="small danger" onclick={() => removeType(t.id)}>删除</button>
-									</div>
-								</div>
-							{/each}
+	{#if types.length === 0}
+		<div class="card empty">还没有类型</div>
+	{:else}
+		<!-- Show types by root type -->
+		{#each rootTypes as root (root.id)}
+			<div class="type-group">
+				<div class="type-group-header">{root.name}</div>
+				<div class="type-group-items">
+					<div class="type-item" style="padding-left: 24px">
+						<span class="type-name">{root.name}</span>
+						<div class="list-actions">
+							<button class="small" onclick={() => startEditType(root)}>编辑</button>
+							<button class="small danger" onclick={() => removeType(root.id)}>删除</button>
 						</div>
 					</div>
-				{/if}
-			{/each}
-		{/if}
+					{#each types.filter(t => t.parent_id === root.id) as child (child.id)}
+						<div class="type-item" style="padding-left: {24 + getTypeDepth(child.id) * 16}px">
+							<span class="type-name">{'--'.repeat(getTypeDepth(child.id))}{child.name}</span>
+							<div class="list-actions">
+								<button class="small" onclick={() => startEditType(child)}>编辑</button>
+								<button class="small danger" onclick={() => removeType(child.id)}>删除</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/each}
 	{/if}
+</section>
+
+<!-- ── Section: LLM Configs ── -->
+<section class="settings-section">
+	<div class="section-header">
+		<h2>AI 模型配置</h2>
+	</div>
+
+	<div class="section-desc">
+		为不同任务配置不同的 AI 模型。API Key 仅显示最后 4 位，保存时不填表示保持不变。
+	</div>
+
+	<div class="llm-table">
+		<div class="llm-table-header">
+			<span class="col-task">任务</span>
+			<span class="col-provider">提供商</span>
+			<span class="col-model">模型</span>
+			<span class="col-status">状态</span>
+			<span class="col-actions"></span>
+		</div>
+		{#each llmConfigs as cfg (cfg.id)}
+			<div class="llm-row">
+				{#if editingLlmId === cfg.id}
+					<div class="llm-edit-form">
+						<div class="llm-edit-row">
+							<label for="llm-task">任务</label>
+							<span id="llm-task" class="llm-task-label">{taskLabel(cfg.task)}</span>
+						</div>
+						<div class="llm-edit-row">
+							<label for="llm-provider">提供商</label>
+							<input id="llm-provider" bind:value={llmForm.provider_name} placeholder="如 DeepSeek" />
+						</div>
+						<div class="llm-edit-row">
+							<label for="llm-url">API 地址</label>
+							<input id="llm-url" bind:value={llmForm.base_url} placeholder="https://api.deepseek.com/v1" />
+						</div>
+						<div class="llm-edit-row">
+							<label for="llm-key">API Key</label>
+							<input id="llm-key" type="password" bind:value={llmForm.api_key} placeholder="留空表示保持不变" />
+						</div>
+						<div class="llm-edit-row">
+							<label for="llm-model">模型</label>
+							<input id="llm-model" bind:value={llmForm.model} placeholder="deepseek-chat" />
+						</div>
+						<div class="llm-edit-row">
+							<span class="checkbox-label">
+								<input id="llm-active" type="checkbox" bind:checked={llmForm.is_active} />
+								<label for="llm-active">启用</label>
+							</span>
+						</div>
+						<div class="llm-edit-actions">
+							<button class="primary small" onclick={saveLlm}>保存</button>
+							<button class="small" onclick={cancelEditLlm}>取消</button>
+						</div>
+					</div>
+				{:else}
+					<span class="col-task">{taskLabel(cfg.task)}</span>
+					<span class="col-provider">{cfg.provider_name}</span>
+					<span class="col-model">{cfg.model}</span>
+					<span class="col-status">
+						{#if cfg.is_active}
+							<span class="badge active">启用</span>
+						{:else}
+							<span class="badge inactive">停用</span>
+						{/if}
+					</span>
+					<span class="col-actions">
+						<button class="small" onclick={() => startEditLlm(cfg)}>编辑</button>
+					</span>
+				{/if}
+			</div>
+		{/each}
+	</div>
 </section>
 
 <!-- ── Section: People ── -->
@@ -486,7 +508,7 @@
 	</div>
 
 	<div class="section-desc">
-		展示规则用于一键切换物品库的分组、排序和列显示。例如："服装按部位"会筛选服装分类，按 body_parts 分组，按名称排序。
+		展示规则用于一键切换物品库的分组、排序和列显示。
 	</div>
 
 	{#if showRuleForm}
@@ -494,15 +516,6 @@
 			<div class="rule-form-row">
 				<label>名称</label>
 				<input bind:value={ruleForm.name} placeholder="规则名称" style="flex: 1;" />
-			</div>
-			<div class="rule-form-row">
-				<label>筛选分类</label>
-				<select bind:value={ruleForm.category_id}>
-					<option value={null}>全部（不筛选）</option>
-					{#each categories as c}
-						<option value={c.id}>{c.icon} {c.name}</option>
-					{/each}
-				</select>
 			</div>
 			<div class="rule-form-row">
 				<label>分组依据</label>
@@ -558,13 +571,11 @@
 	{:else}
 		<div class="list">
 			{#each displayRules as r (r.id)}
-				{@const cat = categories.find(c => c.id === r.category_id)}
 				<div class="list-item">
 					<span class="list-name">{r.name}</span>
 					<span class="list-meta">
-						分类: {cat ? cat.icon + ' ' + cat.name : '全部'}
 						{#if r.group_by_key}
-							| 分组: {allColumns.find(c => c.key === r.group_by_key)?.label ?? r.group_by_key}
+							分组: {allColumns.find(c => c.key === r.group_by_key)?.label ?? r.group_by_key}
 						{/if}
 					</span>
 					<div class="list-actions">
@@ -754,5 +765,92 @@
 		display: flex;
 		gap: 8px;
 		margin-top: 4px;
+	}
+
+	/* LLM Config table */
+	.llm-table {
+		margin-bottom: 12px;
+	}
+	.llm-table-header {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 14px;
+		background: var(--surface);
+		border-bottom: 1px solid var(--border);
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--text-secondary);
+	}
+	.llm-row {
+		border-bottom: 1px solid var(--border);
+	}
+	.llm-row:last-child {
+		border-bottom: none;
+	}
+	.col-task { width: 90px; flex-shrink: 0; }
+	.col-provider { flex: 1; }
+	.col-model { flex: 1.5; }
+	.col-status { width: 60px; flex-shrink: 0; text-align: center; }
+	.col-actions { width: 60px; flex-shrink: 0; text-align: right; }
+
+	.llm-row:not(:has(.llm-edit-form)) {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 14px;
+	}
+
+	.llm-edit-form {
+		padding: 12px 14px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.llm-edit-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.llm-edit-row label {
+		font-size: 13px;
+		color: var(--text-secondary);
+		min-width: 60px;
+		flex-shrink: 0;
+	}
+	.llm-edit-row input {
+		flex: 1;
+		font-size: 13px;
+		padding: 4px 8px;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		background: var(--surface);
+		color: var(--text);
+	}
+	.llm-task-label {
+		font-size: 13px;
+		color: var(--text);
+	}
+	.llm-edit-actions {
+		display: flex;
+		gap: 8px;
+		margin-top: 4px;
+	}
+
+	.badge.active {
+		background: var(--success);
+		color: #fff;
+		padding: 1px 8px;
+		border-radius: 10px;
+		font-size: 11px;
+		white-space: nowrap;
+	}
+	.badge.inactive {
+		background: var(--text-secondary);
+		color: #fff;
+		padding: 1px 8px;
+		border-radius: 10px;
+		font-size: 11px;
+		white-space: nowrap;
 	}
 </style>

@@ -3,13 +3,12 @@
 	import { itemName, itemBrand, itemModel } from '$lib/types';
 	import { startDrag, endDrag } from '$lib/stores/dragState.svelte';
 
-	let { item, categoryIcon, alreadyAdded = false,
+	let { item, alreadyAdded = false,
 		onclick = null,
 		onHover = null,
 		itemId = 0, typeId = null, enrichedItems = []
 	}: {
 		item: Item;
-		categoryIcon: string;
 		alreadyAdded?: boolean;
 		onclick?: (() => void) | null;
 		onHover?: ((itemId: number | null) => void) | null;
@@ -59,7 +58,6 @@
 	tabindex={onclick ? 0 : undefined}
 	onkeydown={onclick ? (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') handleClick(); } : undefined}
 >
-	<div class="card-icon">{categoryIcon}</div>
 	<div class="card-name">{displayName}</div>
 	{#if displayBrand || displayModel}
 		<div class="card-detail">{displayBrand} {displayModel}</div>
@@ -107,9 +105,6 @@
 	}
 	.item-card.already-added {
 		opacity: 0.5;
-	}
-	.card-icon {
-		font-size: 22px;
 	}
 	.card-name {
 		font-size: 13px;

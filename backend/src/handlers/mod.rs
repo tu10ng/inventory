@@ -1,10 +1,10 @@
 pub mod activities;
 pub mod ai;
 pub mod attributes;
-pub mod categories;
 pub mod display_rules;
 pub mod excel;
 pub mod items;
+pub mod llm_configs;
 pub mod ocr;
 pub mod people;
 pub mod relations;
@@ -19,9 +19,9 @@ use sqlx::SqlitePool;
 
 pub fn router() -> Router<SqlitePool> {
     Router::new()
-        // Categories
-        .route("/api/categories", get(categories::list).post(categories::create))
-        .route("/api/categories/{id}", put(categories::update).delete(categories::delete))
+        // LLM Configs — active/{task} MUST be before {id}
+        .route("/api/llm-configs", get(llm_configs::list))
+        .route("/api/llm-configs/{id}", put(llm_configs::update))
         // Types — tree MUST be before {id}
         .route("/api/types/tree", get(types::tree))
         .route("/api/types", get(types::list).post(types::create))

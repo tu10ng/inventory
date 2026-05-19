@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Item, Category, Type, ItemUsageCount, AiParsedItem, AttributeDefinition, ItemRelationEnriched, RelationType, CreateItemRelation } from '$lib/types';
+	import type { Item, Type, ItemUsageCount, AiParsedItem, AttributeDefinition, ItemRelationEnriched, RelationType, CreateItemRelation } from '$lib/types';
 	import { itemName } from '$lib/types';
 	import SearchFilter from '$lib/components/SearchFilter.svelte';
 	import ColumnPicker from '$lib/components/ColumnPicker.svelte';
@@ -15,13 +15,12 @@
 	import ExcelImportModal from '$lib/components/ExcelImportModal.svelte';
 	import BulkActionBar from '$lib/components/BulkActionBar.svelte';
 	import type { BatchAttrOption } from '$lib/components/BulkActionBar.svelte';
-	import { loadAllColumns, getAllColumns, loadVisibleColumns } from '$lib/utils/columns';
+	import { loadAllColumns, getAllColumns, loadVisibleColumns, getRootTypeId, getRootTypeName } from '$lib/utils/columns';
 	import type { ItemColumnDef } from '$lib/utils/columns';
 	import { filterItems, sortItems, groupItems, groupItemsByTypeTree } from '$lib/utils/itemFilters';
 	import type { ItemGroup, TypeTreeGroup } from '$lib/utils/itemFilters';
 
 	let items = $state<Item[]>([]);
-	let categories = $state<Category[]>([]);
 	let types = $state<Type[]>([]);
 	let attrDefs = $state<AttributeDefinition[]>([]);
 	let usageStats = $state<Map<number, number>>(new Map());
@@ -34,9 +33,9 @@
 	let selectedItemIds = $state<Set<number>>(new Set());
 
 	let search = $state('');
-	let filterCategoryId = $state<number | null>(null);
+	let filterRootTypeId = $state<number | null>(null);
 
-	let collapsedCategories = $state<Set<number>>(new Set());
+	let collapsedRootTypes = $state<Set<number>>(new Set());
 	let visibleKeys = $state<string[]>(loadVisibleColumns());
 	const visibleColumns = $derived(allColumns.filter(c => visibleKeys.includes(c.key)));
 
@@ -58,19 +57,19 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
+	const rootTypes = $derived(types.filter(t => t.parent_id === null).sort((a, b) => a.sort_order - b.sort_order));
+
 	async function load() {
 		try {
 			loading = true;
 			error = null;
-			const [itemsData, cats, typesData, adefs, cols] = await Promise.all([
+			const [itemsData, typesData, adefs, cols] = await Promise.all([
 				api.get<Item[]>('/items'),
-				api.get<Category[]>('/categories'),
 				api.get<Type[]>('/types'),
 				api.get<AttributeDefinition[]>('/attribute-definitions'),
 				loadAllColumns()
 			]);
 			items = itemsData;
-			categories = cats;
 			types = typesData;
 			attrDefs = adefs;
 			allColumns = cols;
@@ -110,17 +109,10 @@
 
 	async function handleFieldUpdate(field: string, value: unknown) {
 		if (!selectedItem) return;
-		const isTopLevel = field === 'category_id' || field === 'type_id';
+		const isTopLevel = field === 'type_id';
 		let data: Record<string, unknown>;
 		if (isTopLevel) {
 			data = { [field]: value };
-			// When category changes, clear type if it doesn't belong to new category
-			if (field === 'category_id') {
-				const currentType = types.find(t => t.id === selectedItem!.type_id);
-				if (currentType && currentType.category_id !== value) {
-					data.type_id = null;
-				}
-			}
 		} else if (field === 'attrs') {
 			// value is already the complete attrs object (from updateAttr)
 			data = { attrs: value as Record<string, unknown> };
@@ -132,12 +124,7 @@
 		try {
 			const updated = await api.put<Item>(`/items/${selectedItem.id}`, data);
 			selectedItem = updated;
-			const needsFullReload = field === 'category_id';
-			if (needsFullReload) {
-				await load();
-			} else {
-				items = items.map(i => i.id === updated.id ? updated : i);
-			}
+			items = items.map(i => i.id === updated.id ? updated : i);
 		} catch (e) {
 			alert((e as Error).message);
 		}
@@ -199,7 +186,6 @@
 		prefillAiText = '';
 		for (const item of aiItems) {
 			const payload = {
-				category_id: item.category_id ?? categories[0]?.id ?? 1,
 				type_id: item.type_id ?? null,
 				attrs: item.attrs ?? {},
 			};
@@ -213,14 +199,14 @@
 		await load();
 	}
 
-	function toggleCategory(catId: number) {
-		const next = new Set(collapsedCategories);
-		if (next.has(catId)) next.delete(catId);
-		else next.add(catId);
-		collapsedCategories = next;
+	function toggleRootType(rtId: number) {
+		const next = new Set(collapsedRootTypes);
+		if (next.has(rtId)) next.delete(rtId);
+		else next.add(rtId);
+		collapsedRootTypes = next;
 	}
 
-	const filteredItems = $derived(filterItems(items, search, filterCategoryId, columnFilters, allColumns, types));
+	const filteredItems = $derived(filterItems(items, search, filterRootTypeId, columnFilters, allColumns, types));
 
 	function handleSort(key: string) {
 		if (sortKey === key) {
@@ -245,27 +231,23 @@
 		allColumns.filter(c => c.key !== 'brand' && (c.type === 'text' || c.type === 'type'))
 	);
 
-	// Group-by data: pre-computed per-category groups when groupByKey is set
+	// Group-by data: pre-computed per-root-type groups when groupByKey is set
 	const groupedData = $derived.by(() => {
 		if (!groupByKey) return null;
-		const map = new Map<number, { groups: ItemGroup[]; tree?: TypeTreeGroup[]; ungrouped: Item[] }>();
+		const map = new Map<number, { groups?: ItemGroup[]; tree?: TypeTreeGroup[]; ungrouped: Item[] }>();
 		if (groupByKey === 'type') {
-			// Tree grouping: build per-category type trees
-			for (const cat of categories) {
-				const catItems = sortedItems.filter(i => i.category_id === cat.id);
-				if (catItems.length > 0) {
-					const catTypes = types.filter(t => t.category_id === cat.id);
-					const { tree, ungrouped } = groupItemsByTypeTree(catItems, catTypes);
-					map.set(cat.id, { groups: [], tree, ungrouped });
-				}
+			// Tree grouping: build per root type trees
+			const treeMap = groupItemsByTypeTree(sortedItems, types);
+			for (const [rootId, data] of treeMap) {
+				map.set(rootId, data);
 			}
 		} else {
 			// Flat grouping for other keys
-			for (const cat of categories) {
-				const catItems = sortedItems.filter(i => i.category_id === cat.id);
-				if (catItems.length > 0) {
-					const { groups, ungrouped } = groupItems(catItems, groupByKey, allColumns, types);
-					map.set(cat.id, { groups, ungrouped });
+			for (const rt of rootTypes) {
+				const rtItems = sortedItems.filter(i => getRootTypeId(i.type_id, types) === rt.id);
+				if (rtItems.length > 0) {
+					const { groups, ungrouped } = groupItems(rtItems, groupByKey, allColumns, types);
+					map.set(rt.id, { groups, ungrouped });
 				}
 			}
 		}
@@ -323,9 +305,7 @@
 			const idsToUpdate = new Set(selectedItemIds);
 			let changes: Record<string, unknown>;
 
-			if (attrKey === 'category_id') {
-				changes = { category_id: value };
-			} else if (attrKey === 'type_id') {
+			if (attrKey === 'type_id') {
 				changes = { type_id: value };
 			} else {
 				// attr within attrs JSON
@@ -340,9 +320,6 @@
 			// Optimistic local update
 			items = items.map(i => {
 				if (!idsToUpdate.has(i.id)) return i;
-				if (attrKey === 'category_id') {
-					return { ...i, category_id: value as number };
-				}
 				if (attrKey === 'type_id') {
 					return { ...i, type_id: value as number | null };
 				}
@@ -355,13 +332,6 @@
 
 	// Build attribute options for BulkActionBar
 	const batchAttrOptions: BatchAttrOption[] = $derived([
-		// category_id as a select option
-		{
-			key: 'category_id',
-			label: '分类',
-			type: 'select',
-			selectOptions: categories.map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })),
-		},
 		// type_id as a select option (with null)
 		{
 			key: 'type_id',
@@ -412,10 +382,10 @@
 			<div class="toolbar-row">
 				<SearchFilter
 					{search}
-					categoryId={filterCategoryId}
-					{categories}
+					rootTypeId={filterRootTypeId}
+					{rootTypes}
 					onSearchChange={(v) => (search = v)}
-					onCategoryChange={(id) => (filterCategoryId = id)}
+					onRootTypeChange={(id) => (filterRootTypeId = id)}
 				/>
 				<div class="group-by-select">
 					<label for="group-by-select">分组</label>
@@ -450,11 +420,10 @@
 		/>
 		<ItemListTable
 				items={sortedItems}
-				{categories}
 				{types}
 				{visibleColumns}
 				selectedItemId={selectedItem?.id ?? null}
-				{collapsedCategories}
+				collapsedRootTypes={collapsedRootTypes}
 				{sortKey}
 				{sortDir}
 				{columnFilters}
@@ -462,7 +431,7 @@
 				{groupedData}
 				selectedIds={selectedItemIds}
 				onSelect={selectItem}
-				onToggleCategory={toggleCategory}
+				onToggleRootType={toggleRootType}
 				onSort={handleSort}
 				onFilterChange={handleFilterChange}
 				onToggleSelect={toggleSelectItem}
@@ -474,7 +443,6 @@
 			{#if panelMode === 'detail' && selectedItem}
 				<ItemDetailPanel
 					item={selectedItem}
-					{categories}
 					{types}
 					{attrDefs}
 					usageCount={usageStats.get(selectedItem.id) ?? 0}
@@ -487,7 +455,6 @@
 				/>
 			{:else if panelMode === 'create'}
 				<ItemForm
-					{categories}
 					{types}
 					{attrDefs}
 					onSave={handleSave}
@@ -507,7 +474,6 @@
 
 {#if showAiModal}
 	<AiAddModal
-		{categories}
 		{types}
 		{prefillAiText}
 		onConfirm={handleAiConfirm}
@@ -533,7 +499,6 @@
 {#if showOrganizeModal}
 	<AiOrganizeModal
 		{items}
-		{categories}
 		{types}
 		{attrDefs}
 		itemIds={organizeSelectedItemIds ?? undefined}
@@ -558,7 +523,6 @@
 
 {#if showExcelModal}
 	<ExcelImportModal
-		{categories}
 		{types}
 		{attrDefs}
 		onDone={(created: number) => {

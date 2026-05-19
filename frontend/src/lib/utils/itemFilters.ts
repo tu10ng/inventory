@@ -1,6 +1,6 @@
 import type { Item, Type } from '$lib/types';
 import type { ItemColumnDef } from '$lib/utils/columns';
-import { getDescendantTypeIds } from '$lib/utils/columns';
+import { getDescendantTypeIds, getRootTypeId } from '$lib/utils/columns';
 
 export interface ItemGroup {
 	label: string;
@@ -17,7 +17,7 @@ export interface TypeTreeGroup {
 export function filterItems(
 	items: Item[],
 	search: string,
-	filterCategoryId: number | null,
+	filterRootTypeId: number | null,
 	columnFilters: Map<string, Set<string>>,
 	allColumns: ItemColumnDef[],
 	types: Type[]
@@ -33,8 +33,8 @@ export function filterItems(
 			return name.includes(q) || brand.includes(q) || model.includes(q);
 		});
 	}
-	if (filterCategoryId !== null) {
-		list = list.filter((i) => i.category_id === filterCategoryId);
+	if (filterRootTypeId !== null) {
+		list = list.filter((i) => getRootTypeId(i.type_id, types) === filterRootTypeId);
 	}
 	// Apply column filters
 	for (const [key, vals] of columnFilters) {
@@ -149,24 +149,19 @@ export function groupItems(
 	return { groups, ungrouped };
 }
 
-/** Build a tree of TypeTreeGroup from items and types within a single category.
- *  Handles: normal parent_id chains, types whose parent is in another category (treated as root),
- *  and orphaned types with items (added as standalone roots).
+/** Build a tree of TypeTreeGroup from items, grouped by root type (parent_id == null).
  *  Items with no type_id go to ungrouped. */
 export function groupItemsByTypeTree(
-	catItems: Item[],
-	catTypes: Type[]
-): { tree: TypeTreeGroup[]; ungrouped: Item[] } {
-	const typeMap = new Map<number, Type>();
-	for (const t of catTypes) {
-		typeMap.set(t.id, t);
-	}
+	items: Item[],
+	types: Type[]
+): Map<number, { tree: TypeTreeGroup[]; ungrouped: Item[] }> {
+	const typeMap = new Map(types.map(t => [t.id, t]));
 
 	// Map type_id → items
 	const typeItems = new Map<number, Item[]>();
 	const ungrouped: Item[] = [];
 
-	for (const item of catItems) {
+	for (const item of items) {
 		if (item.type_id != null && typeMap.has(item.type_id)) {
 			if (!typeItems.has(item.type_id)) {
 				typeItems.set(item.type_id, []);
@@ -177,46 +172,79 @@ export function groupItemsByTypeTree(
 		}
 	}
 
-	// Track which types are already included in the tree to catch orphans later
-	const inTree = new Set<number>();
+	// Group items by root type
+	const rootMap = new Map<number, { items: Item[]; typeIds: Set<number> }>();
 
-	function buildNode(type: Type): TypeTreeGroup {
-		inTree.add(type.id);
-		const node: TypeTreeGroup = {
-			type,
-			items: typeItems.get(type.id) ?? [],
-			children: [],
-		};
-		const childTypes = catTypes.filter(t => t.parent_id === type.id);
-		for (const child of childTypes) {
-			const childNode = buildNode(child);
-			// Only include child if it has items (direct or via descendants)
-			if (childNode.items.length > 0 || childNode.children.length > 0) {
-				node.children.push(childNode);
+	for (const item of items) {
+		if (item.type_id == null) continue;
+		const rootId = getRootTypeId(item.type_id, types);
+		if (rootId == null) continue;
+
+		if (!rootMap.has(rootId)) {
+			rootMap.set(rootId, { items: [], typeIds: new Set() });
+		}
+		rootMap.get(rootId)!.items.push(item);
+		const t = typeMap.get(item.type_id);
+		if (t) {
+			// Also collect all ancestor type IDs along the chain
+			let current: Type | undefined = t;
+			while (current) {
+				rootMap.get(rootId)!.typeIds.add(current.id);
+				current = current.parent_id ? typeMap.get(current.parent_id) : undefined;
 			}
 		}
-		return node;
 	}
 
-	// Root types: parent_id === null, or parent not in this category's types
-	const rootTypes = catTypes.filter(
-		t => t.parent_id === null || !typeMap.has(t.parent_id)
-	);
+	const result = new Map<number, { tree: TypeTreeGroup[]; ungrouped: Item[] }>();
 
-	const tree = rootTypes
-		.map(buildNode)
-		.filter(n => n.items.length > 0 || n.children.length > 0);
+	for (const [rootId, { items: rootItems, typeIds }] of rootMap) {
+		// Track which types are already included in the tree to catch orphans later
+		const inTree = new Set<number>();
 
-	// Handle orphaned types with items that weren't reachable from roots
-	for (const [typeId, its] of typeItems) {
-		if (!inTree.has(typeId) && its.length > 0) {
-			const type = typeMap.get(typeId)!;
-			tree.push({ type, items: its, children: [] });
+		function buildNode(type: Type): TypeTreeGroup {
+			inTree.add(type.id);
+			const node: TypeTreeGroup = {
+				type,
+				items: typeItems.get(type.id) ?? [],
+				children: [],
+			};
+			const childTypes = types.filter(t => t.parent_id === type.id && typeIds.has(t.id));
+			for (const child of childTypes) {
+				const childNode = buildNode(child);
+				// Only include child if it has items (direct or via descendants)
+				if (childNode.items.length > 0 || childNode.children.length > 0) {
+					node.children.push(childNode);
+				}
+			}
+			return node;
 		}
+
+		// Root type
+		const rootType = typeMap.get(rootId)!;
+		const tree = [buildNode(rootType)].filter(n => n.items.length > 0 || n.children.length > 0);
+
+		// Handle orphaned types with items that weren't reachable from root
+		for (const [typeId, its] of typeItems) {
+			if (!inTree.has(typeId) && its.length > 0 && getRootTypeId(typeId, types) === rootId) {
+				const type = typeMap.get(typeId)!;
+				tree.push({ type, items: its, children: [] });
+			}
+		}
+
+		// Collect unassigned items for this root
+		const thisUngrouped = rootItems.filter(i => i.type_id == null || !typeMap.has(i.type_id));
+
+		result.set(rootId, { tree, ungrouped: thisUngrouped });
 	}
 
-	// Sort tree by type sort_order
-	tree.sort((a, b) => a.type.sort_order - b.type.sort_order);
+	// Also handle global ungrouped items (those not in any root group)
+	const itemsWithoutRoot = items.filter(i => {
+		if (i.type_id == null) return true;
+		return getRootTypeId(i.type_id, types) == null;
+	});
+	if (itemsWithoutRoot.length > 0 && !result.has(-1)) {
+		result.set(-1, { tree: [], ungrouped: itemsWithoutRoot });
+	}
 
-	return { tree, ungrouped };
+	return result;
 }

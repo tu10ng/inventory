@@ -94,7 +94,7 @@ pub async fn delete(
 }
 
 /// Recursively collect all slots from an activity and its included activities.
-/// Returns flattened, deduplicated slots (by slot_name + category_id: first wins).
+/// Returns flattened, deduplicated slots (by slot_name: first wins).
 /// Has cycle detection to prevent infinite loops.
 async fn collect_activity_slots(
     pool: &SqlitePool,
@@ -138,11 +138,11 @@ async fn collect_activity_slots(
         }
     }
 
-    // Deduplicate: same slot_name + category_id → first one wins (from the activity higher in graph)
+    // Deduplicate: same slot_name → first one wins (from the activity higher in graph)
     let mut seen_slot_keys = std::collections::HashSet::new();
     let mut deduped = Vec::new();
     for (_src, slot) in all_slots {
-        let key = (slot.slot_name.clone(), slot.category_id);
+        let key = slot.slot_name.clone();
         if seen_slot_keys.insert(key) {
             deduped.push(slot);
         }

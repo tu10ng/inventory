@@ -1,8 +1,9 @@
-import type { Trip, TripItemEnriched, Item, Category, Person, Tip } from '$lib/types';
+import type { Trip, TripItemEnriched, Item, Type, Person, Tip } from '$lib/types';
 import { getItemStatusLabel, getTripStatusLabel } from './status';
+import { getRootTypeName } from './columns';
 
 interface GroupedItems {
-	category: Category;
+	rootTypeName: string;
 	items: TripItemEnriched[];
 }
 
@@ -10,6 +11,7 @@ export function generateTripText(
 	trip: Trip,
 	groupedItems: GroupedItems[],
 	allItems: Item[],
+	types: Type[],
 	people: Person[],
 	tips: Tip[],
 	totalChecked: number,
@@ -47,7 +49,7 @@ export function generateTripText(
 	for (const group of groupedItems) {
 		const checked = group.items.filter((t) => t.checked).length;
 		lines.push('');
-		lines.push(`${group.category.icon} ${group.category.name} (${checked}/${group.items.length})`);
+		lines.push(`${group.rootTypeName} (${checked}/${group.items.length})`);
 
 		for (const ti of group.items) {
 			const parts: string[] = [];

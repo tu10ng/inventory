@@ -1,16 +1,14 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { ExcelPreviewResponse, Category, Type, AttributeDefinition, AiParsedItem } from '$lib/types';
+	import type { ExcelPreviewResponse, Type, AttributeDefinition, AiParsedItem } from '$lib/types';
 
 	let {
-		categories,
 		types,
 		attrDefs,
 		onDone,
 		onClose,
 		onOpenAiModal
 	}: {
-		categories: Category[];
 		types: Type[];
 		attrDefs: AttributeDefinition[];
 		onDone: (created: number) => void;
@@ -47,7 +45,6 @@
 			{ value: '_model', label: '→ model (型号)' },
 			{ value: '_notes', label: '→ notes (备注)' },
 			{ value: '_default_qty', label: '→ default_qty (默认数量)' },
-			{ value: '_category', label: '→ 分类 (按名称匹配)' },
 			{ value: '_type', label: '→ 类型 (按名称匹配)' }
 		];
 		for (const ad of attrDefs) {
@@ -146,7 +143,6 @@
 		for (let ri = 0; ri < preview.rows.length; ri++) {
 			const row = preview.rows[ri];
 			const attrs: Record<string, unknown> = {};
-			let categoryName: string | null = null;
 			let typeName: string | null = null;
 
 			for (let ci = 0; ci < preview.headers.length; ci++) {
@@ -165,8 +161,6 @@
 				} else if (mapping === '_default_qty') {
 					const num = parseInt(val, 10);
 					attrs.default_qty = isNaN(num) ? 1 : num;
-				} else if (mapping === '_category') {
-					categoryName = val;
 				} else if (mapping === '_type') {
 					typeName = val;
 				} else if (mapping === '_new') {
@@ -189,27 +183,16 @@
 			// Only include rows that have at least a name
 			if (!attrs.name) continue;
 
-			// Try to match category and type
-			let categoryId: number | null = null;
+			// Try to match type
 			let typeId: number | null = null;
 
-			if (categoryName) {
-				const cat = categories.find(c => c.name === categoryName || c.name.includes(categoryName));
-				if (cat) categoryId = cat.id;
-				else categoryId = categories.find(c => c.name === '其他')?.id || categories[0]?.id || null;
-			} else {
-				categoryId = categories.find(c => c.name === '其他')?.id || categories[0]?.id || null;
-			}
-
-			if (typeName && categoryId) {
-				const type = types.find(t => t.name === typeName && t.category_id === categoryId);
+			if (typeName) {
+				const type = types.find(t => t.name === typeName);
 				if (type) typeId = type.id;
 			}
 
 			items.push({
-				category_name: categoryName,
 				type_name: typeName,
-				category_id: categoryId,
 				type_id: typeId,
 				attrs
 			});
@@ -260,10 +243,8 @@
 
 			const item = items[i];
 			try {
-				const categoryId = item.category_id || categories.find(c => c.name === '其他')?.id || 1;
 				const attrs = { ...item.attrs } as Record<string, unknown>;
 				const body: Record<string, unknown> = {
-					category_id: categoryId,
 					type_id: item.type_id || null,
 					attrs
 				};
@@ -289,15 +270,6 @@
 	function done() {
 		onDone(importResult.created);
 		onClose();
-	}
-
-	function getCategoryName(item: AiParsedItem): string {
-		if (item.category_name) return item.category_name;
-		if (item.category_id) {
-			const cat = categories.find(c => c.id === item.category_id);
-			return cat ? cat.name : '未知';
-		}
-		return '—';
 	}
 
 	function getTypeName(item: AiParsedItem): string {
@@ -463,7 +435,6 @@
 										<th>名称</th>
 										<th>品牌</th>
 										<th>型号</th>
-										<th>分类</th>
 										<th>类型</th>
 									</tr>
 								</thead>
@@ -474,7 +445,6 @@
 											<td>{item.attrs.name}</td>
 											<td>{item.attrs.brand ?? ''}</td>
 											<td>{item.attrs.model ?? ''}</td>
-											<td>{getCategoryName(item)}</td>
 											<td>{getTypeName(item)}</td>
 										</tr>
 									{/each}

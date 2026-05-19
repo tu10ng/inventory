@@ -6,21 +6,21 @@ import type { ItemColumnDef } from './columns';
 function makeItem(overrides: Partial<Item> = {}): Item {
 	return {
 		id: 1,
-		category_id: 1,
 		type_id: null,
 		attrs: {},
 		...overrides
 	};
 }
 
-const itemFcy: Item = makeItem({ id: 1, category_id: 1, attrs: { name: '冲锋衣', brand: '始祖鸟', model: 'Beta LT', warmth_rating: 30, waterproof: 1, default_qty: 2 } });
-const itemDzg: Item = makeItem({ id: 2, category_id: 2, attrs: { name: '登山杖', brand: 'Black Diamond', model: '', warmth_rating: 0, waterproof: 0, default_qty: 2 } });
-const itemTd: Item = makeItem({ id: 3, category_id: 2, type_id: 2, attrs: { name: '头灯', brand: 'Petzl', model: 'Tikka', warmth_rating: 0, waterproof: 1, default_qty: 1 } });
+const itemFcy: Item = makeItem({ id: 1, attrs: { name: '冲锋衣', brand: '始祖鸟', model: 'Beta LT', warmth_rating: 30, waterproof: 1, default_qty: 2 } });
+const itemDzg: Item = makeItem({ id: 2, type_id: 2, attrs: { name: '登山杖', brand: 'Black Diamond', model: '', warmth_rating: 0, waterproof: 0, default_qty: 2 } });
+const itemTd: Item = makeItem({ id: 3, type_id: 3, attrs: { name: '头灯', brand: 'Petzl', model: 'Tikka', warmth_rating: 0, waterproof: 1, default_qty: 1 } });
 const items: Item[] = [itemFcy, itemDzg, itemTd];
 
 const types: Type[] = [
-	{ id: 1, name: '冲锋衣', category_id: 1, sort_order: 1, parent_id: null },
-	{ id: 2, name: '头灯', category_id: 2, sort_order: 2, parent_id: null }
+	{ id: 1, name: '服装', sort_order: 1, parent_id: null },
+	{ id: 2, name: '登山杖', sort_order: 1, parent_id: 1 },
+	{ id: 3, name: '头灯', sort_order: 2, parent_id: 1 }
 ];
 
 const columns: ItemColumnDef[] = [
@@ -50,10 +50,11 @@ describe('filterItems', () => {
 		expect(result[0].id).toBe(1);
 	});
 
-	it('filters by category_id', () => {
-		const result = filterItems(items, '', 2, new Map(), columns, types);
+	it('filters by root type', () => {
+		// Both itemDzg (type 2, root 1) and itemTd (type 3, root 1) have root type 1
+		const result = filterItems(items, '', 1, new Map(), columns, types);
 		expect(result).toHaveLength(2);
-		expect(result.every(i => i.category_id === 2)).toBe(true);
+		expect(result.map(i => i.id).sort()).toEqual([2, 3]);
 	});
 
 	it('filters by boolean column', () => {
@@ -63,7 +64,7 @@ describe('filterItems', () => {
 	});
 
 	it('filters by type column', () => {
-		const filterMap = new Map([['type', new Set(['2'])]]);
+		const filterMap = new Map([['type', new Set(['3'])]]);
 		const result = filterItems(items, '', null, filterMap, columns, types);
 		expect(result).toHaveLength(1);
 		expect(result[0].id).toBe(3);
@@ -78,8 +79,6 @@ describe('filterItems', () => {
 describe('sortItems', () => {
 	it('sorts by name ascending (Chinese)', () => {
 		const result = sortItems(items, 'name', 'asc', types);
-		// 冲锋衣 (chong) comes after 登山杖 (deng) and 头灯 (tou) in pinyin
-		// Actually it depends on locale. We just verify it's sorted
 		expect(result).toHaveLength(3);
 	});
 
@@ -120,10 +119,10 @@ describe('groupItems', () => {
 		const { groups, ungrouped } = groupItems(items, 'type', [
 			{ key: 'type', label: '类型', type: 'type' }
 		], types);
-		expect(groups.length).toBe(1); // 头灯 group
-		expect(groups[0].value).toBe('头灯');
-		expect(groups[0].items.length).toBe(1);
-		expect(groups[0].items[0].id).toBe(3);
-		expect(ungrouped.length).toBe(2); // 冲锋衣 and 登山杖 have no type
+		expect(groups.length).toBe(2); // 登山杖 and 头灯 groups
+		const values = groups.map(g => g.value);
+		expect(values).toContain('登山杖');
+		expect(values).toContain('头灯');
+		expect(ungrouped.length).toBe(1); // 冲锋衣 has no type_id
 	});
 });

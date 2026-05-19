@@ -11,14 +11,14 @@ use sqlx::SqlitePool;
 
 use crate::error::AppError;
 use crate::models::{
-    AttributeDefinition, BatchItemsRequest, BatchItemsResponse, Category, CreateItem, DisplayRule,
+    AttributeDefinition, BatchItemsRequest, BatchItemsResponse, CreateItem, DisplayRule,
     ExportData, ImportItemPreview, ImportPreviewResult, ImportRequest, ImportResult,
     ImportStrategy, Item, ItemUsageCount, ItemUsageStats, Type, TripRef, UpdateItem,
 };
 
 pub async fn list(State(pool): State<SqlitePool>) -> Result<Json<Vec<Item>>, AppError> {
     let rows = sqlx::query_as::<_, Item>(
-        "SELECT id, category_id, type_id, attrs FROM items ORDER BY category_id, id",
+        "SELECT id, type_id, attrs FROM items ORDER BY type_id, id",
     )
     .fetch_all(&pool)
     .await?;
@@ -30,7 +30,7 @@ pub async fn get(
     Path(id): Path<i64>,
 ) -> Result<Json<Item>, AppError> {
     let row = sqlx::query_as::<_, Item>(
-        "SELECT id, category_id, type_id, attrs FROM items WHERE id = ?",
+        "SELECT id, type_id, attrs FROM items WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(&pool)
@@ -44,23 +44,10 @@ pub async fn create(
     Json(body): Json<CreateItem>,
 ) -> Result<Json<Item>, AppError> {
     body.validate()?;
-    // Ensure name is in attrs (frontend sends it that way, but be safe)
     let attrs_str = serde_json::to_string(&body.attrs).unwrap_or_else(|_| "{}".to_string());
-    let name = body.attrs.get("name").and_then(|v| v.as_str()).unwrap_or("");
-    let brand = body.attrs.get("brand").and_then(|v| v.as_str()).unwrap_or("");
-    let model = body.attrs.get("model").and_then(|v| v.as_str()).unwrap_or("");
-    let default_qty = body.attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
-    let notes = body.attrs.get("notes").and_then(|v| v.as_str()).unwrap_or("");
-    // Old physical columns still exist (legacy) — fill them from attrs for compatibility
     let row = sqlx::query_as::<_, Item>(
-        "INSERT INTO items (name, brand, model, category_id, default_qty, notes, type_id, attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, category_id, type_id, attrs",
+        "INSERT INTO items (type_id, attrs) VALUES (?, ?) RETURNING id, type_id, attrs",
     )
-    .bind(name)
-    .bind(brand)
-    .bind(model)
-    .bind(body.category_id)
-    .bind(default_qty)
-    .bind(notes)
     .bind(body.type_id)
     .bind(&attrs_str)
     .fetch_one(&pool)
@@ -74,14 +61,13 @@ pub async fn update(
     Json(body): Json<UpdateItem>,
 ) -> Result<Json<Item>, AppError> {
     let existing = sqlx::query_as::<_, Item>(
-        "SELECT id, category_id, type_id, attrs FROM items WHERE id = ?",
+        "SELECT id, type_id, attrs FROM items WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(&pool)
     .await?
     .ok_or_else(|| AppError::not_found("物品", id))?;
 
-    let category_id = body.category_id.unwrap_or(existing.category_id);
     let type_id = match body.type_id {
         Some(v) => v,
         None => existing.type_id,
@@ -121,21 +107,9 @@ pub async fn update(
     }
 
     let attrs_str = serde_json::to_string(&attrs).unwrap_or_else(|_| "{}".to_string());
-    // Also sync legacy physical columns from attrs
-    let name = attrs.get("name").and_then(|v| v.as_str()).unwrap_or("");
-    let brand = attrs.get("brand").and_then(|v| v.as_str()).unwrap_or("");
-    let model = attrs.get("model").and_then(|v| v.as_str()).unwrap_or("");
-    let default_qty = attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
-    let notes = attrs.get("notes").and_then(|v| v.as_str()).unwrap_or("");
     let row = sqlx::query_as::<_, Item>(
-        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, type_id = ?, attrs = ? WHERE id = ? RETURNING id, category_id, type_id, attrs",
+        "UPDATE items SET type_id = ?, attrs = ? WHERE id = ? RETURNING id, type_id, attrs",
     )
-    .bind(name)
-    .bind(brand)
-    .bind(model)
-    .bind(category_id)
-    .bind(default_qty)
-    .bind(notes)
     .bind(type_id)
     .bind(&attrs_str)
     .bind(id)
@@ -217,21 +191,6 @@ pub async fn batch(
             let changes = body.changes.as_ref().unwrap();
             let mut updated: u64 = 0;
 
-            // category_id
-            if let Some(cat_id) = changes.get("category_id").and_then(|v| v.as_i64()) {
-                let placeholders: Vec<String> = body.ids.iter().map(|_| "?".to_string()).collect();
-                let sql = format!(
-                    "UPDATE items SET category_id = ? WHERE id IN ({})",
-                    placeholders.join(",")
-                );
-                let mut query = sqlx::query(&sql).bind(cat_id);
-                for id in &body.ids {
-                    query = query.bind(id);
-                }
-                let result = query.execute(&pool).await?;
-                updated = result.rows_affected();
-            }
-
             // type_id (supports setting to null)
             if let Some(tag_val) = changes.get("type_id") {
                 let type_id: Option<i64> = if tag_val.is_null() {
@@ -259,7 +218,7 @@ pub async fn batch(
                         let mut tx = pool.begin().await?;
                         for id in &body.ids {
                             let existing = sqlx::query_as::<_, Item>(
-                                "SELECT id, category_id, type_id, attrs FROM items WHERE id = ?",
+                                "SELECT id, type_id, attrs FROM items WHERE id = ?",
                             )
                             .bind(id)
                             .fetch_optional(&mut *tx)
@@ -273,34 +232,9 @@ pub async fn batch(
                                 }
                                 let attrs_str =
                                     serde_json::to_string(&merged).unwrap_or_else(|_| "{}".to_string());
-                                let name = merged
-                                    .get("name")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                let brand = merged
-                                    .get("brand")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                let model = merged
-                                    .get("model")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
-                                let default_qty = merged
-                                    .get("default_qty")
-                                    .and_then(|v| v.as_i64())
-                                    .unwrap_or(1);
-                                let notes = merged
-                                    .get("notes")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
                                 sqlx::query(
-                                    "UPDATE items SET name = ?, brand = ?, model = ?, default_qty = ?, notes = ?, attrs = ? WHERE id = ?",
+                                    "UPDATE items SET attrs = ? WHERE id = ?",
                                 )
-                                .bind(name)
-                                .bind(brand)
-                                .bind(model)
-                                .bind(default_qty)
-                                .bind(notes)
                                 .bind(&attrs_str)
                                 .bind(id)
                                 .execute(&mut *tx)
@@ -322,14 +256,8 @@ pub async fn batch(
 // ── Import / Export ──
 
 pub async fn export_items(State(pool): State<SqlitePool>) -> Result<Response<Body>, AppError> {
-    let categories = sqlx::query_as::<_, Category>(
-        "SELECT id, name, icon, sort_order FROM categories ORDER BY sort_order, id",
-    )
-    .fetch_all(&pool)
-    .await?;
-
     let types = sqlx::query_as::<_, Type>(
-        "SELECT id, name, category_id, sort_order FROM types ORDER BY category_id, sort_order, id",
+        "SELECT id, name, sort_order, parent_id FROM types ORDER BY COALESCE(parent_id, id), sort_order, id",
     )
     .fetch_all(&pool)
     .await?;
@@ -341,13 +269,13 @@ pub async fn export_items(State(pool): State<SqlitePool>) -> Result<Response<Bod
     .await?;
 
     let items = sqlx::query_as::<_, Item>(
-        "SELECT id, category_id, type_id, attrs FROM items ORDER BY category_id, id",
+        "SELECT id, type_id, attrs FROM items ORDER BY type_id, id",
     )
     .fetch_all(&pool)
     .await?;
 
     let display_rules = sqlx::query_as::<_, DisplayRule>(
-        "SELECT id, name, category_id, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config FROM display_rules ORDER BY sort_order, id",
+        "SELECT id, name, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config FROM display_rules ORDER BY sort_order, id",
     )
     .fetch_all(&pool)
     .await?;
@@ -360,7 +288,6 @@ pub async fn export_items(State(pool): State<SqlitePool>) -> Result<Response<Bod
     let export_data = ExportData {
         version: 3,
         exported_at: now.to_string(),
-        categories,
         types,
         attribute_definitions,
         items,
@@ -449,43 +376,16 @@ pub async fn import_items(
     State(pool): State<SqlitePool>,
     Json(body): Json<ImportRequest>,
 ) -> Result<Json<ImportResult>, AppError> {
-    if body.version < 1 || body.version > 2 {
+    if body.version < 1 || body.version > 3 {
         return Err(AppError::bad_request("不支持的导出文件版本"));
     }
 
     let mut tx = pool.begin().await?;
 
-    // 1. Categories: upsert by name, build old_id -> new_id mapping
-    let mut cat_remap: HashMap<i64, i64> = HashMap::new();
-    let mut categories_created: u64 = 0;
-    for cat in &body.categories {
-        let existing = sqlx::query("SELECT id FROM categories WHERE name = ?")
-            .bind(&cat.name)
-            .fetch_optional(&mut *tx)
-            .await?;
-        if let Some(row) = existing {
-            let existing_id: i64 = row.get(0);
-            cat_remap.insert(cat.id, existing_id);
-        } else {
-            let new_id = sqlx::query(
-                "INSERT INTO categories (name, icon, sort_order) VALUES (?, ?, ?)",
-            )
-            .bind(&cat.name)
-            .bind(&cat.icon)
-            .bind(cat.sort_order)
-            .execute(&mut *tx)
-            .await?
-            .last_insert_rowid();
-            cat_remap.insert(cat.id, new_id);
-            categories_created += 1;
-        }
-    }
-
-    // 2. Tags: upsert by name, remap category_id
+    // 1. Types: upsert by name
     let mut type_remap: HashMap<i64, i64> = HashMap::new();
     let mut types_created: u64 = 0;
     for tag in &body.types {
-        let new_category_id = cat_remap.get(&tag.category_id).copied().unwrap_or(tag.category_id);
         let existing = sqlx::query("SELECT id FROM types WHERE name = ?")
             .bind(&tag.name)
             .fetch_optional(&mut *tx)
@@ -493,17 +393,11 @@ pub async fn import_items(
         if let Some(row) = existing {
             let existing_id: i64 = row.get(0);
             type_remap.insert(tag.id, existing_id);
-            sqlx::query("UPDATE types SET category_id = ? WHERE id = ?")
-                .bind(new_category_id)
-                .bind(existing_id)
-                .execute(&mut *tx)
-                .await?;
         } else {
             let new_id = sqlx::query(
-                "INSERT INTO types (name, category_id, sort_order) VALUES (?, ?, ?)",
+                "INSERT INTO types (name, sort_order) VALUES (?, ?)",
             )
             .bind(&tag.name)
-            .bind(new_category_id)
             .bind(tag.sort_order)
             .execute(&mut *tx)
             .await?
@@ -513,7 +407,7 @@ pub async fn import_items(
         }
     }
 
-    // 3. Attribute definitions: upsert by key
+    // 2. Attribute definitions: upsert by key
     let mut attribute_definitions_created: u64 = 0;
     for adef in &body.attribute_definitions {
         let existing = sqlx::query("SELECT id FROM attribute_definitions WHERE key = ?")
@@ -541,7 +435,7 @@ pub async fn import_items(
         }
     }
 
-    // 4. Display rules: upsert by name
+    // 3. Display rules: upsert by name
     let mut display_rules_created: u64 = 0;
     for rule in &body.display_rules {
         let existing = sqlx::query("SELECT id FROM display_rules WHERE name = ?")
@@ -549,12 +443,10 @@ pub async fn import_items(
             .fetch_optional(&mut *tx)
             .await?;
         if existing.is_none() {
-            let rule_cat_id = rule.category_id.and_then(|cid| cat_remap.get(&cid).copied()).or(rule.category_id);
             sqlx::query(
-                "INSERT INTO display_rules (name, category_id, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO display_rules (name, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config) VALUES (?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&rule.name)
-            .bind(rule_cat_id)
             .bind(&rule.group_by_key)
             .bind(&rule.sort_by_key)
             .bind(&rule.sort_dir)
@@ -567,7 +459,7 @@ pub async fn import_items(
         }
     }
 
-    // 5. Items: match by name (case-insensitive, name from attrs JSON)
+    // 4. Items: match by name (case-insensitive, name from attrs JSON)
     let existing_rows = sqlx::query("SELECT id, LOWER(json_extract(attrs, '$.name')) as name_lower FROM items")
         .fetch_all(&mut *tx)
         .await?;
@@ -591,27 +483,12 @@ pub async fn import_items(
                     items_skipped += 1;
                 }
                 ImportStrategy::Update => {
-                    let new_category_id = cat_remap
-                        .get(&item.category_id)
-                        .copied()
-                        .unwrap_or(item.category_id);
                     let new_type_id = item.type_id.and_then(|tid| type_remap.get(&tid).copied());
                     let attrs_str =
                         serde_json::to_string(&item.attrs).unwrap_or_else(|_| "{}".to_string());
-                    let name = item.attr_str("name");
-                    let brand = item.attr_str("brand");
-                    let model = item.attr_str("model");
-                    let default_qty = item.attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
-                    let notes = item.attr_str("notes");
                     sqlx::query(
-                        "UPDATE items SET name = ?, brand = ?, model = ?, category_id = ?, default_qty = ?, notes = ?, type_id = ?, attrs = ? WHERE id = ?",
+                        "UPDATE items SET type_id = ?, attrs = ? WHERE id = ?",
                     )
-                    .bind(&name)
-                    .bind(&brand)
-                    .bind(&model)
-                    .bind(new_category_id)
-                    .bind(default_qty)
-                    .bind(&notes)
                     .bind(new_type_id)
                     .bind(&attrs_str)
                     .bind(existing_id)
@@ -621,27 +498,12 @@ pub async fn import_items(
                 }
             }
         } else {
-            let new_category_id = cat_remap
-                .get(&item.category_id)
-                .copied()
-                .unwrap_or(item.category_id);
             let new_type_id = item.type_id.and_then(|tid| type_remap.get(&tid).copied());
             let attrs_str =
                 serde_json::to_string(&item.attrs).unwrap_or_else(|_| "{}".to_string());
-            let name = item.attr_str("name");
-            let brand = item.attr_str("brand");
-            let model = item.attr_str("model");
-            let default_qty = item.attrs.get("default_qty").and_then(|v| v.as_i64()).unwrap_or(1);
-            let notes = item.attr_str("notes");
             sqlx::query(
-                "INSERT INTO items (name, brand, model, category_id, default_qty, notes, type_id, attrs) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO items (type_id, attrs) VALUES (?, ?)",
             )
-            .bind(&name)
-            .bind(&brand)
-            .bind(&model)
-            .bind(new_category_id)
-            .bind(default_qty)
-            .bind(&notes)
             .bind(new_type_id)
             .bind(&attrs_str)
             .execute(&mut *tx)
@@ -653,7 +515,6 @@ pub async fn import_items(
     tx.commit().await?;
 
     Ok(Json(ImportResult {
-        categories_created,
         types_created,
         attribute_definitions_created,
         items_created,
@@ -679,7 +540,6 @@ mod tests {
         let Json(item) = create(
             State(pool.clone()),
             Json(CreateItem {
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "冲锋衣", "brand": "始祖鸟", "model": "Beta LT", "default_qty": 1, "warmth_rating": 30, "notes": ""}),
             }),
@@ -687,7 +547,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(item.category_id, 1);
+        assert_eq!(item.id > 0, true);
         assert_eq!(item.attr_str("name"), "冲锋衣");
         assert_eq!(item.attr_str("brand"), "始祖鸟");
         assert_eq!(item.attr_str("model"), "Beta LT");
@@ -705,7 +565,6 @@ mod tests {
         let result = create(
             State(pool.clone()),
             Json(CreateItem {
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"brand": "始祖鸟"}),
             }),
@@ -722,7 +581,6 @@ mod tests {
         let Json(item) = create(
             State(pool.clone()),
             Json(CreateItem {
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "冲锋衣", "brand": "始祖鸟", "model": "Beta LT", "default_qty": 1, "warmth_rating": 30, "notes": ""}),
             }),
@@ -735,7 +593,6 @@ mod tests {
             State(pool.clone()),
             axum::extract::Path(item.id),
             Json(UpdateItem {
-                category_id: None,
                 type_id: None,
                 attrs: Some(json!({"name": "硬壳冲锋衣"})),
             }),
@@ -756,7 +613,6 @@ mod tests {
         let Json(item) = create(
             State(pool.clone()),
             Json(CreateItem {
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "冲锋衣", "brand": "始祖鸟", "default_qty": 1, "notes": ""}),
             }),
@@ -768,7 +624,6 @@ mod tests {
             State(pool.clone()),
             axum::extract::Path(item.id),
             Json(UpdateItem {
-                category_id: None,
                 type_id: None,
                 attrs: Some(json!({"color": "红色"})),
             }),
@@ -781,10 +636,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_category_change() {
+    async fn update_type_change() {
         let pool = crate::db::init_test_pool().await;
         // First create a tag (no seed tags in migration)
-        sqlx::query("INSERT INTO types (name, category_id) VALUES ('test_tag', 1)")
+        sqlx::query("INSERT INTO types (name) VALUES ('test_tag')")
             .execute(&pool)
             .await
             .unwrap();
@@ -796,7 +651,6 @@ mod tests {
         let Json(item) = create(
             State(pool.clone()),
             Json(CreateItem {
-                category_id: 1,
                 type_id: Some(type_id),
                 attrs: json!({"name": "冲锋衣", "default_qty": 1, "notes": ""}),
             }),
@@ -808,7 +662,6 @@ mod tests {
             State(pool.clone()),
             axum::extract::Path(item.id),
             Json(UpdateItem {
-                category_id: Some(2),
                 type_id: Some(None),
                 attrs: None,
             }),
@@ -816,7 +669,6 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(updated.category_id, 2);
         assert_eq!(updated.type_id, None);
     }
 
@@ -827,7 +679,6 @@ mod tests {
         let Json(item) = create(
             State(pool.clone()),
             Json(CreateItem {
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "冲锋衣", "default_qty": 1, "notes": ""}),
             }),
@@ -852,13 +703,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_returns_sorted() {
+    async fn list_returns_items() {
         let pool = crate::db::init_test_pool().await;
 
         let _ = create(
             State(pool.clone()),
             Json(CreateItem {
-                category_id: 2,
                 type_id: None,
                 attrs: json!({"name": "登山杖", "default_qty": 1, "notes": ""}),
             }),
@@ -868,7 +718,6 @@ mod tests {
         let _ = create(
             State(pool.clone()),
             Json(CreateItem {
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "冲锋衣", "default_qty": 1, "notes": ""}),
             }),
@@ -878,10 +727,6 @@ mod tests {
 
         let Json(list) = list(State(pool.clone())).await.unwrap();
         assert!(list.len() >= 2);
-        let cat1_idx = list.iter().position(|i| i.category_id == 1);
-        let cat2_idx = list.iter().position(|i| i.category_id == 2);
-        assert!(cat1_idx.is_some() && cat2_idx.is_some());
-        assert!(cat1_idx.unwrap() < cat2_idx.unwrap());
     }
 
     #[tokio::test]
@@ -913,7 +758,6 @@ mod tests {
         let _ = create(
             State(pool.clone()),
             Json(CreateItem {
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "冲锋衣", "default_qty": 1, "notes": ""}),
             }),
@@ -923,12 +767,10 @@ mod tests {
 
         let import_req = ImportRequest {
             version: 2,
-            categories: vec![],
             types: vec![],
             attribute_definitions: vec![],
             items: vec![Item {
                 id: 100,
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "冲锋衣"}),
             }],
@@ -949,12 +791,10 @@ mod tests {
 
         let import_req = ImportRequest {
             version: 2,
-            categories: vec![],
             types: vec![],
             attribute_definitions: vec![],
             items: vec![Item {
                 id: 200,
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "全新物品"}),
             }],
@@ -973,17 +813,10 @@ mod tests {
 
         let import_req = ImportRequest {
             version: 2,
-            categories: vec![Category {
-                id: 100,
-                name: "服装".to_string(),
-                icon: "👕".to_string(),
-                sort_order: 1,
-            }],
             types: vec![],
             attribute_definitions: vec![],
             items: vec![Item {
                 id: 200,
-                category_id: 100,
                 type_id: None,
                 attrs: json!({"name": "软壳裤", "brand": "MAMMUT", "default_qty": 1, "notes": ""}),
             }],
@@ -1002,7 +835,6 @@ mod tests {
         let _ = create(
             State(pool.clone()),
             Json(CreateItem {
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "冲锋衣", "brand": "旧品牌", "default_qty": 1, "notes": ""}),
             }),
@@ -1012,12 +844,10 @@ mod tests {
 
         let import_req = ImportRequest {
             version: 2,
-            categories: vec![],
             types: vec![],
             attribute_definitions: vec![],
             items: vec![Item {
                 id: 300,
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "冲锋衣", "brand": "新品牌"}),
             }],
@@ -1037,7 +867,6 @@ mod tests {
         let Json(existing) = create(
             State(pool.clone()),
             Json(CreateItem {
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "冲锋衣", "brand": "旧品牌", "default_qty": 1, "notes": ""}),
             }),
@@ -1047,12 +876,10 @@ mod tests {
 
         let import_req = ImportRequest {
             version: 2,
-            categories: vec![],
             types: vec![],
             attribute_definitions: vec![],
             items: vec![Item {
                 id: 400,
-                category_id: 1,
                 type_id: None,
                 attrs: json!({"name": "冲锋衣", "brand": "新品牌", "default_qty": 1, "notes": ""}),
             }],

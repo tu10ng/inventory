@@ -108,7 +108,7 @@ pub async fn list_slots(
     // Batch query all slot_tags + tags
     let placeholders = slot_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let query_str = format!(
-        "SELECT ast.slot_id, t.id, t.name, t.category_id, t.sort_order FROM activity_slot_types ast JOIN tags t ON t.id = ast.type_id WHERE ast.slot_id IN ({}) ORDER BY t.sort_order, t.id",
+        "SELECT ast.slot_id, t.id, t.name, t.sort_order FROM activity_slot_types ast JOIN types t ON t.id = ast.type_id WHERE ast.slot_id IN ({}) ORDER BY t.sort_order, t.id",
         placeholders
     );
     let mut query = sqlx::query_as::<_, SlotTagRow>(&query_str);
@@ -117,25 +117,23 @@ pub async fn list_slots(
     }
     let tag_rows = query.fetch_all(&pool).await?;
 
-    // Group tags by slot_id
-    let mut tag_map: std::collections::HashMap<i64, Vec<Type>> = std::collections::HashMap::new();
+    // Group types by slot_id
+    let mut type_map: std::collections::HashMap<i64, Vec<Type>> = std::collections::HashMap::new();
     for row in tag_rows {
-        tag_map.entry(row.slot_id).or_default().push(Type {
+        type_map.entry(row.slot_id).or_default().push(Type {
             id: row.id,
             name: row.name,
-            category_id: row.category_id,
             sort_order: row.sort_order,
             parent_id: None,
         });
     }
 
     for slot in slots {
-        let types = tag_map.remove(&slot.id).unwrap_or_default();
+        let types = type_map.remove(&slot.id).unwrap_or_default();
         result.push(ActivitySlotWithTypes {
             id: slot.id,
             activity_id: slot.activity_id,
             slot_name: slot.slot_name,
-            category_id: slot.category_id,
             is_essential: slot.is_essential,
             default_qty: slot.default_qty,
             notes: slot.notes,
@@ -153,7 +151,6 @@ struct SlotTagRow {
     slot_id: i64,
     id: i64,
     name: String,
-    category_id: i64,
     sort_order: i64,
 }
 
@@ -167,11 +164,10 @@ pub async fn create_slot(
     let mut tx = pool.begin().await?;
 
     let slot = sqlx::query_as::<_, ActivitySlot>(
-        "INSERT INTO activity_slots (activity_id, slot_name, category_id, is_essential, default_qty, notes, sort_order, default_item_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO activity_slots (activity_id, slot_name, is_essential, default_qty, notes, sort_order, default_item_id) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id, activity_id, slot_name, is_essential, default_qty, notes, sort_order, default_item_id",
     )
     .bind(activity_id)
     .bind(&body.slot_name)
-    .bind(body.category_id)
     .bind(body.is_essential)
     .bind(body.default_qty)
     .bind(&body.notes)
@@ -187,12 +183,12 @@ pub async fn create_slot(
             .bind(type_id)
             .execute(&mut *tx)
             .await?;
-        let tag = sqlx::query_as::<_, Type>("SELECT * FROM types WHERE id = ?")
+        let t = sqlx::query_as::<_, Type>("SELECT id, name, sort_order, parent_id FROM types WHERE id = ?")
             .bind(type_id)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| AppError::not_found("类型", *type_id))?;
-        types.push(tag);
+        types.push(t);
     }
 
     tx.commit().await?;
@@ -201,7 +197,6 @@ pub async fn create_slot(
         id: slot.id,
         activity_id: slot.activity_id,
         slot_name: slot.slot_name,
-        category_id: slot.category_id,
         is_essential: slot.is_essential,
         default_qty: slot.default_qty,
         notes: slot.notes,
@@ -223,7 +218,6 @@ pub async fn update_slot(
         .ok_or_else(|| AppError::not_found("槽位", id))?;
 
     let slot_name = body.slot_name.unwrap_or(existing.slot_name);
-    let category_id = body.category_id.unwrap_or(existing.category_id);
     let is_essential = body.is_essential.unwrap_or(existing.is_essential);
     let default_qty = body.default_qty.unwrap_or(existing.default_qty);
     let notes = body.notes.unwrap_or(existing.notes);
@@ -236,10 +230,9 @@ pub async fn update_slot(
     let mut tx = pool.begin().await?;
 
     let slot = sqlx::query_as::<_, ActivitySlot>(
-        "UPDATE activity_slots SET slot_name = ?, category_id = ?, is_essential = ?, default_qty = ?, notes = ?, sort_order = ?, default_item_id = ? WHERE id = ? RETURNING *",
+        "UPDATE activity_slots SET slot_name = ?, is_essential = ?, default_qty = ?, notes = ?, sort_order = ?, default_item_id = ? WHERE id = ? RETURNING id, activity_id, slot_name, is_essential, default_qty, notes, sort_order, default_item_id",
     )
     .bind(&slot_name)
-    .bind(category_id)
     .bind(is_essential)
     .bind(default_qty)
     .bind(&notes)
@@ -264,9 +257,9 @@ pub async fn update_slot(
         }
     }
 
-    // Fetch tags
+    // Fetch types
     let types = sqlx::query_as::<_, Type>(
-        "SELECT t.* FROM types t JOIN activity_slot_types ast ON ast.type_id = t.id WHERE ast.slot_id = ? ORDER BY t.sort_order, t.id",
+        "SELECT t.id, t.name, t.sort_order, t.parent_id FROM types t JOIN activity_slot_types ast ON ast.type_id = t.id WHERE ast.slot_id = ? ORDER BY t.sort_order, t.id",
     )
     .bind(id)
     .fetch_all(&mut *tx)
@@ -278,7 +271,6 @@ pub async fn update_slot(
         id: slot.id,
         activity_id: slot.activity_id,
         slot_name: slot.slot_name,
-        category_id: slot.category_id,
         is_essential: slot.is_essential,
         default_qty: slot.default_qty,
         notes: slot.notes,

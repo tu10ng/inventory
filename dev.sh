@@ -32,7 +32,7 @@ BACKEND_PGID=$!
 # 等后端编译完、端口就绪
 echo "等待后端就绪..."
 for i in $(seq 1 120); do
-    if curl -sf http://localhost:3000/api/categories >/dev/null 2>&1; then
+    if curl -sf http://localhost:3000/api/types >/dev/null 2>&1; then
         echo "后端已就绪"
         break
     fi

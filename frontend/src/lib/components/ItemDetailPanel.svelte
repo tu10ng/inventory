@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { Item, Category, Type, AttributeDefinition, ItemRelationEnriched, RelationType, CreateItemRelation } from '$lib/types';
+	import type { Item, Type, AttributeDefinition, ItemRelationEnriched, RelationType, CreateItemRelation } from '$lib/types';
 	import { getAttrConfig } from '$lib/utils/attrs';
-	import { attrMatchesScope, buildTypePath } from '$lib/utils/columns';
+	import { attrMatchesScope, buildTypePath, getRootTypeId, getRootTypeName } from '$lib/utils/columns';
 	import InlineEdit from './InlineEdit.svelte';
 	import InlineEditSelect from './InlineEditSelect.svelte';
 	import InlineEditToggle from './InlineEditToggle.svelte';
@@ -9,9 +9,8 @@
 	import InlineEditStars from './InlineEditStars.svelte';
 	import InlineEditBar from './InlineEditBar.svelte';
 
-	let { item, categories, types, attrDefs = [], usageCount = 0, relations = [], relationTypes = [], onUpdate, onDelete, onAddRelation, onRemoveRelation }: {
+	let { item, types, attrDefs = [], usageCount = 0, relations = [], relationTypes = [], onUpdate, onDelete, onAddRelation, onRemoveRelation }: {
 		item: Item;
-		categories: Category[];
 		types: Type[];
 		attrDefs?: AttributeDefinition[];
 		usageCount?: number;
@@ -23,15 +22,17 @@
 		onRemoveRelation?: (id: number) => void;
 	} = $props();
 
-	const category = $derived(categories.find(c => c.id === item.category_id));
+	const rootTypeName = $derived(getRootTypeName(item.type_id, types));
 	const typeObj = $derived(item.type_id ? types.find(t => t.id === item.type_id) : null);
-
 	const typePath = $derived(item.type_id ? buildTypePath(item.type_id, types) : '');
 
-	const categoryOptions = $derived(categories.map(c => ({ value: c.id, label: `${c.icon} ${c.name}` })));
+	const rootTypeId = $derived(getRootTypeId(item.type_id, types));
+
+	// Root type options for category dropdown
+	const rootTypeOptions = $derived(types.filter(t => t.parent_id === null).sort((a, b) => a.sort_order - b.sort_order).map(t => ({ value: t.id, label: t.name })));
+
+	// When root type changes, clear type unless it belongs to the new root
 	const typeOptionsList = $derived.by(() => {
-		const filtered = types.filter(t => t.category_id === item.category_id);
-		// Build depth map for tree indentation
 		const depthMap = new Map<number, number>();
 		for (const t of types) {
 			let d = 0;
@@ -41,7 +42,7 @@
 		}
 		return [
 			{ value: null as number | null, label: '无类型' },
-			...filtered.map(t => ({ value: t.id as number | null, label: '--'.repeat(depthMap.get(t.id) ?? 0) + t.name }))
+			...types.map(t => ({ value: t.id as number | null, label: '--'.repeat(depthMap.get(t.id) ?? 0) + t.name }))
 		];
 	});
 
@@ -55,10 +56,10 @@
 	// Current item_type value
 	const itemType = $derived(String(item.attrs?.item_type ?? '') || '实体');
 
-	// Scoped attribute definitions — filter by category/type scope, then by item_type visibility
+	// Scoped attribute definitions — filter by root type/type scope, then by item_type visibility
 	const scopedAttrDefs = $derived(
 		attrDefs
-			.filter(ad => attrMatchesScope(ad, item.category_id, item.type_id))
+			.filter(ad => attrMatchesScope(ad, rootTypeId, item.type_id))
 			.filter(ad => {
 				// Virtual-item-specific attributes only show when item_type is '虚拟'
 				if (ad.key === 'expiry_date' || ad.key === 'file_url') {
@@ -118,7 +119,6 @@
 <div class="detail-panel">
 	<div class="detail-header">
 		<div class="header-top">
-			<span class="cat-icon">{category?.icon ?? '📦'}</span>
 			<div class="header-info">
 				<h2 class="item-name">
 					<InlineEdit value={itemName} oncommit={(v) => updateAttr('name', v)} placeholder="物品名称" wide={true} />
@@ -136,10 +136,8 @@
 	<!-- 基本信息 -->
 	<div class="detail-section">
 		<div class="field-row">
-			<span class="field-label">分类</span>
-			<span class="field-value">
-				<InlineEditSelect value={item.category_id} options={categoryOptions} oncommit={(v) => onUpdate('category_id', v)} />
-			</span>
+			<span class="field-label">根类型</span>
+			<span class="field-value">{rootTypeName}</span>
 		</div>
 		<div class="field-row">
 			<span class="field-label">类型</span>
@@ -286,10 +284,6 @@
 		display: flex;
 		gap: 8px;
 		align-items: flex-start;
-	}
-	.cat-icon {
-		font-size: 24px;
-		line-height: 1;
 	}
 	.header-info {
 		flex: 1;

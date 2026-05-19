@@ -1,0 +1,4 @@
+-- Migration 014: Remove categories table and replace with type tree root nodes.
+-- The actual table rebuilds are handled in db.rs migrate_remove_categories()
+-- because they require PRAGMA foreign_keys = OFF on a single connection.
+-- This file is a no-op marker so _migrations tracks that 014 was applied.

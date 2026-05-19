@@ -2,35 +2,28 @@
 	import { onMount } from 'svelte';
 	import ItemListTable from '$lib/components/ItemListTable.svelte';
 	import { api } from '$lib/api/client';
-	import type { Type, TypeTreeNode, Category, Item, AttributeDefinition } from '$lib/types';
-	import { buildTypePath, getDescendantTypeIds } from '$lib/utils/columns';
+	import type { Type, TypeTreeNode, Item, AttributeDefinition } from '$lib/types';
+	import { buildTypePath, getDescendantTypeIds, getRootTypes } from '$lib/utils/columns';
 
 	let types = $state<Type[]>([]);
-	let categories = $state<Category[]>([]);
 	let items = $state<Item[]>([]);
 	let attrDefs = $state<AttributeDefinition[]>([]);
 
 	let selectedTypeId = $state<number | null>(null);
-	let expandedCategories = $state<Set<number>>(new Set());
+	let expandedRootTypes = $state<Set<number>>(new Set());
 	let loading = $state(true);
 	let error = $state('');
 
+	const rootTypes = $derived(getRootTypes(types));
+
 	// Build tree from flat types
-	function buildTree(catTypes: Type[]): TypeTreeNode[] {
-		const map = new Map<number, TypeTreeNode>();
-		const roots: TypeTreeNode[] = [];
-		for (const t of catTypes) {
-			map.set(t.id, { ...t, children: [] });
-		}
-		for (const t of catTypes) {
-			const node = map.get(t.id)!;
-			if (t.parent_id && map.has(t.parent_id)) {
-				map.get(t.parent_id)!.children.push(node);
-			} else {
-				roots.push(node);
-			}
-		}
-		return roots;
+	function buildTree(parentId: number | null): TypeTreeNode[] {
+		const children = types.filter(t => t.parent_id === parentId);
+		if (children.length === 0) return [];
+		return children.sort((a, b) => a.sort_order - b.sort_order).map(t => ({
+			...t,
+			children: buildTree(t.id),
+		}));
 	}
 
 	// Recursive item count
@@ -49,31 +42,26 @@
 	// Selected type breadcrumb
 	let breadcrumb = $derived.by(() => {
 		if (selectedTypeId == null) return '';
-		const type = types.find(t => t.id === selectedTypeId);
-		if (!type) return '';
-		const cat = categories.find(c => c.id === type.category_id);
 		const typePath = buildTypePath(selectedTypeId, types);
-		return (cat ? cat.icon + ' ' + cat.name : '') + ' > ' + typePath;
+		return typePath;
 	});
 
-	function toggleCategory(catId: number) {
-		if (expandedCategories.has(catId)) {
-			expandedCategories.delete(catId);
+	function toggleRootType(rtId: number) {
+		if (expandedRootTypes.has(rtId)) {
+			expandedRootTypes.delete(rtId);
 		} else {
-			expandedCategories.add(catId);
+			expandedRootTypes.add(rtId);
 		}
-		expandedCategories = new Set(expandedCategories);
+		expandedRootTypes = new Set(expandedRootTypes);
 	}
 
 	onMount(async () => {
 		try {
-			const [catRes, typeRes, itemRes, attrRes] = await Promise.all([
-				api.get('/categories'),
+			const [typeRes, itemRes, attrRes] = await Promise.all([
 				api.get('/types'),
 				api.get('/items'),
 				api.get('/attribute-definitions'),
 			]);
-			categories = catRes as Category[];
 			types = typeRes as Type[];
 			items = itemRes as Item[];
 			attrDefs = attrRes as AttributeDefinition[];
@@ -94,26 +82,32 @@
 		<!-- Sidebar: Type Tree -->
 		<aside class="type-tree-panel">
 			<h2>类型树</h2>
-			{#each categories as cat}
-				{@const catTypes = types.filter(t => t.category_id === cat.id)}
-				{#if catTypes.length > 0}
-					{@const totalItems = items.filter(i => i.category_id === cat.id).length}
-					<div class="type-category">
-						<button class="cat-header" onclick={() => toggleCategory(cat.id)}>
-							<span class="cat-toggle">{expandedCategories.has(cat.id) ? '▾' : '▸'}</span>
-							<span class="cat-icon">{cat.icon}</span>
-							<span class="cat-name">{cat.name}</span>
-							<span class="cat-count">{totalItems}</span>
-						</button>
-						{#if expandedCategories.has(cat.id)}
-							<div class="tree-nodes">
-								{#each buildTree(catTypes) as node}
-									{@render RecursiveTreeNode({ node, types, selectedTypeId, countItems, onSelect: (id: number) => selectedTypeId = id, depth: 0 })}
-								{/each}
+			{#each rootTypes as root}
+				{@const tree = buildTree(root.id)}
+				<div class="type-category">
+					<button class="cat-header" onclick={() => toggleRootType(root.id)}>
+						<span class="cat-toggle">{expandedRootTypes.has(root.id) ? '▾' : '▸'}</span>
+						<span class="cat-name">{root.name}</span>
+						<span class="cat-count">{countItems(root.id)}</span>
+					</button>
+					{#if expandedRootTypes.has(root.id)}
+						<div class="tree-nodes">
+							<div class="tree-node">
+								<span class="node-toggle-spacer"></span>
+								<button
+									class="node-label"
+									class:selected={selectedTypeId === root.id}
+									onclick={() => selectedTypeId = root.id}
+								>
+									{root.name}
+								</button>
 							</div>
-						{/if}
-					</div>
-				{/if}
+							{#each buildTree(root.id) as node}
+								{@render RecursiveTreeNode({ node, types, selectedTypeId, countItems, onSelect: (id: number) => selectedTypeId = id, depth: 1 })}
+							{/each}
+						</div>
+					{/if}
+				</div>
 			{/each}
 		</aside>
 
@@ -131,7 +125,6 @@
 				<div class="type-items-list">
 					<ItemListTable
 						items={filteredItems as Item[]}
-						{categories}
 						{types}
 						visibleColumns={[{ key: 'type', label: '类型', type: 'type' } as import('$lib/utils/columns').ItemColumnDef,
 							{ key: 'name', label: '名称', type: 'text' },
@@ -139,9 +132,9 @@
 							{ key: 'model', label: '型号', type: 'text' }]}
 						selectable={false}
 						selectedItemId={null}
-						collapsedCategories={new Set()}
+						collapsedRootTypes={new Set()}
 						onSelect={() => {}}
-						onToggleCategory={() => {}}
+						onToggleRootType={() => {}}
 					/>
 				</div>
 			{/if}
@@ -210,7 +203,6 @@
 		background: var(--hover-bg, #f0f0f0);
 	}
 	.cat-toggle { width: 1em; flex-shrink: 0; }
-	.cat-icon { flex-shrink: 0; }
 	.cat-name { flex: 1; text-align: left; }
 	.cat-count {
 		background: var(--pill-bg, #e0e0e0);

@@ -1,15 +1,14 @@
 <script lang="ts">
 	import { api } from '$lib/api/client';
-	import type { Item, Category, Type, AttributeDefinition, DisplayRule, DisplayRuleConfig } from '$lib/types';
+	import type { Item, Type, AttributeDefinition, DisplayRule, DisplayRuleConfig } from '$lib/types';
 	import { parseDisplayRuleConfig } from '$lib/types';
 	import ItemListTable from '$lib/components/ItemListTable.svelte';
-	import { loadAllColumns } from '$lib/utils/columns';
+	import { loadAllColumns, getRootTypeId } from '$lib/utils/columns';
 	import type { ItemColumnDef } from '$lib/utils/columns';
 	import { filterItems, sortItems, groupItems } from '$lib/utils/itemFilters';
 	import type { ItemGroup } from '$lib/utils/itemFilters';
 
 	let items = $state<Item[]>([]);
-	let categories = $state<Category[]>([]);
 	let types = $state<Type[]>([]);
 	let attrDefs = $state<AttributeDefinition[]>([]);
 	let allColumns = $state<ItemColumnDef[]>([]);
@@ -19,8 +18,8 @@
 	let ruleConfig = $state<DisplayRuleConfig | null>(null);
 
 	let search = $state('');
-	let filterCategoryId = $state<number | null>(null);
-	let collapsedCategories = $state<Set<number>>(new Set());
+	let filterRootTypeId = $state<number | null>(null);
+	let collapsedRootTypes = $state<Set<number>>(new Set());
 	let visibleKeys = $state<string[]>([]);
 
 	let sortKey = $state<string | null>(null);
@@ -31,19 +30,19 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 
+	const rootTypes = $derived(types.filter(t => t.parent_id === null).sort((a, b) => a.sort_order - b.sort_order));
+
 	async function load() {
 		try {
 			loading = true;
 			error = null;
-			const [itemsData, cats, typesData, adefs, cols] = await Promise.all([
+			const [itemsData, typesData, adefs, cols] = await Promise.all([
 				api.get<Item[]>('/items'),
-				api.get<Category[]>('/categories'),
 				api.get<Type[]>('/types'),
 				api.get<AttributeDefinition[]>('/attribute-definitions'),
 				loadAllColumns()
 			]);
 			items = itemsData;
-			categories = cats;
 			types = typesData;
 			attrDefs = adefs;
 			allColumns = cols;
@@ -72,7 +71,7 @@
 		const config = parseDisplayRuleConfig(rule.config);
 		ruleConfig = config;
 
-		filterCategoryId = rule.category_id;
+		// DisplayRule no longer has category_id; no filter by root type
 		groupByKey = rule.group_by_key || null;
 		sortKey = rule.sort_by_key || null;
 		sortDir = rule.sort_dir === 'desc' ? 'desc' : 'asc';
@@ -87,11 +86,11 @@
 		}
 	}
 
-	function toggleCategory(catId: number) {
-		const next = new Set(collapsedCategories);
-		if (next.has(catId)) next.delete(catId);
-		else next.add(catId);
-		collapsedCategories = next;
+	function toggleRootType(rtId: number) {
+		const next = new Set(collapsedRootTypes);
+		if (next.has(rtId)) next.delete(rtId);
+		else next.add(rtId);
+		collapsedRootTypes = next;
 	}
 
 	function handleSort(key: string) {
@@ -110,7 +109,7 @@
 		columnFilters = next;
 	}
 
-	const filteredItems = $derived(filterItems(items, search, filterCategoryId, columnFilters, allColumns, types));
+	const filteredItems = $derived(filterItems(items, search, filterRootTypeId, columnFilters, allColumns, types));
 	const sortedItems = $derived(sortItems(filteredItems, sortKey, sortDir, types));
 
 	const groupBy = $derived(
@@ -122,10 +121,10 @@
 	const groupedData = $derived.by(() => {
 		if (!groupByKey) return null;
 		const map = new Map<number, { groups: ItemGroup[]; ungrouped: Item[] }>();
-		for (const cat of categories) {
-			const catItems = sortedItems.filter(i => i.category_id === cat.id);
-			if (catItems.length > 0) {
-				map.set(cat.id, groupItems(catItems, groupByKey, allColumns, types));
+		for (const rt of rootTypes) {
+			const rtItems = sortedItems.filter(i => getRootTypeId(i.type_id, types) === rt.id);
+			if (rtItems.length > 0) {
+				map.set(rt.id, groupItems(rtItems, groupByKey, allColumns, types));
 			}
 		}
 		return map;
@@ -173,10 +172,10 @@
 			{@const summaryFields = ruleConfig.summary_fields ?? []}
 			<div class="summary-view">
 				<h2 class="rule-title">{displayRules.find(r => r.id === selectedRuleId)?.name ?? ''}</h2>
-				{#each [...(groupedData?.entries() ?? [])] as [catId, { groups, ungrouped }] (catId)}
-					{@const cat = categories.find(c => c.id === catId)}
+				{#each [...(groupedData?.entries() ?? [])] as [rtId, { groups, ungrouped }] (rtId)}
+					{@const rt = rootTypes.find(r => r.id === rtId)}
 					<div class="summary-category">
-						<h3 class="summary-cat-header">{cat?.icon ?? ''} {cat?.name ?? '未分类'}</h3>
+						<h3 class="summary-cat-header">{rt?.name ?? '其他'}</h3>
 						<div class="summary-grid">
 							{#each groups as group (group.value)}
 								<div class="summary-card card">
@@ -202,11 +201,10 @@
 			<h2 class="rule-title">{displayRules.find(r => r.id === selectedRuleId)?.name ?? ''}</h2>
 			<ItemListTable
 				items={sortedItems}
-				{categories}
 				{types}
 				visibleColumns={visibleKeys.length > 0 ? allColumns.filter(c => visibleKeys.includes(c.key)) : allColumns.filter(c => ['name', 'brand', 'model', 'weight'].includes(c.key))}
 				selectedItemId={null}
-				{collapsedCategories}
+				collapsedRootTypes={collapsedRootTypes}
 				{sortKey}
 				{sortDir}
 				{columnFilters}
@@ -214,7 +212,7 @@
 				{groupedData}
 				selectable={false}
 				onSelect={() => {}}
-				onToggleCategory={toggleCategory}
+				onToggleRootType={toggleRootType}
 				onSort={handleSort}
 				onFilterChange={handleFilterChange}
 			/>

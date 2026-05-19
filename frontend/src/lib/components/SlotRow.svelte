@@ -30,11 +30,6 @@
 		tripItem.candidates.find(c => c.id === tripItem.item_id) ?? null
 	);
 
-	const categoryMismatch = $derived.by(() => {
-		if (!currentItem || !tripItem.slot) return false;
-		return currentItem.category_id !== tripItem.slot.category_id;
-	});
-
 	// Whether all candidates share the same type (single-type slot)
 	const isSingleType = $derived.by(() => {
 		if (tripItem.candidates.length <= 1) return true;
@@ -123,9 +118,6 @@
 				</span>
 			{:else}
 				<span class="no-candidates">暂无匹配物品</span>
-			{/if}
-			{#if categoryMismatch}
-				<span class="mismatch-warn" title="物品分类与槽位分类不一致">⚠️</span>
 			{/if}
 		</div>
 
@@ -309,9 +301,6 @@
 		color: var(--text-secondary);
 		font-style: italic;
 		font-size: 12px;
-	}
-	.mismatch-warn {
-		cursor: help;
 	}
 	.candidate-select {
 		padding: 2px 6px;

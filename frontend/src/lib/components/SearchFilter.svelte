@@ -1,12 +1,12 @@
 <script lang="ts">
-	import type { Category } from '$lib/types';
+	import type { Type } from '$lib/types';
 
-	let { search, categoryId, categories, onSearchChange, onCategoryChange }: {
+	let { search, rootTypeId, rootTypes, onSearchChange, onRootTypeChange }: {
 		search: string;
-		categoryId: number | null;
-		categories: Category[];
+		rootTypeId: number | null;
+		rootTypes: Type[];
 		onSearchChange: (val: string) => void;
-		onCategoryChange: (id: number | null) => void;
+		onRootTypeChange: (id: number | null) => void;
 	} = $props();
 </script>
 
@@ -20,15 +20,15 @@
 	/>
 	<select
 		class="category-select"
-		value={categoryId ?? ''}
+		value={rootTypeId ?? ''}
 		onchange={(e) => {
 			const val = e.currentTarget.value;
-			onCategoryChange(val ? Number(val) : null);
+			onRootTypeChange(val ? Number(val) : null);
 		}}
 	>
-		<option value="">全部分类</option>
-		{#each categories as cat}
-			<option value={cat.id}>{cat.icon} {cat.name}</option>
+		<option value="">全部类型</option>
+		{#each rootTypes as rt}
+			<option value={rt.id}>{rt.name}</option>
 		{/each}
 	</select>
 </div>

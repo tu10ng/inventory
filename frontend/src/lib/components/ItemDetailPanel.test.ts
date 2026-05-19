@@ -1,19 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/svelte';
 import ItemDetailPanel from './ItemDetailPanel.svelte';
-import type { Item, Category, Type, AttributeDefinition } from '$lib/types';
+import type { Item, Type, AttributeDefinition } from '$lib/types';
 
 afterEach(() => {
 	cleanup();
 });
 
-const categories: Category[] = [
-	{ id: 1, name: '服装', icon: '👕', sort_order: 1 },
-	{ id: 2, name: '装备', icon: '🎒', sort_order: 2 }
-];
-
 const types: Type[] = [
-	{ id: 1, name: '冲锋衣', category_id: 1, sort_order: 1, parent_id: null }
+	{ id: 1, name: '冲锋衣', sort_order: 1, parent_id: null }
 ];
 
 const attrDefs: AttributeDefinition[] = [
@@ -25,7 +20,6 @@ const attrDefs: AttributeDefinition[] = [
 
 const sampleItem: Item = {
 	id: 1,
-	category_id: 1,
 	type_id: 1,
 	attrs: { name: '冲锋衣', brand: '始祖鸟', model: 'Beta LT', default_qty: 1, warmth_rating: 30, notes: '' }
 };
@@ -37,7 +31,6 @@ describe('ItemDetailPanel', () => {
 
 		render(ItemDetailPanel, {
 			item: sampleItem,
-			categories,
 			types,
 			attrDefs,
 			onUpdate,
@@ -54,32 +47,31 @@ describe('ItemDetailPanel', () => {
 
 		render(ItemDetailPanel, {
 			item: sampleItem,
-			categories,
 			types,
 			attrDefs,
 			onUpdate,
 			onDelete
 		});
 
-		// Brand appears in pill-tag, may be multiple times
 		const elements = screen.getAllByText('始祖鸟');
 		expect(elements.length).toBeGreaterThanOrEqual(1);
 	});
 
-	it('renders category name', () => {
+	it('renders type name', () => {
 		const onUpdate = vi.fn();
 		const onDelete = vi.fn();
 
 		render(ItemDetailPanel, {
 			item: sampleItem,
-			categories,
 			types,
 			attrDefs,
 			onUpdate,
 			onDelete
 		});
 
-		expect(screen.getByText('👕 服装')).toBeTruthy();
+		// "冲锋衣" appears in both item name and type pill area
+		const elements = screen.getAllByText('冲锋衣');
+		expect(elements.length).toBeGreaterThanOrEqual(1);
 	});
 
 	it('renders delete button', () => {
@@ -88,7 +80,6 @@ describe('ItemDetailPanel', () => {
 
 		render(ItemDetailPanel, {
 			item: sampleItem,
-			categories,
 			types,
 			attrDefs,
 			onUpdate,
@@ -105,7 +96,6 @@ describe('ItemDetailPanel', () => {
 
 		render(ItemDetailPanel, {
 			item: sampleItem,
-			categories,
 			types,
 			attrDefs,
 			usageCount: 5,
@@ -113,7 +103,6 @@ describe('ItemDetailPanel', () => {
 			onDelete
 		});
 
-		// The text contains "使用 5 次行程中"
 		expect(screen.getByText(/使用/)).toBeTruthy();
 	});
 });

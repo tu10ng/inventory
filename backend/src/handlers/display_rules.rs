@@ -9,7 +9,7 @@ pub async fn list(
     State(pool): State<SqlitePool>,
 ) -> Result<Json<Vec<DisplayRule>>, AppError> {
     let rows = sqlx::query_as::<_, DisplayRule>(
-        "SELECT id, name, category_id, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config FROM display_rules ORDER BY sort_order, id",
+        "SELECT id, name, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config FROM display_rules ORDER BY sort_order, id",
     )
     .fetch_all(&pool)
     .await?;
@@ -23,10 +23,9 @@ pub async fn create(
     body.validate()?;
 
     let row = sqlx::query_as::<_, DisplayRule>(
-        "INSERT INTO display_rules (name, category_id, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO display_rules (name, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id, name, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config",
     )
     .bind(&body.name)
-    .bind(body.category_id)
     .bind(&body.group_by_key)
     .bind(&body.sort_by_key)
     .bind(&body.sort_dir)
@@ -44,7 +43,7 @@ pub async fn update(
     Json(body): Json<UpdateDisplayRule>,
 ) -> Result<Json<DisplayRule>, AppError> {
     let existing = sqlx::query_as::<_, DisplayRule>(
-        "SELECT id, name, category_id, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config FROM display_rules WHERE id = ?",
+        "SELECT id, name, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config FROM display_rules WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(&pool)
@@ -52,7 +51,6 @@ pub async fn update(
     .ok_or_else(|| AppError::not_found("展示规则", id))?;
 
     let name = body.name.unwrap_or(existing.name);
-    let category_id = body.category_id.unwrap_or(existing.category_id);
     let group_by_key = body.group_by_key.unwrap_or(existing.group_by_key);
     let sort_by_key = body.sort_by_key.unwrap_or(existing.sort_by_key);
     let sort_dir = body.sort_dir.unwrap_or(existing.sort_dir);
@@ -71,10 +69,9 @@ pub async fn update(
     })?;
 
     let row = sqlx::query_as::<_, DisplayRule>(
-        "UPDATE display_rules SET name = ?, category_id = ?, group_by_key = ?, sort_by_key = ?, sort_dir = ?, visible_columns = ?, sort_order = ?, config = ? WHERE id = ? RETURNING *",
+        "UPDATE display_rules SET name = ?, group_by_key = ?, sort_by_key = ?, sort_dir = ?, visible_columns = ?, sort_order = ?, config = ? WHERE id = ? RETURNING id, name, group_by_key, sort_by_key, sort_dir, visible_columns, sort_order, config",
     )
     .bind(&name)
-    .bind(category_id)
     .bind(&group_by_key)
     .bind(&sort_by_key)
     .bind(&sort_dir)
@@ -122,7 +119,6 @@ mod tests {
 
         let body = CreateDisplayRule {
             name: "服装按部位".to_string(),
-            category_id: Some(1),
             group_by_key: "body_parts".to_string(),
             sort_by_key: "name".to_string(),
             sort_dir: "asc".to_string(),
@@ -133,7 +129,6 @@ mod tests {
 
         let Json(created) = create(State(pool.clone()), Json(body)).await.unwrap();
         assert_eq!(created.name, "服装按部位");
-        assert_eq!(created.category_id, Some(1));
         assert_eq!(created.group_by_key, "body_parts");
         assert_eq!(created.sort_by_key, "name");
 
@@ -148,7 +143,6 @@ mod tests {
 
         let body = CreateDisplayRule {
             name: "  ".to_string(),
-            category_id: None,
             group_by_key: "".to_string(),
             sort_by_key: "".to_string(),
             sort_dir: "asc".to_string(),
@@ -167,7 +161,6 @@ mod tests {
 
         let body = CreateDisplayRule {
             name: "测试".to_string(),
-            category_id: None,
             group_by_key: "".to_string(),
             sort_by_key: "".to_string(),
             sort_dir: "invalid".to_string(),
@@ -186,7 +179,6 @@ mod tests {
 
         let body = CreateDisplayRule {
             name: "测试".to_string(),
-            category_id: None,
             group_by_key: "".to_string(),
             sort_by_key: "".to_string(),
             sort_dir: "asc".to_string(),
@@ -205,7 +197,6 @@ mod tests {
 
         let body = CreateDisplayRule {
             name: "原始规则".to_string(),
-            category_id: Some(1),
             group_by_key: "body_parts".to_string(),
             sort_by_key: "name".to_string(),
             sort_dir: "asc".to_string(),
@@ -220,7 +211,6 @@ mod tests {
             axum::extract::Path(created.id),
             Json(UpdateDisplayRule {
                 name: None,
-                category_id: None,
                 group_by_key: None,
                 sort_by_key: None,
                 sort_dir: Some("desc".to_string()),
@@ -239,12 +229,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_set_category_to_null() {
+    async fn update_set_sort_dir() {
         let pool = crate::db::init_test_pool().await;
 
         let body = CreateDisplayRule {
             name: "测试规则".to_string(),
-            category_id: Some(1),
             group_by_key: "".to_string(),
             sort_by_key: "".to_string(),
             sort_dir: "asc".to_string(),
@@ -253,17 +242,16 @@ mod tests {
             config: "{}".to_string(),
         };
         let Json(created) = create(State(pool.clone()), Json(body)).await.unwrap();
-        assert_eq!(created.category_id, Some(1));
+        assert_eq!(created.sort_dir, "asc");
 
         let Json(updated) = update(
             State(pool.clone()),
             axum::extract::Path(created.id),
             Json(UpdateDisplayRule {
                 name: None,
-                category_id: Some(None),
                 group_by_key: None,
                 sort_by_key: None,
-                sort_dir: None,
+                sort_dir: Some("desc".to_string()),
                 visible_columns: None,
                 sort_order: None,
                 config: None,
@@ -272,7 +260,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(updated.category_id, None);
+        assert_eq!(updated.sort_dir, "desc");
     }
 
     #[tokio::test]
@@ -281,7 +269,6 @@ mod tests {
 
         let body = CreateDisplayRule {
             name: "待删除".to_string(),
-            category_id: None,
             group_by_key: "".to_string(),
             sort_by_key: "".to_string(),
             sort_dir: "asc".to_string(),
