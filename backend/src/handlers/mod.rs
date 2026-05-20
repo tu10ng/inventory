@@ -38,6 +38,7 @@ pub fn router() -> Router<SqlitePool> {
         .route("/api/item-stats", get(items::usage_stats))
         .route("/api/item-stats/{id}", get(items::usage_detail))
         .route("/api/ai/ocr", post(ocr::ocr_images))
+        .route("/api/ai/ocr-vision", post(ocr::ocr_vision))
         .route("/api/ai/parse-items", post(ai::parse_items))
         .route("/api/ai/parse-items-stream", post(ai::parse_items_stream))
         .route("/api/ai/organize-preview", post(ai::organize_preview))

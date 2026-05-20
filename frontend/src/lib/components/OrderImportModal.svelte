@@ -9,7 +9,7 @@
 		onOpenAiModal?: (text: string) => void;
 	} = $props();
 
-	type Stage = 'upload' | 'loading' | 'ocr-result' | 'ai-loading';
+	type Stage = 'upload' | 'loading' | 'loading-vision' | 'ocr-result' | 'ai-loading';
 	let stage = $state<Stage>('upload');
 	let ocrText = $state('');
 	let errorMsg = $state('');
@@ -124,6 +124,59 @@
 		}
 	}
 
+	async function handleVisionRecognize() {
+		if (files.length === 0) return;
+		stage = 'loading-vision';
+		errorMsg = '';
+		progress = { current: 0, total: 1 };
+
+		try {
+			const formData = new FormData();
+			for (const f of files) {
+				formData.append('images[]', f.file, f.name);
+			}
+
+			// Progress animation (vision models are slower, ~30-120s)
+			const timer = setInterval(() => {
+				progress = {
+					current: Math.min(progress.current + 1, 120),
+					total: 120
+				};
+			}, 1000);
+
+			const BASE = '/api';
+			const res = await fetch(`${BASE}/ai/ocr-vision`, {
+				method: 'POST',
+				body: formData
+			});
+
+			clearInterval(timer);
+
+			if (!res.ok) {
+				let message: string;
+				try {
+					const body = await res.json();
+					message = body.error || `${res.status}: ${JSON.stringify(body)}`;
+				} catch {
+					message = `请求失败 (${res.status})`;
+				}
+				throw new Error(message);
+			}
+
+			const data = await res.json();
+			ocrText = data.ocr_text;
+			stage = 'ocr-result';
+		} catch (e) {
+			const msg = (e as Error).message;
+			if (msg.includes('write EPIPE') || msg.includes('Failed to fetch') || msg.includes('413')) {
+				errorMsg = '图片太大，服务器拒绝接收。请压缩图片或分批上传。';
+			} else {
+				errorMsg = msg;
+			}
+			stage = 'upload';
+		}
+	}
+
 	function handleAiParse() {
 		if (onOpenAiModal && ocrText.trim()) {
 			onOpenAiModal(ocrText.trim());
@@ -143,6 +196,7 @@
 		stage = 'upload';
 		errorMsg = '';
 		ocrText = '';
+		progress = { current: 0, total: 0 };
 	}
 </script>
 
@@ -159,7 +213,7 @@
 
 		{#if stage === 'upload'}
 			<div class="modal-body">
-				<p class="hint">上传订单截图（支持多张，长订单可分屏截图后一起上传，单张最大 50MB）</p>
+				<p class="hint">上传订单截图或商品图片（支持多张）。清晰文字用 OCR 识别，实物照片用 AI 视觉识别效果更好</p>
 
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
@@ -200,6 +254,9 @@
 			</div>
 			<div class="modal-footer">
 				<button onclick={onClose}>取消</button>
+				<button class="secondary" onclick={handleVisionRecognize} disabled={files.length === 0}>
+					AI 视觉识别
+				</button>
 				<button class="primary" onclick={handleOcr} disabled={files.length === 0}>
 					OCR 识别
 				</button>
@@ -210,6 +267,14 @@
 				<div class="spinner"></div>
 				<p>正在 OCR 识别 {progress.current}/{progress.total}...</p>
 				<p class="hint">正在调用 Tesseract 识别图片中的文字</p>
+			</div>
+
+		{:else if stage === 'loading-vision'}
+			<div class="modal-body loading-body">
+				<div class="spinner"></div>
+				<p>正在进行 AI 视觉识别...</p>
+				<p class="hint">已发送图片到多模态 AI 模型进行识别</p>
+				<p class="hint-small">视觉模型处理较慢，通常需要 30-120 秒，请耐心等待</p>
 			</div>
 
 		{:else if stage === 'ocr-result'}
@@ -482,6 +547,14 @@
 	.wide {
 		width: 100%;
 		margin-bottom: 4px;
+	}
+	button.secondary {
+		background: var(--bg);
+		border-color: var(--primary);
+		color: var(--primary);
+	}
+	button.secondary:hover {
+		background: color-mix(in srgb, var(--primary), transparent 92%);
 	}
 
 	@media (max-width: 768px) {

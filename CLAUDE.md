@@ -587,3 +587,52 @@ OCR:    上传图片 → OCR 文本 ───→ AiAddModal → 确认 → 逐�
 5. **数据映射顺序至关重要**：`migrate_remove_categories()` 中，必须先 remap `parent_id` 和 `category_scope`（此时 types 表中 category_id 仍保留旧值），再 zero 掉 category_id。如果顺序反了，映射信息就丢失了。教训：**涉及数据映射的 migration，必须明确区分"捕获阶段"和"修改阶段"，确保映射所需的旧值在修改前已读取**。
 
 6. **🚨 生产数据丢失事故**：为了测试 clean migration，执行了 `rm -f inventory.db*` 删除了用户的真实数据库。数据库包含用户手动添加的全部物品，没有任何备份。教训：**CLAUDE.md 虽然写了"不要删除数据库"，但措辞不够强硬。实际操作中，为了验证 migration，"删除 DB → 重启 → 检查" 是常见的测试冲动。必须用以下方式替代：（1）`cargo test` 验证——测试在 `sqlite::memory:` 上运行所有 migration，完全验证逻辑正确性；（2）`dev.sh` 启动后检查——先确认能正常启动，再用浏览器查看数据完整性。永远不要对 `inventory.db` 执行 `rm`。**
+
+## 2026-05-19 OCR 导入增加 AI 多模态视觉识别复盘
+
+### 实施内容
+
+后端新增 `POST /api/ai/ocr-vision` 端点 + 前端 OrderImportModal 增加"AI 视觉识别"按钮。
+
+### 反思
+
+1. **Rust `\` 字符串续行与中文引号 `"` 的冲突**：`user_prompt` 使用 `"\` 续行模式包含中文文本 `"【官方正品】""限时特价"`，Rust lexer 将首个 `"` 解释为关闭字符串的引号，导致后面的 `【` 被当作 Rust token 报错。教训：**在 Rust 续行字符串中不能出现半角 `"`（即使在中文语境中表示引用）。替代方案：（1）使用 `concat!()` 宏逐行拼接，每行是独立字符串字面量；（2）将中文引号改用全角「」替代半角 ""**。
+
+## 2026-05-20 修复 AI 智能添加 SSE 流式输出卡住不结束
+
+### Bug 现象
+
+AI 智能添加时，流式输出中的思考内容和 result 结果已经返回完了，但前端仍显示"AI 正在分析"，不切换到预览界面。
+
+### 根因分析
+
+**Bug A（主要原因）— `client.ts` SSE 读取循环的缓冲区竞态**：
+
+```typescript
+// 旧代码
+while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;  // ← 直接跳出，不处理 value！
+    buffer += decoder.decode(value, { stream: true });
+    // ...
+}
+```
+
+当 TCP 层将最后的 `data: {"type":"result",...}\n` 和流结束信号（FIN）合并在同一数据包时，`reader.read()` 返回 `{ done: true, value: Uint8Array }`。代码在解码 `value` 之前就 `break` 了，`onResult` 永远不会触发，UI 永远卡在 `loading` 状态。
+
+**Bug B（次要因素）— `KeepAlive::default()` 延长等待**：`drop(tx)` 后 stream 结束，但 KeepAlive 定时器让连接额外存活，拉长了卡住时间。
+
+### 修复
+
+1. **`client.ts`**：改为先处理 `value` 中的数据，再判断 `done`；`done` 时 flush buffer 中剩余内容
+2. **`ai.rs`**：移除 `Sse::new(stream).keep_alive(KeepAlive::default())` → `Sse::new(stream)`
+3. **流式 prompt 简化**：思考要求 2-5 → 1-3 句话，JSON 格式移除 `new_attrs` 字段（减少 AI 输出复杂度）
+4. **后端自动提取 attrs**：新增 `extract_new_attr_defs_from_items()` 函数，从解析出的 item attrs 中自动检测未知 key 并创建属性定义，不再依赖 AI 输出 `new_attrs`
+
+### 反思
+
+1. **`done` 和 `value` 可能同时有值**：`ReadableStream.read()` 的 `{ done, value }` 不是互斥的——TCP 层的 FIN 可以与最后一个数据段合并在同一帧中。先判 `done` 后处理 `value` 会导致最后一帧数据被丢弃。教训：**读取流的 while 循环中，必须先处理 `value`（如果存在），再判断 `done` 是否退出。这个顺序对 ReadableStream、TCP socket、文件 I/O 等所有流式 API 都适用**。
+
+2. **KeepAlive 与 SSE 的语义冲突**：KeepAlive 用于保持长连接（如心跳、等待新事件），但 `parse_items_stream` 的通道在 `drop(tx)` 后明确结束——所有数据已发送完毕，不需要保持连接。KeepAlive 在此场景下只会延迟客户端感知流结束。教训：**KeepAlive 适合"持续推送"的场景（如实时通知），不适合"一次性流式响应"的场景。要根据业务语义选择是否使用**。
+
+3. **Prompt 复杂度直接影响流式解析成功率**：`new_attrs` 要求 AI 在流式模式下同时输出 items 和新属性定义，增加了 JSON 结构的复杂度，也增加了 `---JSON---` 分隔符后被截断的风险。移除 `new_attrs` 后 JSON 更简单，解析失败率降低。属性定义的创建交给后端代码兜底（从 attrs 自动提取），比依赖 AI 更可靠。教训：**AI 的输出格式应尽量简单，复杂的推导逻辑应放在代码中而非 prompt 中。代码兜底 > AI 承诺**。

@@ -1,5 +1,5 @@
 use axum::extract::State;
-use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::response::sse::{Event, Sse};
 use axum::Json;
 use sqlx::SqlitePool;
 use std::convert::Infallible;
@@ -45,6 +45,114 @@ struct ChatChoice {
 #[derive(serde::Deserialize)]
 struct ChatMessageOut {
     content: Option<String>,
+}
+
+// ── Vision (multimodal) API ──
+
+/// Vision API format adapter — each provider has a different message layout.
+enum VisionProvider {
+    /// Moonshot/Kimi: system 消息 content 是纯字符串，user content 顺序 image_url 在前
+    Kimi,
+    /// OpenAI 及兼容厂商: system 消息 content 是纯字符串，user content 顺序 text 在前
+    OpenAI,
+}
+
+impl VisionProvider {
+    fn from_provider_name(name: &str) -> Self {
+        match name.to_lowercase().as_str() {
+            "kimi" | "moonshot" => Self::Kimi,
+            _ => Self::OpenAI,
+        }
+    }
+
+    /// 构造 vision API 请求体 JSON，适配不同厂商的消息 layout
+    fn build_request_body(
+        &self,
+        model: &str,
+        system_prompt: &str,
+        user_text: &str,
+        images: &[(String, String)], // (mime_type, base64_data)
+    ) -> serde_json::Value {
+        let mut user_content: Vec<serde_json::Value> = Vec::new();
+
+        match self {
+            Self::Kimi => {
+                // Kimi: image_url 在 text 之前
+                for (mime, b64) in images {
+                    user_content.push(serde_json::json!({
+                        "type": "image_url",
+                        "image_url": {"url": format!("data:{};base64,{}", mime, b64)}
+                    }));
+                }
+                user_content.push(serde_json::json!({"type": "text", "text": user_text}));
+            }
+            Self::OpenAI => {
+                // OpenAI: text 在最前，然后是 image_url
+                user_content.push(serde_json::json!({"type": "text", "text": user_text}));
+                for (mime, b64) in images {
+                    user_content.push(serde_json::json!({
+                        "type": "image_url",
+                        "image_url": {"url": format!("data:{};base64,{}", mime, b64)}
+                    }));
+                }
+            }
+        }
+
+        serde_json::json!({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ]
+        })
+    }
+}
+
+/// Call a multimodal/vision LLM with base64-encoded images.
+/// Returns the LLM's text response.
+pub(crate) async fn call_llm_vision(
+    config: &LlmConfig,
+    system_prompt: &str,
+    user_text_prompt: &str,
+    images: &[(String, String)], // (mime_type, base64_data)
+) -> Result<String, AppError> {
+    let provider = VisionProvider::from_provider_name(&config.provider_name);
+    let body = provider.build_request_body(&config.model, system_prompt, user_text_prompt, images);
+
+    let client = reqwest::Client::new();
+    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
+
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", config.api_key))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(180))
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("无法连接到 {} ({}): {}", config.provider_name, url, e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("{} Vision API 返回 {}: {}", config.provider_name, status, text).into());
+    }
+
+    let chat_resp: ChatResponse = resp.json().await
+        .map_err(|e| anyhow::anyhow!("解析 {} Vision API 响应失败: {}", config.provider_name, e))?;
+
+    let content = chat_resp.choices.first()
+        .and_then(|c| c.message.content.as_ref())
+        .ok_or_else(|| anyhow::anyhow!("{} Vision API 返回空响应", config.provider_name))?;
+
+    tracing::info!(
+        "[LLM Vision] {} 模型={} 响应({} 字符): {}",
+        config.provider_name,
+        config.model,
+        content.chars().count(),
+        &content[..content.len().min(500)]
+    );
+
+    Ok(content.clone())
 }
 
 // ── Shared helpers ──
@@ -168,6 +276,14 @@ async fn call_llm(
         .first()
         .and_then(|c| c.message.content.as_ref())
         .ok_or_else(|| anyhow::anyhow!("AI returned empty response"))?;
+
+    tracing::info!(
+        "[LLM] {} 模型={} 响应({} 字符): {}",
+        config.provider_name,
+        config.model,
+        content.chars().count(),
+        &content[..content.len().min(500)]
+    );
 
     Ok(content.clone())
 }
@@ -898,7 +1014,7 @@ fn build_streaming_system_prompt(
     attr_defs: &[AttributeDefinition],
 ) -> String {
     let mut base = build_system_prompt(types, attr_defs);
-    base.push_str("\n\n## 输出格式要求\n请先简要说明你的解析思路和判断依据（2-5句话），然后单独一行输出 `---JSON---`，之后输出纯 JSON 对象（不要用 markdown 代码块包裹）。\n\nJSON 格式：{\"items\": [...], \"new_attrs\": [...]}\n- items: 解析出的物品列表\n- new_attrs: 如果需要新建属性定义，列出新建的属性（key/label/attr_type/config），已有属性不要重复");
+    base.push_str("\n\n## 输出格式要求\n请先简要说明你的解析思路和判断依据（1-3句话），然后单独一行输出 `---JSON---`，之后输出纯 JSON 对象（不要用 markdown 代码块包裹）。\n\nJSON 格式：{\"items\": [...]}\n- items: 解析出的物品列表，每个物品包含 type_name 和 attrs\n- 只需要输出 items 数组，不需要输出 new_attrs 字段");
     base
 }
 
@@ -946,6 +1062,9 @@ pub(crate) async fn call_llm_stream(
         return Err(AppError::Internal(anyhow::anyhow!("{}", msg)));
     }
 
+    let provider_name = config.provider_name.clone();
+    let model = config.model.clone();
+
     let mut full_text = String::new();
     let mut buffer = String::new();
     let mut combined_stream = resp.bytes_stream();
@@ -991,12 +1110,20 @@ pub(crate) async fn call_llm_stream(
         }
     }
 
+    tracing::info!(
+        "[LLM Stream] {} 模型={} 响应({} 字符): {}",
+        provider_name,
+        model,
+        full_text.chars().count(),
+        &full_text[..full_text.len().min(500)]
+    );
+
     Ok(full_text)
 }
 
 /// Load the active LLM config for a given task from DB.
 /// Falls back to environment variables if no DB config exists.
-async fn load_llm_config(pool: &SqlitePool, task: &str) -> Result<LlmConfig, AppError> {
+pub(crate) async fn load_llm_config(pool: &SqlitePool, task: &str) -> Result<LlmConfig, AppError> {
     // Try DB first
     if let Some(cfg) = llm_configs::get_active(pool, task).await {
         if !cfg.api_key.is_empty() {
@@ -1162,6 +1289,52 @@ fn extract_new_attr_defs_from_text(full_text: &str) -> Vec<AttributeDefinition> 
     result
 }
 
+/// Auto-detect custom attribute keys from parsed item attrs that don't exist
+/// in the known attribute_definitions, and generate new AttributeDefinition entries.
+fn extract_new_attr_defs_from_items(
+    items: &[AiParsedItem],
+    existing_attr_defs: &[AttributeDefinition],
+) -> Vec<AttributeDefinition> {
+    let existing_keys: std::collections::HashSet<&str> =
+        existing_attr_defs.iter().map(|a| a.key.as_str()).collect();
+    let basic_keys: std::collections::HashSet<&str> =
+        ["name", "brand", "model", "notes", "default_qty"]
+            .iter()
+            .copied()
+            .collect();
+
+    let mut seen = std::collections::HashSet::new();
+    let mut result = Vec::new();
+
+    for item in items {
+        if let Some(obj) = item.attrs.as_object() {
+            for key in obj.keys() {
+                if basic_keys.contains(key.as_str()) || existing_keys.contains(key.as_str()) {
+                    continue;
+                }
+                if seen.insert(key.clone()) {
+                    result.push(AttributeDefinition {
+                        id: 0,
+                        key: key.clone(),
+                        label: key.replace('_', " "),
+                        attr_type: "text".to_string(),
+                        config: "{}".to_string(),
+                        category_scope: String::new(),
+                        type_scope: String::new(),
+                        sort_order: 0,
+                        is_identity: false,
+                        is_required: false,
+                        default_value: String::new(),
+                        search_weight: 0,
+                    });
+                }
+            }
+        }
+    }
+
+    result
+}
+
 // ── Streaming Parse Items Handler ──
 
 pub async fn parse_items_stream(
@@ -1253,8 +1426,15 @@ pub async fn parse_items_stream(
             }
         };
 
-        // Extract new attribute definitions from AI response
-        let new_attr_defs = extract_new_attr_defs_from_text(&full_text);
+        // Extract new attribute definitions from AI response + auto-detect from item attrs
+        let mut new_attr_defs = extract_new_attr_defs_from_text(&full_text);
+        let auto_attrs = extract_new_attr_defs_from_items(&items, &attr_defs);
+        // Merge: add auto-detected attrs that aren't already in the AI-provided list
+        for aa in auto_attrs {
+            if !new_attr_defs.iter().any(|a| a.key == aa.key) {
+                new_attr_defs.push(aa);
+            }
+        }
 
         // Insert or ignore new attr defs into DB
         let mut saved_attr_defs: Vec<AttributeDefinition> = Vec::new();
@@ -1303,7 +1483,7 @@ pub async fn parse_items_stream(
         Ok(Event::default().data(data))
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(stream)
 }
 
 #[cfg(test)]

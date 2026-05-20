@@ -14,7 +14,9 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 anyhow = "1"
 reqwest = { version = "0.12", features = ["json", "stream"] }
+base64 = "0.22"
 calamine = "0.26"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 tokio-stream = "0.1"
 futures-core = "0.3"
 

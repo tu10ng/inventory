@@ -24,6 +24,7 @@ async fn run_all_setup(pool: &SqlitePool) {
     // rebuilds items/types/activity_slots/display_rules tables without FK
     // to categories, and drops the categories table.
     migrate_remove_categories(pool).await;
+    add_types_name_unique(pool).await;
     rebuild_trip_items_fk(pool).await;
     rebuild_trips_table(pool).await;
     migrate_attrs(pool).await;
@@ -535,7 +536,7 @@ async fn migrate_remove_categories(pool: &SqlitePool) {
     sqlx::query(
         "CREATE TABLE types_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
+            name TEXT NOT NULL UNIQUE,
             category_id INTEGER NOT NULL DEFAULT 0,
             sort_order INTEGER NOT NULL DEFAULT 0,
             parent_id INTEGER REFERENCES types(id)
@@ -762,5 +763,15 @@ async fn migrate_remove_categories(pool: &SqlitePool) {
     }
 
     tracing::info!("migrate_remove_categories complete: tables rebuilt without categories FK");
+}
+
+/// Ensure UNIQUE index on types.name — needed because migrate_remove_categories()
+/// rebuilds the types table and may lose the UNIQUE constraint from the original schema.
+/// Idempotent via IF NOT EXISTS.
+async fn add_types_name_unique(pool: &SqlitePool) {
+    sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS idx_types_name_unique ON types(name)")
+        .execute(pool)
+        .await
+        .ok();
 }
 

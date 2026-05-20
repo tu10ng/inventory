@@ -69,42 +69,71 @@ export function aiPostStream(
 
 			while (true) {
 				const { done, value } = await reader.read();
-				if (done) break;
 
-				buffer += decoder.decode(value, { stream: true });
+				// Process value BEFORE checking done — when TCP merges the final
+				// data packet with the FIN signal, value may contain the last
+				// SSE event (e.g. "result") that would otherwise be dropped.
+				if (value) {
+					buffer += decoder.decode(value, { stream: true });
 
-				// Process complete SSE lines
-				const lines = buffer.split('\n');
-				buffer = lines.pop() || '';
+					const lines = buffer.split('\n');
+					buffer = lines.pop() || '';
 
-				for (const line of lines) {
-					const trimmed = line.trim();
-					if (!trimmed || trimmed.startsWith(':')) continue;
+					for (const line of lines) {
+						const trimmed = line.trim();
+						if (!trimmed || trimmed.startsWith(':')) continue;
 
-					if (trimmed.startsWith('data: ')) {
-						const data = trimmed.slice(6);
-						if (data === '[DONE]') continue;
+						if (trimmed.startsWith('data: ')) {
+							const data = trimmed.slice(6);
+							if (data === '[DONE]') continue;
 
-						try {
-							const event = JSON.parse(data);
-							switch (event.type) {
-								case 'thinking':
-									callbacks.onThinking(event.content);
-									break;
-								case 'progress':
-									callbacks.onProgress(event.message);
-									break;
-								case 'result':
-									callbacks.onResult(event);
-									break;
-								case 'error':
-									callbacks.onError(event.message);
-									break;
+							try {
+								const event = JSON.parse(data);
+								switch (event.type) {
+									case 'thinking':
+										callbacks.onThinking(event.content);
+										break;
+									case 'progress':
+										callbacks.onProgress(event.message);
+										break;
+									case 'result':
+										callbacks.onResult(event);
+										break;
+									case 'error':
+										callbacks.onError(event.message);
+										break;
+								}
+							} catch {
+								// Skip unparseable events
 							}
-						} catch {
-							// Skip unparseable events
 						}
 					}
+				}
+
+				if (done) {
+					// Flush remaining buffer content (incomplete final line)
+					if (buffer.trim()) {
+						const trimmed = buffer.trim();
+						if (trimmed.startsWith('data: ')) {
+							const data = trimmed.slice(6);
+							if (data !== '[DONE]') {
+								try {
+									const event = JSON.parse(data);
+									switch (event.type) {
+										case 'result':
+											callbacks.onResult(event);
+											break;
+										case 'error':
+											callbacks.onError(event.message);
+											break;
+									}
+								} catch {
+									// Skip unparseable
+								}
+							}
+						}
+					}
+					break;
 				}
 			}
 		})
